@@ -48,6 +48,7 @@ private class FakeReplayRuntime(private val now: () -> Long) : RacePreviewRuntim
     val controls = mutableListOf<Pair<ReplayControl, String>>()
     val seeks = mutableListOf<Pair<String, Double>>()
     val marks = mutableListOf<Pair<String, String>>()
+    val runners = mutableListOf<String>()
     /** Answers for a create, by kind; the default is a replay. */
     var readFails: RuntimeResult.Failure? = null
     var savedFails: RuntimeResult.Failure? = null
@@ -142,6 +143,25 @@ private class FakeReplayRuntime(private val now: () -> Long) : RacePreviewRuntim
         return markAnswer
     }
 
+    /**
+     * `demoRaceRunner`: the dot's place stands in for the wall time played, so it moves while the
+     * clock runs and holds while it is paused, as `DemoRacePlayer.runnerPosition` does.
+     */
+    override fun runner(baseUrl: String): RuntimeResult {
+        runners += baseUrl
+        val player = players[baseUrl]?.takeIf { !it.finished }
+            ?: return RuntimeResult.Failure("The race-day replay has ended.", offline = false)
+        val seconds = player.elapsed()
+        return RuntimeResult.Success(
+            JSONObject()
+                .put("latitude", 39.0 + seconds / 1000)
+                .put("longitude", -120.0)
+                .put("lineMeters", seconds * 10)
+                .put("recordedAt", java.time.Instant.ofEpochMilli(RACE_START_MS + (seconds * 60_000).toLong()).toString())
+                .put("fromRecordedAt", java.time.Instant.ofEpochMilli(RACE_START_MS + (floor(seconds) * 60_000).toLong()).toString())
+        )
+    }
+
     private fun snapshot(player: Player, changed: Boolean): JSONObject {
         val seconds = player.step * STEP
         val beat = when {
@@ -158,6 +178,8 @@ private class FakeReplayRuntime(private val now: () -> Long) : RacePreviewRuntim
             .put("beatLabel", "$number of 4")
             .put("caption", "caption $beat")
             .put("stepIndex", player.step)
+            // A ping every other step: the path chip's count, not the points between them.
+            .put("pathPings", player.step / 2 + 1)
             .put("playing", !player.finished && player.since != null)
             .put("finished", player.finished)
             .put("skipped", false)
@@ -166,6 +188,7 @@ private class FakeReplayRuntime(private val now: () -> Long) : RacePreviewRuntim
 
     companion object {
         const val PLAN_FINISH = "2026-08-15T20:15:00.000Z"
+        const val RACE_START_MS = 1_786_795_200_000L
         const val DURATION = 25.0
         const val STEP = 0.5
         const val STEPS = 50
@@ -392,6 +415,58 @@ class RacePreviewViewModelTest {
         assertTrue(model.playing)
         advanceTimeBy(6_500)
         assertEquals(ReplayBeats.FALLING_BEHIND, model.beat)
+    }
+
+    @Test
+    fun theDotIsClientCoresRunnerGlidingWhilePlayingAndHeldWhilePaused() = replayTest {
+        val model = playing(model())
+        assertNull(model.glide)
+        advanceTimeBy(2_250)
+        model.sampleRunner()
+        val first = assertNotNullAnd(model.glide)
+        advanceTimeBy(250)
+        model.sampleRunner()
+        val later = assertNotNullAnd(model.glide)
+        // Between two pings the dot moved on: it glides, it doesn't wait for the next ping.
+        assertTrue(later.latitude > first.latitude)
+        assertTrue(later.atMillis > first.atMillis)
+        model.togglePlay()
+        runCurrent()
+        model.sampleRunner()
+        val held = model.glide
+        advanceTimeBy(3_000)
+        model.sampleRunner()
+        assertEquals(held, model.glide)
+        val replay = assertNotNullAnd(model.replay)
+        assertTrue(runtime.runners.all { it == replay.baseUrl })
+    }
+
+    @Test
+    fun theDotGoesWithItsReplay() = replayTest {
+        val model = playing(model())
+        advanceTimeBy(1_100)
+        model.sampleRunner()
+        assertNotNull(model.glide)
+        model.skip()
+        runCurrent()
+        assertNull(model.glide)
+        val asked = runtime.runners.size
+        model.sampleRunner()
+        assertEquals(asked, runtime.runners.size)
+        assertNull(model.glide)
+    }
+
+    @Test
+    fun thePathChipCountsClientCoresPingsNotThePointsBetween() = replayTest {
+        val model = playing(model())
+        assertEquals(1, model.pathPings)
+        advanceTimeBy(10_100)
+        assertEquals(20, model.stepIndex)
+        assertEquals(11, model.pathPings)
+        model.skip()
+        model.replayFromStart()
+        runCurrent()
+        assertEquals(1, model.pathPings)
     }
 
     @Test
@@ -783,9 +858,12 @@ class RacePreviewViewModelTest {
     @Test
     fun aSnapshotReadsTheRuntimesShape() {
         val snapshot = ReplaySnapshot.from(
-            JSONObject("""{"progress":0.48,"beat":"fallingBehind","beatNumber":2,"beatLabel":"2 of 4","caption":"c","stepIndex":24,"playing":true,"finished":false,"changed":true}""")
+            JSONObject("""{"progress":0.48,"beat":"fallingBehind","beatNumber":2,"beatLabel":"2 of 4","caption":"c","stepIndex":24,"playing":true,"finished":false,"changed":true,"pathPings":13}""")
         )
-        assertEquals(ReplaySnapshot(0.48, ReplayBeats.FALLING_BEHIND, "2 of 4", "c", 24, playing = true, finished = false, changed = true), snapshot)
+        assertEquals(
+            ReplaySnapshot(0.48, ReplayBeats.FALLING_BEHIND, "2 of 4", "c", 24, playing = true, finished = false, changed = true, pathPings = 13),
+            snapshot
+        )
         assertNull(ReplaySnapshot.from(JSONObject("{}")))
         assertNull(ReplaySnapshot.from(null))
         assertNull(RacePreviewReplay.from(JSONObject("""{"durationSeconds":25}""")))

@@ -12,6 +12,7 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewModelScope
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.optText
+import com.crewcue.android.ui.map.RunnerGlideFrame
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -148,7 +149,9 @@ data class ReplaySnapshot(
     val stepIndex: Int,
     val playing: Boolean,
     val finished: Boolean,
-    val changed: Boolean
+    val changed: Boolean,
+    /** The pings in the path served at this step: the path chip counts these, not the points between them. */
+    val pathPings: Int = 0
 ) {
     companion object {
         fun from(json: JSONObject?): ReplaySnapshot? {
@@ -162,7 +165,8 @@ data class ReplaySnapshot(
                 stepIndex = json.optInt("stepIndex", 0),
                 playing = json.optBoolean("playing"),
                 finished = json.optBoolean("finished"),
-                changed = json.optBoolean("changed")
+                changed = json.optBoolean("changed"),
+                pathPings = json.optInt("pathPings", 0)
             )
         }
     }
@@ -285,6 +289,20 @@ class RacePreviewViewModel(
         private set
     /** The step on screen: each new one reads the runner again (the Map model's refresh). */
     var stepIndex by mutableIntStateOf(0)
+        private set
+    /**
+     * The runner's pings in the path the replay serves (client-core's count): the Map's path chip
+     * shows these, as on a race, not the points the replay adds along the course between pings.
+     */
+    var pathPings by mutableIntStateOf(0)
+        private set
+    /**
+     * The runner's dot as client-core last placed it ([sampleRunner]): on the course line, gliding
+     * between pings while the replay plays, held while it is paused. Its moment is the replay's
+     * clock, which lives in the runtime this model holds, so a fold or a resize picks the glide up
+     * where it was. Null before the first sample, and once the replay ends.
+     */
+    var glide by mutableStateOf<RunnerGlideFrame?>(null)
         private set
     /** Not now or a purchase is marking the step. */
     var finishing by mutableStateOf(false)
@@ -411,6 +429,21 @@ class RacePreviewViewModel(
         SAVED_KEYS.forEach { savedState.remove<Any>(it) }
     }
 
+    /**
+     * Asks client-core where the runner's dot is now (`demoRaceRunner`). The Map calls it on every
+     * frame while the replay plays and the Map is on screen, and once otherwise, so a pause holds the
+     * dot where the clock stopped. The answer for a replay that is gone by then is dropped.
+     */
+    suspend fun sampleRunner() {
+        val current = replay ?: return
+        if (status != RacePreviewStatus.Playing) return
+        val result = withContext(io) { runtime.runner(current.baseUrl) }
+        if (replay !== current) return
+        // A failed read (the replay just ended) keeps the dot where it was.
+        val answer = (result as? RuntimeResult.Success)?.result ?: return
+        glide = RunnerGlideFrame.from(answer)
+    }
+
     // MARK: Replay
 
     private fun devStart(): RacePreviewDevStart? = (source as? RacePreviewSource.Fixture)?.start
@@ -426,6 +459,8 @@ class RacePreviewViewModel(
         beatLabel = ""
         caption = ""
         stepIndex = 0
+        pathPings = 0
+        glide = null
         // A restored replay keeps its beat and view until the runtime reaches the same moment.
         if (!restoring) {
             beat = ReplayBeats.FOLLOWING
@@ -570,6 +605,7 @@ class RacePreviewViewModel(
         progress = snapshot.progress
         playing = snapshot.playing
         stepIndex = snapshot.stepIndex
+        pathPings = snapshot.pathPings
         beatLabel = snapshot.beatLabel
         caption = snapshot.caption
         if (snapshot.beat != beat) {
@@ -630,6 +666,7 @@ class RacePreviewViewModel(
         val ended = replay
         replay = null
         playing = false
+        glide = null
         ended?.let(::end)
     }
 
@@ -651,6 +688,7 @@ class RacePreviewViewModel(
         pausedByUser = false
         fromSavedRace = false
         stepIndex = 0
+        pathPings = 0
         roomBody = null
         roomFinish = null
         persist(seconds = 0.0)
