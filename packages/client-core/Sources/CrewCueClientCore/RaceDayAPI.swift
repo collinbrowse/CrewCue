@@ -105,31 +105,6 @@ public struct EstimateCache {
     }
 }
 
-public struct CourseSettingsDraft: Codable, Equatable, Sendable {
-    public var cutoffNote: String
-    public var stoppageSeconds: Double
-
-    public init(cutoffNote: String, stoppageSeconds: Double) {
-        self.cutoffNote = cutoffNote
-        self.stoppageSeconds = stoppageSeconds
-    }
-
-    public static func file(directory: URL) -> URL {
-        directory.appendingPathComponent("course-settings.json")
-    }
-
-    public static func save(_ draft: CourseSettingsDraft, directory: URL) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try JSONEncoder().encode(draft).write(to: file(directory: directory), options: .atomic)
-    }
-
-    public static func load(directory: URL) throws -> CourseSettingsDraft? {
-        let url = file(directory: directory)
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return try JSONDecoder().decode(CourseSettingsDraft.self, from: Data(contentsOf: url))
-    }
-}
-
 public enum RaceDayAPI {
     public static func previewJoin(graph: ClientGraph, code: String) async throws -> RaceRoomJoinPreview {
         let envelope: JoinPreviewEnvelope = try await get(graph, "/race-rooms/join-preview/\(code)", token: false)
@@ -315,33 +290,6 @@ public enum RaceDayAPI {
         let decoder = JSONDecoder()
         let core = try decoder.decode(RaceRoomProjectionCore.self, from: data)
         return LiveProjection(core: core, timeliness: try? decoder.decode(ProjectionTimeliness.self, from: data))
-    }
-
-    /// Local draft fields read from a room payload. Does not call stop-plan APIs.
-    public static func courseDraftSeed(graph: ClientGraph, roomId: String) async throws -> CourseSettingsDraft {
-        let data = try await sendData(graph, "/race-rooms/\(roomId)", method: .get, body: nil)
-        return courseDraft(fromRoomData: data)
-    }
-
-    static func courseDraft(fromRoomData data: Data) -> CourseSettingsDraft {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return CourseSettingsDraft(cutoffNote: "", stoppageSeconds: 0)
-        }
-        let room = (root["room"] as? [String: Any]) ?? root
-        let checkpoints = (room["course"] as? [String: Any])?["checkpoints"] as? [[String: Any]] ?? []
-        var stoppage = 0.0
-        var notes: [String] = []
-        for checkpoint in checkpoints {
-            if let seconds = jsonNumber(checkpoint["plannedStopSeconds"]) {
-                stoppage += seconds
-            }
-            if let id = checkpoint["id"] as? String,
-               let cutoff = checkpoint["cutoff"] as? [String: Any],
-               let line = cutoffLine(checkpointId: id, cutoff: cutoff) {
-                notes.append(line)
-            }
-        }
-        return CourseSettingsDraft(cutoffNote: notes.joined(separator: "\n"), stoppageSeconds: stoppage)
     }
 
     public static func computeEstimate(graph: ClientGraph, roomId: String) async throws -> PacingEstimate {
@@ -768,23 +716,6 @@ public enum RaceDayAPI {
 
     private static func jsonNumber(_ value: Any?) -> Double? {
         JSONNumber.double(value)
-    }
-
-    private static func cutoffLine(checkpointId: String, cutoff: [String: Any]) -> String? {
-        let title = ScheduleFormat.slugToTitle(checkpointId)
-        let mode = cutoff["mode"] as? String
-        if mode == "time_of_day" {
-            guard let hour = (cutoff["hour"] as? NSNumber)?.intValue,
-                  let minute = (cutoff["minute"] as? NSNumber)?.intValue else { return nil }
-            let hourText = PortableFormat.zeroPadded(hour, width: 2)
-            let minuteText = PortableFormat.zeroPadded(minute, width: 2)
-            return "\(title) cutoff \(hourText):\(minuteText)"
-        }
-        if mode == "elapsed_from_start" {
-            guard let seconds = jsonNumber(cutoff["seconds"]) else { return nil }
-            return "\(title) cutoff \(ScheduleFormat.formatDurationSeconds(seconds))"
-        }
-        return nil
     }
 }
 

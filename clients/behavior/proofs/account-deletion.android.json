@@ -12,7 +12,7 @@
     "Empty": "AlertDialog 'Delete your account?' with the full client-core copy (via accountDeletionCopy), Cancel and Delete account. Cancel left the room in place (crew GET 200).",
     "Error": "Stub 502: 'Your data was deleted, but we couldn't finish removing your login. Try again.' User stays signed in on Settings.",
     "Offline": "API stopped: 'You're offline. Your account was not deleted.' User stays signed in.",
-    "Accessibility labels": "crewcue.account-deletion row with content description 'Delete account'; 'Delete on the web instead' link from BuildConfig.ACCOUNT_DELETION_URL."
+    "Accessibility labels": "crewcue.account-deletion row with content description 'Delete account'"
   },
   "screenshots": "Attached to the PR, not committed."
 }

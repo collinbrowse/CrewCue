@@ -13,10 +13,10 @@ none. Uses the schedule already on device.
 none
 
 ## Success
-Shows a plaintext crew sheet built on device.
+A table of stops with due time and race time, built on device. Share sends the same sheet as text, headed by the race name.
 
 ## Empty
-Nothing to export.
+No schedule yet. Import the course file to build one.
 
 ## Error
 Couldn't build the crew sheet.

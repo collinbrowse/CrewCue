@@ -13,16 +13,16 @@ POST /chat/push/tokens via the outbox (deviceId, platform, token, iOS apnsEnviro
 notifications
 
 ## Success
-Push token queued for registration.
+The row shows On: "On. Check-ins, ETA changes and crew chat reach you, even with the app closed."
 
 ## Empty
-No push token.
+This phone couldn't set up alerts. Try again.
 
 ## Error
-Push permission was denied.
+Notifications are off for CrewCue. Turn them on in Settings.
 
 ## Offline
-Offline. Token queued.
+Offline. Alerts start once this phone is back online.
 
 ## Accessibility labels
 - crewcue.push-registration
