@@ -59,13 +59,11 @@ final class PaceModel {
     private(set) var crewSheetRows: [CrewSheetRow] = []
     private(set) var exportMessage = PaceModel.exportEmpty
 
-    var cutoffNote = ""
-    var stoppageText = ""
     private(set) var cutoffLines: [PaceLine] = []
     private(set) var stoppageLines: [PaceLine] = []
     /// One sentence about the aid station stops; `stoppageLines` lists them only when they differ.
     private(set) var stopSummary = ""
-    private(set) var courseMessage = "No course settings yet."
+    private(set) var courseMessage = PaceModel.exportEmpty
 
     /// #250 Pace edit: planned stop minutes. Non-nil while editing; the timeline renders from it.
     private(set) var stopDraft: StopPlanDraft?
@@ -102,8 +100,6 @@ final class PaceModel {
     private var historyEmpty = true
     private var usableFingerprint: String?
     private var courseOffline = false
-    private var hasDraft = false
-    private var didApplyDraft = false
     private var didLoadHistory = false
     /// The room's attached estimate id. Crew may seed a cold start only while this is nil.
     private var planOfRecordId: String?
@@ -331,36 +327,6 @@ final class PaceModel {
         gpxMessage = "Couldn't read the route file."
     }
 
-    func saveCourseDraft() {
-        let note = cutoffNote.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The field takes minutes; the draft keeps seconds.
-        let rawMinutes = stoppageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let seconds: Double
-        if rawMinutes.isEmpty {
-            seconds = 0
-        } else if let parsed = Double(rawMinutes), parsed.isFinite, parsed >= 0 {
-            seconds = parsed * 60
-        } else {
-            courseMessage = "Couldn't save course settings."
-            return
-        }
-        guard let directory = userDirectory() else {
-            courseMessage = "Couldn't save course settings."
-            return
-        }
-        do {
-            try CourseSettingsDraft.save(
-                CourseSettingsDraft(cutoffNote: note, stoppageSeconds: seconds),
-                directory: directory
-            )
-            hasDraft = true
-            courseOffline = false
-            courseMessage = "Notes saved on this phone."
-        } catch {
-            courseMessage = "Couldn't save course settings."
-        }
-    }
-
     private func reload(ticket: Int, autoRecompute: Bool) async {
         guard ticket == generation else { return }
         await loadCourseAndEstimate(ticket: ticket, autoRecompute: autoRecompute)
@@ -422,7 +388,6 @@ final class PaceModel {
             loadHistoryRecord()
             didLoadHistory = true
         }
-        loadDraftIfNeeded()
         let envelope: RoomEnvelope
         do {
             envelope = try await RaceDayAPI.loadRoom(graph: client.graph, roomId: roomId)
@@ -592,6 +557,7 @@ final class PaceModel {
         }
         applyExport(roomId: sheet.roomId, offline: offline, failed: failed)
         refreshEstimateSummary()
+        refreshCourseReadout()
     }
 
     /// Display rows for schedule stops (server sheet, or the draft projection while editing).
@@ -700,33 +666,22 @@ final class PaceModel {
     }
 
     private func refreshCourseReadout() {
-        let summary = RaceToolsCopy.stopSummary(courseCheckpoints.map { checkpoint in
-            (RaceToolsCopy.checkpointName(id: checkpoint.id, title: checkpoint.title), checkpoint.plannedStopSeconds)
-        })
-        stopSummary = courseCheckpoints.isEmpty ? "" : summary.summary
-        stoppageLines = summary.rows.enumerated().map { index, row in
+        let titles = Dictionary(
+            courseCheckpoints.compactMap { checkpoint in checkpoint.title.map { (checkpoint.id, $0) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let readout = RaceToolsCopy.courseReadout(loadedStops, titles: titles)
+        stopSummary = loadedStops.isEmpty ? "" : readout.summary
+        stoppageLines = readout.rows.enumerated().map { index, row in
             PaceLine(id: "stoppage-\(index)", text: "\(row.title)\t\(row.duration)")
         }
-        cutoffLines = loadedStops.compactMap { stop in
-            guard let status = stop.cutoffStatus, status.isEmpty == false else { return nil }
-            let title = RaceToolsCopy.checkpointName(id: stop.checkpointId, title: courseTitle(for: stop.checkpointId))
-            return PaceLine(
-                id: "cutoff-\(stop.id)",
-                text: RaceToolsCopy.cutoffLine(title: title, status: status, marginSeconds: stop.cutoffMarginSeconds)
-            )
+        cutoffLines = readout.cutoffs.enumerated().map { index, line in
+            PaceLine(id: "cutoff-\(index)", text: line)
         }
-        if courseOffline {
-            courseMessage = "Offline. Course settings stay on this device."
-            return
-        }
-        if hasDraft {
-            courseMessage = "Notes saved on this phone."
-            return
-        }
-        if stopSummary.isEmpty, cutoffLines.isEmpty {
-            courseMessage = "No course settings yet."
+        if loadedStops.isEmpty {
+            courseMessage = courseOffline ? "Offline. No schedule saved on this phone yet." : PaceModel.exportEmpty
         } else {
-            courseMessage = ""
+            courseMessage = courseOffline ? "Offline. From the last schedule saved on this phone." : ""
         }
     }
 
@@ -828,16 +783,6 @@ final class PaceModel {
         return nil
     }
 
-    private func loadDraftIfNeeded() {
-        guard didApplyDraft == false else { return }
-        didApplyDraft = true
-        guard let directory = userDirectory() else { return }
-        guard let draft = try? CourseSettingsDraft.load(directory: directory) else { return }
-        cutoffNote = draft.cutoffNote
-        stoppageText = formatStoppage(draft.stoppageSeconds)
-        hasDraft = true
-    }
-
     private func loadHistoryRecord() {
         guard let directory = userDirectory() else {
             historyRecord = .empty
@@ -888,16 +833,6 @@ final class PaceModel {
         return formatter.string(from: client.graph.clock.now())
     }
 
-    /// The draft's seconds as the minutes the field shows ("" for none).
-    private func formatStoppage(_ seconds: Double) -> String {
-        guard seconds > 0 else { return "" }
-        let minutes = seconds / 60
-        if minutes.rounded() == minutes {
-            return String(Int(minutes))
-        }
-        return String(format: "%.1f", minutes)
-    }
-
     private func clearFields() {
         stopLines = []
         stops = []
@@ -925,8 +860,6 @@ final class PaceModel {
         gpxMessage = RaceToolsCopy.courseFileHint
         exportText = ""
         exportMessage = Self.exportEmpty
-        cutoffNote = ""
-        stoppageText = ""
         stopDraft = nil
         stopsMessage = ""
         latestRunner = .none
@@ -934,10 +867,8 @@ final class PaceModel {
         stoppageLines = []
         stopSummary = ""
         crewSheetRows = []
-        courseMessage = "No course settings yet."
+        courseMessage = PaceModel.exportEmpty
         courseOffline = false
-        hasDraft = false
-        didApplyDraft = false
         outboxRows = []
         outboxMessage = RaceToolsCopy.outboxEmpty
         courseCheckpoints = []

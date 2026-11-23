@@ -39,11 +39,6 @@ public enum RaceToolsCopy {
 
     public static let stopsTitle = "Aid station stops"
     public static let cutoffsTitle = "Cutoffs"
-    public static let notesTitle = "Your race notes"
-    public static let notesHint = "On this phone only. They don't change the schedule."
-    public static let cutoffNoteLabel = "Cutoff reminder"
-    public static let cutoffNotePlaceholder = "Aid 3 closes at 2:30 PM"
-    public static let usualStopLabel = "Usual aid stop, in minutes"
 
     public static let outboxTitle = "Waiting to upload"
     public static let outboxHint = "Check-ins, course files and messages made without signal wait here. They upload on their own once this phone is back online."
@@ -106,6 +101,20 @@ public enum RaceToolsCopy {
         default:
             return margin.map { "\(title): \($0) ahead of the cutoff" } ?? "\(title): ahead of the cutoff"
         }
+    }
+
+    /// Aid stop summary and cutoff lines from schedule stops, in course order.
+    public static func courseReadout(
+        _ stops: [ScheduleStop],
+        titles: [String: String] = [:]
+    ) -> (summary: String, rows: [CourseStopRow], cutoffs: [String]) {
+        let named = stops.map { (stop: $0, title: checkpointName(id: $0.checkpointId, title: titles[$0.checkpointId])) }
+        let stopSummary = stopSummary(named.map { ($0.title, $0.stop.plannedStoppageSeconds) })
+        let cutoffs = named.compactMap { item -> String? in
+            guard let status = item.stop.cutoffStatus, status.isEmpty == false else { return nil }
+            return cutoffLine(title: item.title, status: status, marginSeconds: item.stop.cutoffMarginSeconds)
+        }
+        return (stopSummary.summary, stopSummary.rows, cutoffs)
     }
 
     /// Crew sheet rows from schedule stops.

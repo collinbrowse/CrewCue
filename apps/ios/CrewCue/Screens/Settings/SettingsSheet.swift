@@ -99,7 +99,7 @@ struct SettingsNameSection: View {
                     below: {
                         HStack(spacing: CrewSpace.base) {
                             TextField("Display name", text: $model.nameDraft)
-                                .textFieldStyle(.crew)
+                                .textFieldStyle(.crewCompact)
                                 .textContentType(.name)
                                 .accessibilityLabel("Display name")
                             Button("Save") {

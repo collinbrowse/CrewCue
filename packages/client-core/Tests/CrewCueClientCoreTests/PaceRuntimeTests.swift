@@ -13,19 +13,6 @@ import Testing
     #expect(!line.contains("UTC"))
 }
 
-@Test func courseDraftReadsCutoffAndStoppage() throws {
-    let json = """
-    {"room":{"course":{"checkpoints":[
-      {"id":"aid-1","plannedStopSeconds":60,"cutoff":{"mode":"time_of_day","hour":18,"minute":30}},
-      {"id":"aid-2","plannedStopSeconds":30,"cutoff":{"mode":"elapsed_from_start","seconds":18000}}
-    ]}}}
-    """
-    let draft = RaceDayAPI.courseDraft(fromRoomData: Data(json.utf8))
-    #expect(draft.stoppageSeconds == 90)
-    #expect(draft.cutoffNote.contains("Aid 1 cutoff 18:30"))
-    #expect(draft.cutoffNote.contains("Aid 2 cutoff 5:00:00"))
-}
-
 @Test func scheduleResultUsesCacheOnlyWhenOffline() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     let stop = ScheduleStop(
@@ -90,28 +77,8 @@ import Testing
     #expect((athleteResult["reason"] as? String) == "cold-start-with-history")
 }
 
-@Test func runtimeCourseDraftAndCrewSheetStayOnDevice() async throws {
+@Test func runtimeCrewSheetAndCourseReadoutStayOnDevice() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    let saved = try await runtimeCall([
-        "op": "writeCourseSettings",
-        "storageDir": directory.path,
-        "roomId": "room",
-        "cutoffNote": "Aid 1 cutoff 18:30",
-        "stoppageSeconds": 90
-    ])
-    let draft = try resultObject(saved)
-    #expect((draft["cutoffNote"] as? String) == "Aid 1 cutoff 18:30")
-    #expect(try #require(number(draft["stoppageSeconds"])) == 90)
-    let loaded = try await runtimeCall([
-        "op": "readCourseSettings",
-        "storageDir": directory.path,
-        "roomId": "room",
-        "baseURL": "https://example.invalid"
-    ])
-    let again = try resultObject(loaded)
-    #expect((again["cutoffNote"] as? String) == "Aid 1 cutoff 18:30")
-    #expect(flag(again, "offline") == false)
-
     let stop = ScheduleStop(
         id: "stop-aid-1",
         checkpointId: "aid-1",

@@ -30,7 +30,7 @@ import androidx.compose.material.icons.automirrored.outlined.ShowChart
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.CloudUpload
-import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.automirrored.outlined.ListAlt
 import androidx.compose.foundation.clickable
@@ -160,6 +160,7 @@ fun PaceContent(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             model.raceName = race?.raceName.orEmpty()
+            model.courseTitles = titles.entries.mapNotNull { entry -> entry.value?.let { entry.key to it.toString() } }.toMap()
             PaceHeader(race?.raceName.orEmpty(), readout)
             EstimateCard(model)
             if (!readOnly && (model.mayEditStops || model.stopMessage != null)) {
@@ -711,36 +712,36 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
             }
         )
         RowDivider()
-        var editingNotes by rememberSaveable { mutableStateOf(false) }
         SettingRow(
-            Icons.Outlined.EditNote,
-            "Your race notes",
+            Icons.Outlined.Schedule,
+            "Aid station stops",
             modifier = Modifier
                 .testTag("crewcue.course-settings")
                 .then(bringIntoViewWhen(focus == "course-settings", model.exportText)),
-            hint = model.courseMessage ?: COURSE_NOTES_HINT,
-            trailing = {
-                PillButton(if (editingNotes) "Done" else "Edit", onClick = { editingNotes = !editingNotes })
-            },
-            below = if (!editingNotes) null else {
+            hint = listOfNotNull(model.stopSummary, model.courseMessage).joinToString(" "),
+            below = if (model.courseStopRows.isEmpty()) null else {
                 {
-                    CrewTextField(model.cutoffNote, model::updateCutoff, "Cutoff reminder", singleLine = false)
-                    CrewTextField(
-                        model.stoppageText,
-                        model::updateStoppage,
-                        "Usual aid stop, in minutes",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                    )
-                    PillButton(
-                        "Save notes",
-                        onClick = model::saveCourse,
-                        prominent = true,
-                        enabled = !model.courseBusy,
-                        spoken = "Save course settings"
-                    )
+                    model.courseStopRows.forEach { (title, duration) ->
+                        Row {
+                            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Text(duration, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
                 }
             }
         )
+        if (model.cutoffLines.isNotEmpty()) {
+            RowDivider()
+            SettingRow(
+                Icons.Outlined.Flag,
+                "Cutoffs",
+                below = {
+                    model.cutoffLines.forEach { line ->
+                        Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { contentDescription = line })
+                    }
+                }
+            )
+        }
     }
     SettingsGroup("Share", bringIntoViewWhen(focus == "crew-sheet-export")) {
         SettingRow(
@@ -780,8 +781,6 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
         )
     }
 }
-
-private const val COURSE_NOTES_HINT = "On this phone only. They don't change the schedule."
 
 /** Stop, due time and race time in three aligned columns. */
 @Composable

@@ -4,25 +4,25 @@
 crewcue://dev/course-settings
 
 ## Action
-Read cutoff and stoppage from the loaded course and keep an on-device draft. This screen does not call stop-plan APIs. It edits the race selected in Profile → Your races. Each race keeps its own draft, so switching races never shows or overwrites another race's cutoff or stoppage.
+Race tools → Course shows the aid station stops and cutoffs for the race selected in Profile → Your races. When every aid station has the same planned stop, one sentence says so ("2 min planned at each of the 3 aid stations."); otherwise each stop is listed with its duration. Start and finish are left out. Cutoffs say how far ahead of each cutoff the runner is due ("Aid 2: 1 h 23 min ahead of the cutoff"). Read only: planned stops change through Edit planned stops on Pace.
 
 ## API
-GET /race-rooms/:roomId for course checkpoint stoppage. Draft stays local, in the selected room's `RoomStorage.directory`. The runtime ops `readCourseSettings` and `writeCourseSettings` require `roomId`.
+None directly. The runtime op `courseReadout` (requires `roomId`, optional `titles`) reads the schedule cached by GET /race-rooms/:roomId/schedule and formats it with client-core `RaceToolsCopy.courseReadout`.
 
 ## Permissions
 none
 
 ## Success
-Notes saved on this phone.
+2 min planned at each of the 3 aid stations. Use Edit planned stops on Pace to change it.
 
 ## Empty
-No course settings yet.
+No schedule yet. Import the course file to build one.
 
 ## Error
-Couldn't save course settings.
+No schedule yet. Import the course file to build one.
 
 ## Offline
-Offline. Course settings stay on this device.
+Offline. From the last schedule saved on this phone.
 
 ## Accessibility labels
 - crewcue.course-settings

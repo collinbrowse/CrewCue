@@ -14,7 +14,7 @@ import Dispatch
 /// `op` is one of openSession, loadSchedule, loadEstimate, decideEstimate, computeEstimate,
 /// importGpx, enqueueGpx, enqueueCheckIn, flushOutbox, listOutbox, exportCrewSheet,
 /// projectAidSheet, stopPlanDraft, updatePlannedStops,
-/// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
+/// courseReadout, featureScreen, previewJoin, join,
 /// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// chatPoll, chatSend, chatUploadPhoto, chatOlder, chatDiscard,
@@ -179,10 +179,8 @@ enum RuntimeCall {
             return try await listOutbox(object)
         case "exportCrewSheet":
             return try exportCrewSheet(object)
-        case "readCourseSettings":
-            return try await readCourseSettings(object)
-        case "writeCourseSettings":
-            return try writeCourseSettings(object)
+        case "courseReadout":
+            return try courseReadout(object)
         case "previewJoin":
             let graph = try graph(object)
             let code = object["code"] as? String ?? ""
@@ -900,53 +898,23 @@ enum RuntimeCall {
         ]
     }
 
-    private static func readCourseSettings(_ object: [String: Any]) async throws -> Any {
-        let directory = directory(object)
-        if let directory, let existing = try? CourseSettingsDraft.load(directory: directory) {
-            return coursePayload(existing, empty: blankDraft(existing), offline: false, saved: false)
-        }
-        do {
-            let graph = try graph(object)
-            let roomId = object["roomId"] as? String ?? ""
-            let seed = try await RaceDayAPI.courseDraftSeed(graph: graph, roomId: roomId)
-            return coursePayload(seed, empty: blankDraft(seed), offline: false, saved: false)
-        } catch {
-            if TransportFailure.isOffline(error) {
-                let empty = CourseSettingsDraft(cutoffNote: "", stoppageSeconds: 0)
-                return coursePayload(empty, empty: true, offline: true, saved: false)
-            }
-            throw error
-        }
-    }
-
-    private static func writeCourseSettings(_ object: [String: Any]) throws -> Any {
+    /// Aid station stops and cutoffs from the cached schedule (Race tools). `titles` maps
+    /// checkpoint ids to course titles; missing ones fall back to the id.
+    private static func courseReadout(_ object: [String: Any]) throws -> Any {
         guard let directory = directory(object) else {
-            throw ClientHTTPError(status: 0, message: "Couldn't save course settings.")
+            throw ClientHTTPError(status: 0, message: "storageDir is required.")
         }
-        let draft = CourseSettingsDraft(
-            cutoffNote: object["cutoffNote"] as? String ?? "",
-            stoppageSeconds: doubleValue(object["stoppageSeconds"]) ?? 0
-        )
-        do {
-            try CourseSettingsDraft.save(draft, directory: directory)
-        } catch {
-            throw ClientHTTPError(status: 0, message: "Couldn't save course settings.")
+        guard let sheet = try ScheduleCache.load(directory: directory), !sheet.stops.isEmpty else {
+            return ["empty": true]
         }
-        return coursePayload(draft, empty: false, offline: false, saved: true)
-    }
-
-    private static func coursePayload(_ draft: CourseSettingsDraft, empty: Bool, offline: Bool, saved: Bool) -> [String: Any] {
-        [
-            "cutoffNote": draft.cutoffNote,
-            "stoppageSeconds": draft.stoppageSeconds,
-            "empty": empty,
-            "offline": offline,
-            "saved": saved
+        let titles = object["titles"] as? [String: String] ?? [:]
+        let readout = RaceToolsCopy.courseReadout(sheet.stops, titles: titles)
+        return [
+            "empty": false,
+            "summary": readout.summary,
+            "rows": readout.rows.map { ["title": $0.title, "duration": $0.duration] },
+            "cutoffs": readout.cutoffs
         ]
-    }
-
-    private static func blankDraft(_ draft: CourseSettingsDraft) -> Bool {
-        draft.cutoffNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.stoppageSeconds == 0
     }
 
     private static func estimatePayload(

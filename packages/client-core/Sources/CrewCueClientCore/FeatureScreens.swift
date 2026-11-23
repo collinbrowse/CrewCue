@@ -291,10 +291,9 @@ private func checkInBody(_ state: FeatureState) -> String {
 
 private func courseSettingsBody(_ state: FeatureState) -> String {
     switch state {
-    case .success: "Notes saved on this phone."
-    case .empty: "No course settings yet."
-    case .error: "Couldn't save course settings."
-    case .offline: "Offline. Course settings stay on this device."
+    case .success: "2 min planned at each of the 3 aid stations. Use Edit planned stops on Pace to change it."
+    case .empty, .error: "No schedule yet. Import the course file to build one."
+    case .offline: "Offline. From the last schedule saved on this phone."
     }
 }
 

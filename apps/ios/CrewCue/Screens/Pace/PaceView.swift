@@ -892,10 +892,9 @@ struct PaceExportSection: View {
     }
 }
 
-/// Aid station stops and cutoffs from the loaded course, plus notes kept on this phone.
+/// Aid station stops and cutoffs from the schedule.
 struct PaceCourseSection: View {
     @Bindable var model: PaceModel
-    @State private var editingNotes = false
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -903,7 +902,7 @@ struct PaceCourseSection: View {
             CrewSettingRow(
                 systemImage: "clock",
                 title: RaceToolsCopy.stopsTitle,
-                hint: model.stopSummary.isEmpty ? model.courseMessage : model.stopSummary,
+                hint: [model.stopSummary, model.courseMessage].filter { $0.isEmpty == false }.joined(separator: " "),
                 trailing: { EmptyView() },
                 below: {
                     if model.stoppageLines.isEmpty == false {
@@ -928,36 +927,10 @@ struct PaceCourseSection: View {
                     }
                 )
             }
-            CrewRowDivider()
-            CrewSettingRow(
-                systemImage: "note.text",
-                title: RaceToolsCopy.notesTitle,
-                hint: model.stopSummary.isEmpty || model.courseMessage.isEmpty ? RaceToolsCopy.notesHint : model.courseMessage,
-                trailing: {
-                    Button(editingNotes ? "Done" : "Edit") {
-                        editingNotes.toggle()
-                    }
-                    .buttonStyle(.crewPill)
-                },
-                below: {
-                    if editingNotes {
-                        VStack(alignment: .trailing, spacing: CrewSpace.base) {
-                            TextField(RaceToolsCopy.cutoffNotePlaceholder, text: $model.cutoffNote)
-                                .textFieldStyle(.crew)
-                                .accessibilityLabel(RaceToolsCopy.cutoffNoteLabel)
-                            TextField(RaceToolsCopy.usualStopLabel, text: $model.stoppageText)
-                                .textFieldStyle(.crew)
-                                .keyboardType(.decimalPad)
-                                .accessibilityLabel(RaceToolsCopy.usualStopLabel)
-                            PaceSaveCourseButton(action: model.saveCourseDraft)
-                        }
-                    }
-                }
-            )
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.course-settings")
-        .accessibilityLabel("Course settings")
+        .accessibilityLabel("Aid station stops")
     }
 }
 
@@ -981,16 +954,6 @@ struct PaceTwoColumnLines: View {
                 .font(.system(.subheadline))
             }
         }
-    }
-}
-
-struct PaceSaveCourseButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button("Save notes", action: action)
-            .buttonStyle(.crewPillProminent)
-            .accessibilityLabel("Save course settings")
     }
 }
 

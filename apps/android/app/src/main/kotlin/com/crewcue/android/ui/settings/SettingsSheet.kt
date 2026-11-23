@@ -35,7 +35,7 @@ import com.crewcue.android.ui.members.RoomMembersViewModelFactory
 import com.crewcue.android.BuildConfig
 import com.crewcue.android.ui.activity.ActivityImportSection
 import com.crewcue.android.ui.strava.StravaSection
-import com.crewcue.android.ui.theme.CrewTextField
+import com.crewcue.android.ui.theme.CompactTextField
 import com.crewcue.android.ui.theme.PillButton
 import com.crewcue.android.ui.theme.RowDivider
 import com.crewcue.android.ui.theme.SettingRow
@@ -137,11 +137,11 @@ private fun SettingsNameSection(shell: ShellViewModel, roomId: String?) {
         hint = model.status ?: "Shown on your chat messages and in this race's crew list.",
         below = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CrewTextField(
+                CompactTextField(
                     value = draft,
                     onValueChange = { draft = it },
-                    label = "Display name",
-                    modifier = Modifier.weight(1f).semantics { contentDescription = "Display name" }
+                    placeholder = "Display name",
+                    modifier = Modifier.weight(1f)
                 )
                 PillButton(
                     "Save",

@@ -163,3 +163,24 @@ extension ButtonStyle where Self == CrewPillButtonStyle {
     static var crewPill: CrewPillButtonStyle { CrewPillButtonStyle() }
     static var crewPillProminent: CrewPillButtonStyle { CrewPillButtonStyle(prominent: true) }
 }
+
+/// Small text field for a settings row: subheadline text, 36pt tall.
+struct CrewCompactTextFieldStyle: TextFieldStyle {
+    @Environment(\.crew) private var theme
+
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        configuration
+            .font(.system(.subheadline))
+            .padding(.horizontal, 12)
+            .frame(minHeight: 36)
+            .background(theme.well.opacity(0.6), in: RoundedRectangle(cornerRadius: CrewRadius.sm, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: CrewRadius.sm, style: .continuous)
+                    .stroke(theme.divider, lineWidth: 1)
+            }
+    }
+}
+
+extension TextFieldStyle where Self == CrewCompactTextFieldStyle {
+    static var crewCompact: CrewCompactTextFieldStyle { CrewCompactTextFieldStyle() }
+}

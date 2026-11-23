@@ -1,7 +1,12 @@
 package com.crewcue.android.ui.theme
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -149,4 +154,38 @@ fun PillButton(
             Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
     }
+}
+
+/** Small single-line field for a settings row: body text, 40dp tall, placeholder instead of a floating label. */
+@Composable
+fun CompactTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface),
+        cursorBrush = SolidColor(colors.primary),
+        modifier = modifier.semantics { contentDescription = placeholder },
+        decorationBox = { field ->
+            Box(
+                Modifier
+                    .heightIn(min = 40.dp)
+                    .background(colors.surfaceContainerLow, MaterialTheme.shapes.small)
+                    .border(1.dp, colors.outlineVariant, MaterialTheme.shapes.small)
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (value.isEmpty()) {
+                    Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = colors.outline)
+                }
+                field()
+            }
+        }
+    )
 }
