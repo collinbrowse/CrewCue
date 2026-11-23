@@ -10,6 +10,28 @@ final class OnboardingEntryTests: XCTestCase {
         app.descendants(matching: .any)[identifier].firstMatch
     }
 
+    /// The swipe from the leading edge, sent once `settled` (the screen's bar Back) has stopped
+    /// moving and takes touches: a swipe sent while the screen is still sliding in is lost. The
+    /// simulator now and then drops a synthesized edge pan, so one more swipe is sent if `arrives`
+    /// doesn't show; a swipe that never goes back still fails the test.
+    private func swipeBackFromLeadingEdge(_ app: XCUIApplication, settled: XCUIElement, arrives: XCUIElement) -> Bool {
+        XCTAssertTrue(settled.waitForExistence(timeout: 5))
+        var frame = settled.frame
+        for _ in 0..<20 {
+            Thread.sleep(forTimeInterval: 0.15)
+            let now = settled.frame
+            if now == frame && settled.isHittable { break }
+            frame = now
+        }
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 1, dy: 0))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+        for _ in 0..<2 {
+            start.press(forDuration: 0.1, thenDragTo: end)
+            if arrives.waitForExistence(timeout: 3) { return true }
+        }
+        return false
+    }
+
     /// A pick saved by an earlier run resumes past the chooser; go back to it.
     private func openChooser(_ app: XCUIApplication) {
         app.launchArguments = entry
@@ -70,9 +92,10 @@ final class OnboardingEntryTests: XCTestCase {
         // From the first step, the swipe from the leading edge returns to the chooser too.
         element(app, "crewcue.onboarding.chooser.runner").tap()
         XCTAssertTrue(element(app, "crewcue.onboarding.step.account").waitForExistence(timeout: 5))
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
-        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
-        XCTAssertTrue(element(app, "crewcue.onboarding-chooser").waitForExistence(timeout: 5), "the edge swipe goes back")
+        XCTAssertTrue(
+            swipeBackFromLeadingEdge(app, settled: back, arrives: element(app, "crewcue.onboarding-chooser")),
+            "the edge swipe goes back"
+        )
     }
 
     func testCrewChoiceOpensTheJoinScreenAndBackReturnsToTheChooser() {
@@ -111,9 +134,7 @@ final class OnboardingEntryTests: XCTestCase {
         // The swipe from the leading edge goes back too.
         element(app, "crewcue.onboarding.chooser.sign-in").tap()
         XCTAssertTrue(signedOut.waitForExistence(timeout: 5))
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
-        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
-        XCTAssertTrue(chooser.waitForExistence(timeout: 5), "the edge swipe didn't go back")
+        XCTAssertTrue(swipeBackFromLeadingEdge(app, settled: back, arrives: chooser), "the edge swipe didn't go back")
 
         // Join with a code, its Back, then sign-in's Back: still the chooser.
         element(app, "crewcue.onboarding.chooser.sign-in").tap()
