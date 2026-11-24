@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { openIosSimulatorUi } from "./lib/openIosSimulatorUi.mjs";
-import { ensureIosSimulator, sharedDevice } from "./lib/agentDevice.mjs";
+import { ensureIosSimulator, sharedDevice, sharedSourcePackagesArgs } from "./lib/agentDevice.mjs";
 
 const execFile = promisify(execFileCb);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -142,6 +142,7 @@ async function installApp(udid) {
     `id=${udid}`,
     "-derivedDataPath",
     DERIVED,
+    ...sharedSourcePackagesArgs(),
     "build"
   ]);
   const app = findApp(path.join(DERIVED, "Build", "Products"));

@@ -672,9 +672,12 @@ export function recomputeRaceProjection(params: {
   // The finish ETA is the arrival at the finish line, as the schedule's finish row reads it: the
   // planned stops on the way there, never the finish checkpoint's own. Checkpoints that stop
   // short of the route's end have no finish among them, so every one of their stops counts.
+  // A stop is behind the runner once they reached it (a visit) or are past its radius along the
+  // course: pings minutes apart can skip over an aid station without one landing inside it.
   const finishIndex = finishCheckpointIndex(course.checkpoints, courseLengthMeters);
   const plannedStopSecondsBeforeFinish = checkpointSplits.reduce((sum, row, index) => {
-    const reached = row.visits.length > 0;
+    const passed = progressMeters > row.distanceMetersFromStart + checkpointRadiusMeters(course.checkpoints[index]!);
+    const reached = row.visits.length > 0 || passed;
     return sum + (reached || index === finishIndex ? 0 : row.plannedStopSeconds);
   }, 0);
 
