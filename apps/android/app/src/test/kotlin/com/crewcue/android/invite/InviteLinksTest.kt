@@ -69,7 +69,10 @@ class InviteLinksTest {
         val filter = manifest.substringAfter("""<intent-filter android:autoVerify="true">""").substringBefore("</intent-filter>")
         assertTrue(filter.contains("""android:scheme="https""""))
         assertTrue(filter.contains("""android:host="$host""""))
-        assertTrue(filter.contains("""android:pathPrefix="${path.trimEnd('/')}""""))
+        // The page and paths below it only: never /crewcue/joinanything.
+        assertTrue(filter.contains("""android:path="${path.trimEnd('/')}""""))
+        assertTrue(filter.contains("""android:pathPrefix="$path""""))
+        assertFalse(filter.contains("""android:pathPrefix="${path.trimEnd('/')}""""))
         assertEquals("collinbrowse.github.io", host)
         assertEquals("/crewcue/join/", path)
     }
@@ -127,6 +130,20 @@ class InviteLinksTest {
         // A newer link opened while the join was out is still pending: its screen comes next.
         val newer = outcome("""{"outcome":"joined","roomId":"r1","message":null,"pendingJoin":{"code":"654321","source":"link"}}""")
         assertEquals(PendingInvite("654321", "link"), newer.next)
+        assertEquals(PendingInvite("654321", "link"), newer.newerInvite("123456"))
+        // Whatever the earlier join came to, the newer link comes next.
+        val fullThenLink = outcome(
+            """{"outcome":"raceFull","roomId":null,"message":"full","code":"123456","pendingJoin":{"code":"654321","source":"link"}}"""
+        )
+        assertNull(fullThenLink.roomId)
+        assertEquals("654321", fullThenLink.newerInvite("123456")?.code)
+        // The same code kept for a retry is not newer.
+        val kept = outcome("""{"outcome":"offline","roomId":null,"message":"o","code":"123456","pendingJoin":{"code":"123456","source":"typed"}}""")
+        assertNull(kept.newerInvite("123456"))
+        // client-core's joined code wins over the one the screen started with.
+        val raced = outcome("""{"outcome":"joined","roomId":"r1","code":"654321","pendingJoin":{"code":"654321","source":"link"}}""")
+        assertNull(raced.newerInvite("123456"))
+        assertNull(outcome("""{"outcome":"joined","roomId":"r1"}""").newerInvite("123456"))
 
         val already = outcome("""{"outcome":"alreadyMember","roomId":"r1","message":"You're already in this race."}""")
         assertEquals("r1", already.roomId)

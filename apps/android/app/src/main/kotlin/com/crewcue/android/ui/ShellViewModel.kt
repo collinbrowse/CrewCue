@@ -288,7 +288,9 @@ class ShellViewModel(
                 setupOpenedByLink = setupFromLink,
                 racePreviewOpenedByLink = racePreviewFromLink
             )
-            if (owns && !joinHasInvite) showJoinInvite(PendingInvite(code, PendingInvite.SOURCE_REFERRER))
+            // Only over onboarding's own screens (the loader, the chooser, sign-in, its join
+            // screen); the tab bar of someone already using the app stays, and the code waits.
+            if (owns && !showAppShell && !joinHasInvite) showJoinInvite(PendingInvite(code, PendingInvite.SOURCE_REFERRER))
         }
     }
 
@@ -741,7 +743,7 @@ class ShellViewModel(
         joinFromOnboarding = true
         joinHasInvite = true
         shownInvite = invite
-        if (inviteCode != invite.code || joinPreviewName == null) updateInviteCode(invite.code)
+        if (inviteCode != invite.code || joinPreviewName == null) updateInviteCode(invite.code, force = true)
     }
 
     /**
@@ -902,10 +904,14 @@ class ShellViewModel(
         }
     }
 
-    fun updateInviteCode(raw: String) {
+    /**
+     * The code typed (or shown). Typing waits while a join is out; a link opened meanwhile
+     * ([force]) swaps the code at once, and the earlier join's result shows as a line on it.
+     */
+    fun updateInviteCode(raw: String, force: Boolean = false) {
         if (uiState.screen.featureId != "join-crew") return
         val next = raw.filter { it.isDigit() }.take(6)
-        if (joining) return
+        if (joining && !force) return
         joinRaceFull = false
         inviteCode = next
         joinPreviewName = null
@@ -1057,6 +1063,11 @@ class ShellViewModel(
 
     private fun applyAuthFailure(result: AuthResult.Failure) {
         signInConnection = null
+        // Closing the sign-up after Sign up to join gives the invite up, as Back does.
+        if (result.canceled && session == null && !showAppShell && uiState.screen.featureId == JOIN_CREW_FEATURE) {
+            leaveJoin()
+            return
+        }
         // A failed sign-in keeps the pending code: the join screen still shows it to try again.
         if (!showAppShell && uiState.screen.featureId == JOIN_CREW_FEATURE) {
             replaceBody(result.message, kind = if (result.offline) "offline" else "error")
@@ -1094,26 +1105,27 @@ class ShellViewModel(
             joinRaceFull = outcome.outcome == "raceFull"
             if (session?.userId != user) return@launch
             val roomId = outcome.roomId
+            // The code client-core joined (the one on screen when Join was tapped).
+            val joinedCode = outcome.code ?: code
+            // A link opened while this join was out, whatever the join came to: it comes next.
+            val newer = outcome.newerInvite(joinedCode)
             if (roomId != null) {
                 container.sessionStore.update { it.applyingJoin(roomId, outcome.role) }
                 session = container.sessionStore.current()
-                // A newer link opened while this join was out stays pending: its screen comes next.
-                val next = outcome.next
-                if (next == null) {
+                if (newer == null) {
                     joinHasInvite = false
                     shownInvite = null
-                } else if (next.code != inviteCode && uiState.screen.featureId == JOIN_CREW_FEATURE) {
-                    showJoinInvite(next)
                 }
                 loadRaces()
             }
             if (uiState.screen.featureId != JOIN_CREW_FEATURE) return@launch
-            if (inviteCode != code) {
+            if (newer != null && inviteCode != newer.code) showJoinInvite(newer)
+            if (newer != null || inviteCode != joinedCode) {
                 // Another code is on show (a link arrived mid-join): say what the earlier one did.
                 joinMembership = if (roomId != null) {
                     container.raceDay.inviteJoinLine(race, null, null)
                 } else {
-                    container.raceDay.inviteJoinLine(null, code, outcome.message ?: JoinResult.FAILED)
+                    container.raceDay.inviteJoinLine(null, joinedCode, outcome.message ?: JoinResult.FAILED)
                 }
                 return@launch
             }

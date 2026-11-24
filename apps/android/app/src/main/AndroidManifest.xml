@@ -49,7 +49,8 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" />
                 <data android:host="collinbrowse.github.io" />
-                <data android:pathPrefix="/crewcue/join" />
+                <data android:path="/crewcue/join" />
+                <data android:pathPrefix="/crewcue/join/" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

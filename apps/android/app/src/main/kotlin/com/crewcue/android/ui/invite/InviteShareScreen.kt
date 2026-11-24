@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -174,6 +175,14 @@ fun InviteShareScreen(shell: ShellViewModel, roomId: String, onBack: () -> Unit,
             .padding(16.dp)
     ) {
         ProductTitle(text.shareTitle, text.shareDetail)
+        if (model.share == null) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .padding(top = 16.dp)
+                    .testTag("$INVITE_SHARE_TAG.loading")
+                    .semantics { contentDescription = "Loading" }
+            )
+        }
         if (status.isNotBlank()) {
             Text(status, modifier = Modifier.padding(top = 12.dp).semantics { contentDescription = status })
         }

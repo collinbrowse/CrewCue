@@ -1,5 +1,6 @@
 package com.crewcue.android.ui.join
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -55,6 +56,8 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
             viewModel.joinHasInvite -> "Not now"
             else -> null
         }
+        // System Back does what the Back / Not now button does: it gives the invite up.
+        BackHandler(enabled = leave != null && !viewModel.joining) { viewModel.leaveJoin() }
         if (leave != null) {
             TextButton(
                 onClick = viewModel::leaveJoin,

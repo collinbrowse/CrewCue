@@ -42,8 +42,8 @@ import Foundation
 ///   and `state` as `readOnboarding` would.
 /// - `resolvePendingJoin`: joins the user's saved code as the request's user (`baseURL`, `token`,
 ///   `userId`) and answers `outcome` (joined, alreadyMember, raceFull, raceLocked, invalidCode,
-///   offline, signedOut, failed, nothingPending), `roomId`, `message`, `clearsCode` and
-///   `pendingJoin`. joined, alreadyMember and invalidCode clear the code; the rest keep it. A
+///   offline, signedOut, failed, nothingPending), `roomId`, `message`, `clearsCode`, `code` (the
+///   code it joined) and `pendingJoin` (what is pending after it, a newer link included). joined, alreadyMember and invalidCode clear the code; the rest keep it. A
 ///   session the server refuses fails with `sessionExpired: true`, as every op does on a 401; the
 ///   code stays for that user's next sign-in.
 ///
@@ -180,6 +180,8 @@ extension RuntimeCall {
         guard demoURL(object) == nil else { throw DemoRaceError.readOnly("the replay never joins a race") }
         let store = try onboardingStore(object).pendingJoins
         let userId = pendingJoinUser(object)
+        // The code this resolve joins, so the app can tell it from a newer link saved meanwhile.
+        let resolving = store.read(userId: userId, now: SystemClock().now())?.code
         let outcome = await store.resolve(graph: try graph(object), userId: userId)
         // With a user and a token sent, `signedOut` is the server's 401: fail the way every op
         // does on one, so the app ends the session. The code stays, still this user's: another
@@ -192,6 +194,7 @@ extension RuntimeCall {
             "roomId": outcome.roomId ?? NSNull(),
             "message": outcome.message ?? NSNull(),
             "clearsCode": outcome.clearsCode,
+            "code": resolving ?? NSNull(),
             "pendingJoin": pendingJoinJSON(store.read(userId: userId, now: SystemClock().now()))
         ] as [String: Any]
     }

@@ -43,7 +43,8 @@ class Auth0SdkGateway(
                 callback(
                     AuthResult.Failure(
                         message = if (offline) "Offline. Can't reach Auth0." else "Sign-in failed.",
-                        offline = offline
+                        offline = offline,
+                        canceled = error.isCanceled
                     )
                 )
             }

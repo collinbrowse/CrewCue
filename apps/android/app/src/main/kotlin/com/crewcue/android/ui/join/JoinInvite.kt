@@ -43,13 +43,19 @@ data class JoinResult(
     /** The line under the code: null for a fresh join (the screen says "Joined <race>."). */
     val message: String?,
     val tone: JoinTone,
-    /**
-     * What is still pending after a join that landed: a newer link opened while the join was out
-     * (`PendingJoinStore.nextCode`), whose join screen comes next. Null otherwise.
-     */
-    val next: PendingInvite? = null
+    /** What is pending after the join (`pendingJoin`): the same code kept, or a newer link. */
+    val next: PendingInvite? = null,
+    /** The code client-core joined (`code`); null when nothing was pending. */
+    val code: String? = null
 ) {
     val joined: Boolean get() = roomId != null
+
+    /**
+     * A link opened while this join was out (`PendingJoinStore.nextCode`, for any outcome): its
+     * join screen comes next, and the earlier code's result shows as a line on it. [joinedCode] is
+     * the code this join was for. Null when nothing newer is pending.
+     */
+    fun newerInvite(joinedCode: String): PendingInvite? = next?.takeIf { it.code != (code ?: joinedCode) }
 
     companion object {
         const val FAILED = "Couldn't join this race. Try again."
@@ -71,13 +77,14 @@ data class JoinResult(
             val roomId = json.optText("roomId").trim().ifEmpty { null }
             val message = json.optText("message").trim().ifEmpty { null }
             val next = PendingInvite.from(RuntimeResult.Success(json))
+            val code = json.optText("code").trim().ifEmpty { null }
             return when (outcome) {
                 // join-by-code makes every new member crew; the runner rejoining their own race
                 // is `alreadyMember`, whose role the race list brings.
-                "joined" -> JoinResult(outcome, roomId, "crew_member", null, JoinTone.Success, next)
-                "alreadyMember" -> JoinResult(outcome, roomId, "", message, JoinTone.Success, next)
-                "offline" -> JoinResult(outcome, null, "", message ?: OFFLINE, JoinTone.Offline)
-                else -> JoinResult(outcome, null, "", message ?: FAILED, JoinTone.Error)
+                "joined" -> JoinResult(outcome, roomId, "crew_member", null, JoinTone.Success, next, code)
+                "alreadyMember" -> JoinResult(outcome, roomId, "", message, JoinTone.Success, next, code)
+                "offline" -> JoinResult(outcome, null, "", message ?: OFFLINE, JoinTone.Offline, next, code)
+                else -> JoinResult(outcome, null, "", message ?: FAILED, JoinTone.Error, next, code)
             }
         }
     }
