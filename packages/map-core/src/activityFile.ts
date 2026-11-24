@@ -47,7 +47,27 @@ export type ParsedActivityFile = {
   elapsedSeconds: number | null;
   /** Null when the file has no elevation. */
   elevationGainMeters: number | null;
+  /** What the activity was, when the file says (FIT session sport, TCX Sport, GPX type). */
+  sport: ActivitySport | null;
 };
+
+export type ActivitySport = "running" | "trail_running" | "walking" | "hiking" | "cycling" | "other";
+
+/** Runs and hikes feed pacing history; rides, swims and the rest don't. Unknown counts as a run. */
+export function isFootActivity(sport: ActivitySport | null): boolean {
+  return sport === null || sport === "running" || sport === "trail_running" || sport === "walking" || sport === "hiking";
+}
+
+function sportFromText(text: string | null | undefined): ActivitySport | null {
+  if (!text) return null;
+  const t = text.toLowerCase();
+  if (/trail/.test(t)) return "trail_running";
+  if (/run/.test(t)) return "running";
+  if (/hik/.test(t)) return "hiking";
+  if (/walk/.test(t)) return "walking";
+  if (/bik|cycl|ride/.test(t)) return "cycling";
+  return "other";
+}
 
 const UNSUPPORTED_MESSAGE = "Unsupported file. Choose a .gpx, .fit or .tcx activity export.";
 const NO_ACTIVITY_MESSAGE = "This file has no distance to import. Choose a recorded run.";
@@ -99,7 +119,8 @@ export function parseActivityFile(bytes: Uint8Array, fileName?: string): ParsedA
 function summarize(
   format: ActivityFileFormat,
   points: GpxTrackPoint[],
-  summary: { distanceMeters?: number; startTimestampMs?: number; elapsedSeconds?: number; ascentMeters?: number }
+  summary: { distanceMeters?: number; startTimestampMs?: number; elapsedSeconds?: number; ascentMeters?: number },
+  sport: ActivitySport | null = null
 ): ParsedActivityFile {
   const positioned = points.filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
   const trackDistance = positioned.length >= 2 ? computeTrackDistanceMeters(positioned) : 0;
@@ -130,7 +151,8 @@ function summarize(
     distanceMeters,
     startTimestampMs,
     elapsedSeconds,
-    elevationGainMeters
+    elevationGainMeters,
+    sport
   };
 }
 
@@ -148,10 +170,16 @@ function parseGpxActivity(xml: string): ParsedActivityFile {
     throw new ActivityFileError("file_corrupt", "Couldn't read this GPX file. Export it again and retry.");
   }
   const timed = parsed.points.filter((point) => point.timestampMs !== null).length >= 2 && parsed.startTimestampMs > 0;
-  return summarize("gpx", parsed.points, {
-    distanceMeters: parsed.totalDistanceMeters,
-    ...(timed ? { startTimestampMs: parsed.startTimestampMs, elapsedSeconds: parsed.totalDurationSeconds } : {})
-  });
+  const type = xml.match(/<trk\b[^>]*>[\s\S]*?<type>\s*([^<]+?)\s*<\/type>/i)?.[1];
+  return summarize(
+    "gpx",
+    parsed.points,
+    {
+      distanceMeters: parsed.totalDistanceMeters,
+      ...(timed ? { startTimestampMs: parsed.startTimestampMs, elapsedSeconds: parsed.totalDurationSeconds } : {})
+    },
+    sportFromText(type)
+  );
 }
 
 // MARK: TCX
@@ -217,12 +245,13 @@ export function parseTcxActivity(xml: string): ParsedActivityFile {
 
   const times = points.map((point) => point.timestampMs).filter((value): value is number => value !== null);
   const trackSeconds = times.length >= 2 ? (times[times.length - 1]! - times[0]!) / 1000 : 0;
+  const sportAttr = text.match(/<(?:\w+:)?Activity\b[^>]*Sport="([^"]+)"/i)?.[1];
   return summarize("tcx", points, {
     distanceMeters: lapDistance > 0 ? lapDistance : lastCumulative,
     ...(firstLapStart !== undefined ? { startTimestampMs: firstLapStart } : {}),
     // Elapsed includes stops; lap TotalTimeSeconds is moving time on some watches.
     elapsedSeconds: trackSeconds > 0 ? trackSeconds : lapSeconds
-  });
+  }, sportFromText(sportAttr));
 }
 
 // MARK: FIT
@@ -334,7 +363,19 @@ type FitSession = {
   elapsedSeconds: number | null;
   distanceMeters: number | null;
   ascentMeters: number | null;
+  sport: number | null;
+  subSport: number | null;
 };
+
+/** FIT `sport` enum → ActivitySport. 1 running (sub_sport 3 trail), 2 cycling, 11 walking, 17 hiking. */
+function fitSport(sport: number | null, subSport: number | null): ActivitySport | null {
+  if (sport === null) return null;
+  if (sport === 1) return subSport === 3 ? "trail_running" : "running";
+  if (sport === 2) return "cycling";
+  if (sport === 11) return "walking";
+  if (sport === 17) return "hiking";
+  return "other";
+}
 
 function fitCorrupt(): ActivityFileError {
   return new ActivityFileError("file_corrupt", "Couldn't read this FIT file. Export it again and retry.");
@@ -444,7 +485,9 @@ export function parseFitActivity(bytes: Uint8Array): ParsedActivityFile {
           startTime: values.get(2) ?? null,
           elapsedSeconds: elapsed == null ? null : elapsed / 1000,
           distanceMeters: distance == null ? null : distance / 100,
-          ascentMeters: values.get(22) ?? null
+          ascentMeters: values.get(22) ?? null,
+          sport: values.get(5) ?? null,
+          subSport: values.get(6) ?? null
         });
       }
     }
@@ -470,10 +513,16 @@ export function parseFitActivity(bytes: Uint8Array): ParsedActivityFile {
   const recordDistance = records.reduce((max, record) => Math.max(max, record.distance ?? 0), 0);
   const firstStart = sessions.find((session) => session.startTime !== null)?.startTime;
 
-  return summarize("fit", points, {
-    distanceMeters: sessionDistance > 0 ? sessionDistance : recordDistance,
-    ...(firstStart != null ? { startTimestampMs: toMs(firstStart) } : {}),
-    ...(sessionElapsed > 0 ? { elapsedSeconds: sessionElapsed } : {}),
-    ...(ascents.length > 0 ? { ascentMeters: ascents.reduce((sum, value) => sum + value, 0) } : {})
-  });
+  const first = sessions[0];
+  return summarize(
+    "fit",
+    points,
+    {
+      distanceMeters: sessionDistance > 0 ? sessionDistance : recordDistance,
+      ...(firstStart != null ? { startTimestampMs: toMs(firstStart) } : {}),
+      ...(sessionElapsed > 0 ? { elapsedSeconds: sessionElapsed } : {}),
+      ...(ascents.length > 0 ? { ascentMeters: ascents.reduce((sum, value) => sum + value, 0) } : {})
+    },
+    first ? fitSport(first.sport, first.subSport) : null
+  );
 }

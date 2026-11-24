@@ -1,0 +1,19 @@
+{
+  "id": "run-share-import",
+  "platform": "ios",
+  "entry": "crewcue://dev/run-share-import",
+  "device": "iPhone 17 simulator (CrewCue android-race-tab-fold-reset-cb0afc) and iPhone Duo simulator (… Duo), iOS 27.2, Debug build",
+  "date": "2026-11-24",
+  "commit": "732cc406 + uncommitted client changes on claude/run-share-import",
+  "session": "Dev session against the local memory API (port 3652, HS256 dev JWT). Files copied into the app's Documents: hill.fit (activity-hill-run.fit), road.fit (activity-short-road.fit), export.zip (Finder-made: hill.fit, road.gpx, broken.fit, README.txt).",
+  "action": "Launched crewcue://dev/run-share-import?file=<name>, which hands the file to the same path as a share-sheet / Open-in file URL, and acted on the sheet.",
+  "checked": {
+    "Success": "hill.fit: 'Import this run?', the run line and a route sketch; Import → 'Run imported.' (API 201). export.zip: 'Import this run?' with road.gpx new, hill.fit marked 'Already imported', '2 files can't be read'; Import → 'Run imported.'",
+    "Empty": "Dev link without a file: 'Export a run from your watch app and share it to CrewCue.' with Done.",
+    "Error": "Signed out (--signed-out) with hill.fit: 'Sign in to import runs.' with OK; nothing uploaded.",
+    "Offline": "road.tcx with the API base on a closed port (127.0.0.1:3999): 'Offline. Import the file when you're back online.'",
+    "Accessibility labels": "crewcue.run-share-import, crewcue.run-share-import.confirm, crewcue.run-share-import.cancel",
+    "Adaptive": "iPhone Duo outer display (compact) shows the preview; unfolding to the inner display mid-preview keeps the same preview (no reset)."
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

@@ -267,6 +267,15 @@
       "android": "pass"
     },
     {
+      "id": "run-share-import",
+      "entry": "crewcue://dev/run-share-import",
+      "label": "crewcue.run-share-import",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
       "id": "account-deletion",
       "entry": "crewcue://dev/account-deletion",
       "label": "crewcue.account-deletion",

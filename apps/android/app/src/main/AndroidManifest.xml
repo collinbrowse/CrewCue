@@ -45,6 +45,36 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="crewcue" android:host="strava" />
             </intent-filter>
+            <!-- Run files shared or opened from watch apps and Files (run-share-import). FIT has no
+                 registered MIME type, so apps send it as octet-stream; the extension is checked after. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/gpx+xml" />
+                <data android:mimeType="application/vnd.garmin.tcx+xml" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="text/xml" />
+                <data android:mimeType="application/fit" />
+                <data android:mimeType="application/vnd.ant.fit" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/gpx+xml" />
+                <data android:mimeType="application/vnd.garmin.tcx+xml" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="text/xml" />
+                <data android:mimeType="application/fit" />
+                <data android:mimeType="application/vnd.ant.fit" />
+            </intent-filter>
         </activity>
         <service
             android:name=".ui.chat.CrewCueMessagingService"
