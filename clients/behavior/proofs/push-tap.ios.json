@@ -1,0 +1,20 @@
+{
+  "id": "push-tap",
+  "platform": "ios",
+  "entry": "crewcue://dev/app-shell",
+  "device": "iPhone simulator \"CrewCue agent-a501ac37cac7fcc7c\" (A1A883C4), iOS 27.0, Debug build",
+  "date": "2026-11-24",
+  "commit": "bb244a38 (push-tap routing, on main 5247e631)",
+  "session": "Local memory API (HS256 dev JWT) seeded with the runner's paid race Western States, unpaid race Leadville 100 (unpaidExpiresAt 30 days out) and another account's race. Signed in with --dev-session on Western States; notifications allowed from Settings. Pushes sent with xcrun simctl push and .apns files carrying the API's payload (aps alert, type, roomId); a local XCUITest driver (not committed) tapped each banner through SpringBoard.",
+  "action": "With the app open, tapped an unlock push for Leadville 100; pressed Home and tapped a tracking push for Western States; tapped an unlock push for the paid Western States; tapped a tracking push for another account's race, a push with an unknown type (schedule2) and a tracking push with an empty roomId; terminated the app and tapped an unlock push for Leadville 100 (cold launch, session restored from the Keychain); relaunched signed out (--signed-out) and tapped a tracking push; with the race list loaded, stopped the API and tapped an unlock push for Leadville 100.",
+  "checked": {
+    "Action": "Foreground unlock: switched from Western States to Leadville 100 and opened its Race Pass paywall. Background tracking: switched back to Western States, Map with the Tracking panel and Start tracking. Cold-launch unlock: the app launched straight onto Leadville 100's paywall. Signed out: the chooser stayed; nothing opened.",
+    "Success": "Paywall 'Race Pass. Unlock this race for you and your crew.' for Leadville 100; Map titled 'Western States' with 'Tracking' and 'Start tracking'; unlock for the paid Western States opened its Map with no paywall.",
+    "Empty": "Unknown type 'schedule2' and an empty roomId: the app stayed on Western States' Map.",
+    "Error": "Tracking push for another account's race: the app read the race list again, stayed on Western States' Map and opened nothing.",
+    "Offline": "API stopped (curl to it refused) after the race list loaded: the unlock tap for Leadville 100 still opened its paywall.",
+    "Accessibility labels": "crewcue.billing-purchase, crewcue.location-heartbeat, crewcue.top-bar-title; dev route crewcue.app-shell (DeeplinkSmokeTests)"
+  },
+  "unproven": "Real APNs delivery (tracking-reminder and unlock-reminder need a real phone). The 'Expires in N days' line on the Unlock race banner: the seeded unpaid race was still in runner setup, which shows no banner, so the line is covered by Swift tests only. A signed-out tap opening after a real Auth0 sign-in (dev sessions start only at launch); the hold-then-resolve is covered by PushTapInbox tests. A cold launch offline (the race list isn't cached across launches, so that tap waits for the list).",
+  "screenshots": "Attached to the PR, not committed."
+}
