@@ -244,7 +244,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `kotlin/com/crewcue/android` | 2 | 117 |
+| `kotlin/com/crewcue/android` | 2 | 118 |
 | `kotlin/com/crewcue/android/auth` | 3 | 199 |
 | `kotlin/com/crewcue/android/billing` | 3 | 252 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
