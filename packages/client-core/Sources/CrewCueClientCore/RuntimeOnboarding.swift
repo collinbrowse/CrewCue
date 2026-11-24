@@ -36,6 +36,10 @@ import Foundation
 /// - `savePendingJoin`: `code` + `source?` (link, referrer, typed; default typed). Replaces any
 ///   earlier code. A code that isn't 6 digits fails.
 /// - `readPendingJoin`, `clearPendingJoin`: answer `pendingJoin`. Clearing is device-wide.
+/// - `giveUpInvite`: Back from the join screen or the sign-in after it. Clears the pending code
+///   and the request's user's confirmed invite (and the signed-out guest's), so the same link
+///   opened later shows the preview again and sign-in joins nothing. Answers `pendingJoin` (null)
+///   and `state` as `readOnboarding` would.
 /// - `resolvePendingJoin`: joins the user's saved code as the request's user (`baseURL`, `token`,
 ///   `userId`) and answers `outcome` (joined, alreadyMember, raceFull, raceLocked, invalidCode,
 ///   offline, signedOut, failed, nothingPending), `roomId`, `message`, `clearsCode` and
@@ -138,6 +142,14 @@ extension RuntimeCall {
     static func readPendingJoin(_ object: [String: Any]) throws -> Any {
         let store = try onboardingStore(object).pendingJoins
         return ["pendingJoin": pendingJoinJSON(store.read(userId: pendingJoinUser(object), now: SystemClock().now()))]
+    }
+
+    static func giveUpInvite(_ object: [String: Any]) throws -> Any {
+        let store = try onboardingStore(object)
+        try store.giveUpInvite(userId: onboardingSignedIn(object) ? text(object, "userId") : nil)
+        guard var answer = try readOnboarding(object) as? [String: Any] else { return ["pendingJoin": NSNull()] }
+        answer["pendingJoin"] = NSNull()
+        return answer
     }
 
     static func clearPendingJoin(_ object: [String: Any]) throws -> Any {

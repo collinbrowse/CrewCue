@@ -23,7 +23,7 @@ import Dispatch
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
-/// readPendingJoin, clearPendingJoin, resolvePendingJoin (`RuntimeOnboarding.swift`),
+/// readPendingJoin, clearPendingJoin, giveUpInvite, resolvePendingJoin (`RuntimeOnboarding.swift`),
 /// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceSeek, demoRaceRunner, demoRaceCleanup
 /// (`RuntimeDemoRace.swift`),
 /// raceStartInput, gpxPreview, raceAccess, suggestedDisplayName, runnerSetupStep, updateRaceStart
@@ -308,6 +308,8 @@ enum RuntimeCall {
             return try readPendingJoin(object)
         case "clearPendingJoin":
             return try clearPendingJoin(object)
+        case "giveUpInvite":
+            return try giveUpInvite(object)
         case "resolvePendingJoin":
             return try await resolvePendingJoin(object)
         case "demoRaceCreate":

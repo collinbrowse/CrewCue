@@ -172,6 +172,12 @@ final class OnboardingModel {
         read()
     }
 
+    /// The code to show after the auto-join answered `outcome` (`PendingJoinStore.nextCode`).
+    func nextCode(after outcome: PendingJoinOutcome) -> PendingJoin? {
+        guard let store else { return nil }
+        return store.pendingJoins.nextCode(after: outcome, userId: signedIn ? userId : nil, now: clock.now())
+    }
+
     /// The signed-out invite a sign-in landing now should join (`OnboardingStore.confirmedInviteForSignIn`).
     func confirmedInviteForSignIn() -> PendingJoin? {
         store?.confirmedInviteForSignIn(now: clock.now())

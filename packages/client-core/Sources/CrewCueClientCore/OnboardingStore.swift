@@ -23,6 +23,9 @@ public struct OnboardingProgress: Equatable, Sendable {
     /// so on a shared device it never joins whoever signs in days later.
     public var confirmedInviteAt: Date?
     public static let confirmedInviteLifetime: TimeInterval = 30 * 60
+    /// How far ahead of `now` a confirmation may be stamped (clock jitter) and still count. One
+    /// stamped further ahead is expired: a skewed clock never stretches it.
+    public static let confirmedInviteFutureSkew: TimeInterval = 60
 
     public init(
         choice: OnboardingChoice? = nil,
@@ -42,11 +45,12 @@ public struct OnboardingProgress: Equatable, Sendable {
         self.confirmedInviteAt = confirmedInviteAt.map(Self.wholeMilliseconds)
     }
 
-    /// The confirmation is recent enough to count at `now`: within `confirmedInviteLifetime`
-    /// either way (a clock moved back doesn't stretch it).
+    /// The confirmation is recent enough to count at `now`: younger than `confirmedInviteLifetime`,
+    /// and stamped no more than `confirmedInviteFutureSkew` ahead of `now`.
     public func inviteConfirmationIsCurrent(at now: Date) -> Bool {
         guard confirmedInvite != nil, let at = confirmedInviteAt else { return false }
-        return abs(now.timeIntervalSince(at)) < Self.confirmedInviteLifetime
+        let age = now.timeIntervalSince(at)
+        return age >= -Self.confirmedInviteFutureSkew && age < Self.confirmedInviteLifetime
     }
 
     /// `inviteConfirmed(_:)` that also needs the confirmation to be current at `now`.
@@ -459,8 +463,13 @@ extension OnboardingStore {
         now: Date,
         invite: (PendingJoin?) -> String?
     ) throws -> OnboardingRead {
-        // A confirmation older than its lifetime no longer counts.
-        let progress = try self.progress(signedIn: signedIn, userId: userId, races: races).withCurrentConfirmation(at: now)
+        // A confirmation past its lifetime (or stamped too far ahead) no longer counts, and is
+        // removed from the file so a clock that comes back can't revive it.
+        let read = try self.progress(signedIn: signedIn, userId: userId, races: races)
+        var progress = read.withCurrentConfirmation(at: now)
+        if progress != read {
+            progress = try clearConfirmedInvite(userId: signedIn ? userId : nil).withCurrentConfirmation(at: now)
+        }
         let saved = pendingJoins.read(userId: signedIn ? userId : nil, now: now)
         let state = Onboarding.resolve(OnboardingInput(
             signedIn: signedIn, userId: userId, pendingInvite: invite(saved),

@@ -17,7 +17,10 @@ struct JoinCrewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if let onBack {
-                    Button("Back", action: onBack)
+                    Button("Back") {
+                        model.dismissNotice()
+                        onBack()
+                    }
                         .font(CrewFont.bodyLarge)
                         .foregroundStyle(theme.primary)
                         .accessibilityIdentifier("crewcue.join-crew.back")

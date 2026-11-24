@@ -322,6 +322,15 @@ public struct PendingJoinStore: Sendable {
         return outcome
     }
 
+    /// The code to show after `resolve` answered `outcome` for `userId`: after a join that landed
+    /// (`joined`, `alreadyMember`), whatever is still pending is a newer link opened while the join
+    /// was out, and its join screen comes next. Nil when nothing newer is pending, or for any
+    /// other outcome (the same code stays on screen with the outcome's message).
+    public func nextCode(after outcome: PendingJoinOutcome, userId: String?, now: Date) -> PendingJoin? {
+        guard outcome.roomId != nil else { return nil }
+        return read(userId: userId, now: now)
+    }
+
     private static func join(graph: ClientGraph, code: String, deadlineSeconds: Double) async throws -> PendingJoinOutcome {
         let member: Set<String>?
         do {

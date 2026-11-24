@@ -121,6 +121,18 @@ final class JoinCrewModel {
         statusMessage = InviteCopy.joining
     }
 
+    /// The auto-join after sign-in landed, and a newer link is pending: the screen leaves the busy
+    /// state and shows that code with its preview.
+    func endAutoJoin(adopting next: String) {
+        joining = false
+        adopt(code: next)
+    }
+
+    /// Back closed the join screen: an earlier join's note doesn't follow the person back.
+    func dismissNotice() {
+        notice = ""
+    }
+
     /// What joining the pending invite came to, when it didn't land in the race.
     func show(_ outcome: PendingJoinOutcome) {
         joining = false

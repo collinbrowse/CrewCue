@@ -257,8 +257,8 @@ final class ShellModel {
         switch outcome {
         case .joined(let roomId), .alreadyMember(let roomId):
             // `resolve` clears only the code it joined: a link opened meanwhile stays pending.
-            if let newer = onboarding.pendingJoin {
-                joinModel.adopt(code: newer.code)
+            if let newer = onboarding.nextCode(after: outcome) {
+                joinModel.endAutoJoin(adopting: newer.code)
             } else {
                 if onboarding.races.isEmpty { onboarding.noteJoinedAwaitingRaces() }
                 joinModel.clear()
