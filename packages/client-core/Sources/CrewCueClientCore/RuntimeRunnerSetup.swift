@@ -54,8 +54,10 @@ import Foundation
 ///     legacy `activatedAt`), or null.
 ///   - `historyShowsContinue`: `reviewing`, `importedThisVisit`, `raceHasEstimate` → `value`.
 ///   - `historyContinue`: `reviewing`, `estimateDropped`, `importedThisVisit`,
-///     `attachedThisVisit`, `raceHasEstimate` → `action`: `moveOn`, `keepRaceEstimate` or `recompute`.
-///     `raceHasEstimate` is the race list's `OnboardingRace.hasEstimate`; left out, false.
+///     `attachedThisVisit`, `raceHasEstimate` → `action`: `moveOn`, `keepRaceEstimate` (the race's
+///     estimate, on a phone that never ended the step: no request) or `recompute`; and `marks`,
+///     whether Continue marks the step (`historyContinueMarks`). `raceHasEstimate` is the race
+///     list's `OnboardingRace.hasEstimate`; left out, false.
 ///   - `resumeStep`: `frontier`, `courseUnsaved`, `coursePreviewed`, `startUnsaved`,
 ///     `estimateDropped` → `step`, the step a relaunch reopens, or null to stay on the frontier.
 /// - `updateRaceStart`: `roomId`, `raceStartAt` → `PATCH /race-rooms/:roomId/race-start`, which
@@ -259,11 +261,13 @@ extension RuntimeCall {
             )
             return ["adoption": raceStartAdoptionName(adoption), "raceStart": raceStart ?? NSNull()] as [String: Any]
         case "historyShowsContinue":
-            return ["value": RunnerSetupSteps.historyShowsContinue(
-                reviewing: flag("reviewing"),
-                importedThisVisit: flag("importedThisVisit"),
-                raceHasEstimate: flag("raceHasEstimate")
-            )]
+            return [
+                "value": RunnerSetupSteps.historyShowsContinue(
+                    reviewing: flag("reviewing"),
+                    importedThisVisit: flag("importedThisVisit"),
+                    raceHasEstimate: flag("raceHasEstimate")
+                )
+            ]
         case "historyContinue":
             let action = RunnerSetupSteps.historyContinue(
                 reviewing: flag("reviewing"),
@@ -272,7 +276,10 @@ extension RuntimeCall {
                 attachedThisVisit: flag("attachedThisVisit"),
                 raceHasEstimate: flag("raceHasEstimate")
             )
-            return ["action": action.rawValue]
+            return [
+                "action": action.rawValue,
+                "marks": RunnerSetupSteps.historyContinueMarks(action, attachedThisVisit: flag("attachedThisVisit"))
+            ] as [String: Any]
         case "resumeStep":
             let open = RunnerSetupSteps.resumeStep(
                 frontier: try step("frontier"),

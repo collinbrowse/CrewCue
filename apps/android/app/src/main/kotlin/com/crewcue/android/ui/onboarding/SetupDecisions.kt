@@ -106,7 +106,9 @@ data class SetupRules(
         /** client-core's instant for the start fields, null while they name none. */
         val start: String?,
         val savedStart: String?,
-        val historyImported: Boolean
+        val historyImported: Boolean,
+        /** The race list says the race has an estimate (its `hasEstimate`). */
+        val raceHasEstimate: Boolean
     )
 
     companion object {
@@ -180,7 +182,11 @@ class SetupDecisions(private val runtime: RunnerSetupRuntime) {
                 start = inputs.start,
                 savedStart = inputs.savedStart
             ),
-            historyShowsContinue = historyShowsContinue(reviewing = reviewing, importedThisVisit = inputs.historyImported)
+            historyShowsContinue = historyShowsContinue(
+                reviewing = reviewing,
+                importedThisVisit = inputs.historyImported,
+                raceHasEstimate = inputs.raceHasEstimate
+            )
         )
     }
 
@@ -272,20 +278,44 @@ class SetupDecisions(private val runtime: RunnerSetupRuntime) {
         return Adoption(RaceStartAdoption.from(answer.optText("adoption")), answer.optText("raceStart").ifBlank { null })
     }
 
-    fun historyShowsContinue(reviewing: Boolean, importedThisVisit: Boolean): Boolean =
-        ask("historyShowsContinue", JSONObject().put("reviewing", reviewing).put("importedThisVisit", importedThisVisit))
-            ?.optBoolean("value") ?: importedThisVisit
-
-    /** True when the history step's Continue computes and attaches an estimate; false keeps the race's. */
-    fun historyRecomputes(reviewing: Boolean, estimateDropped: Boolean, importedThisVisit: Boolean, attachedThisVisit: Boolean): Boolean =
+    fun historyShowsContinue(reviewing: Boolean, importedThisVisit: Boolean, raceHasEstimate: Boolean): Boolean =
         ask(
+            "historyShowsContinue",
+            JSONObject()
+                .put("reviewing", reviewing)
+                .put("importedThisVisit", importedThisVisit)
+                .put("raceHasEstimate", raceHasEstimate)
+        )?.optBoolean("value") ?: importedThisVisit
+
+    /**
+     * What the history step's Continue does. [HistoryContinue.recomputes]: it computes and attaches
+     * an estimate; false keeps the race's. [HistoryContinue.marks]: the step is marked with how it
+     * ended (a reviewed, unchanged step keeps its mark). Unanswered, it recomputes and marks.
+     */
+    fun historyContinue(
+        reviewing: Boolean,
+        estimateDropped: Boolean,
+        importedThisVisit: Boolean,
+        attachedThisVisit: Boolean,
+        raceHasEstimate: Boolean
+    ): HistoryContinue {
+        val answer = ask(
             "historyContinue",
             JSONObject()
                 .put("reviewing", reviewing)
                 .put("estimateDropped", estimateDropped)
                 .put("importedThisVisit", importedThisVisit)
                 .put("attachedThisVisit", attachedThisVisit)
-        )?.optText("action") != "moveOn"
+                .put("raceHasEstimate", raceHasEstimate)
+        ) ?: return HistoryContinue(recomputes = true, marks = true)
+        val action = answer.optText("action")
+        return HistoryContinue(
+            recomputes = action != "moveOn" && action != "keepRaceEstimate",
+            marks = answer.optBoolean("marks", true)
+        )
+    }
+
+    data class HistoryContinue(val recomputes: Boolean, val marks: Boolean)
 
     /** The step a relaunch reopens behind [frontier], or null to stay on it. */
     fun resumeStep(frontier: String, courseUnsaved: Boolean, coursePreviewed: Boolean, startUnsaved: Boolean, estimateDropped: Boolean): String? =

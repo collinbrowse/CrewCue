@@ -1027,8 +1027,9 @@ enum RuntimeCall {
     }
 
     /// The user's races plus the one every tab follows. `roomId` is the preferred active room.
-    /// Each row also carries `entitlementStatus`, `hasCourse` and the legacy `activatedAt` (the
-    /// race clock's start when `raceStartAt` is unset), so it can go back to `readOnboarding`.
+    /// Each row also carries `entitlementStatus`, `hasCourse`, `hasEstimate` (an estimate is
+    /// attached) and the legacy `activatedAt` (the race clock's start when `raceStartAt` is unset),
+    /// so it can go back to `readOnboarding`.
     private static func myRaces(_ object: [String: Any]) async throws -> Any {
         let graph = try graph(object)
         let userId = object["userId"] as? String ?? ""
@@ -1042,6 +1043,7 @@ enum RuntimeCall {
                 row["roleLabel"] = race.roleLabel
                 row["entitlementStatus"] = onboarding.entitlementStatus
                 row["hasCourse"] = onboarding.hasCourse
+                row["hasEstimate"] = onboarding.hasEstimate
                 if let activatedAt = room.activatedAt?.trimmingCharacters(in: .whitespacesAndNewlines), !activatedAt.isEmpty {
                     row["activatedAt"] = activatedAt
                 }
