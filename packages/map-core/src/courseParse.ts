@@ -435,7 +435,8 @@ function extractTrackPoints(gpxXml: string, mode: GpxPointTagMode = "all"): GpxT
     const longitude = extractCoordinate(attributes, "lon");
     const elevationMeters = extractOptionalNumericTag(body, "ele");
     const timestampMs = extractOptionalTimestamp(body);
-    const cadence = extractOptionalNumericTag(body, "cad");
+    // Garmin writes `<gpxtpx:cad>`; COROS writes `<gpxdata:cadence>` (cluetrust GPXDATA).
+    const cadence = extractOptionalNumericTag(body, "cad") ?? extractOptionalNumericTag(body, "cadence");
 
     if (latitude === null || longitude === null) {
       continue;

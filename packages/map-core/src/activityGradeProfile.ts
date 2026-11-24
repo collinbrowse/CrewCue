@@ -37,6 +37,9 @@ export const GRADE_PROFILE_HIGH_MAX_SPACING_METERS = 5;
 /** Low quality: elevation noise at or above this, or points at least LOW_MIN_SPACING apart. */
 export const GRADE_PROFILE_LOW_MIN_NOISE_METERS = 0.6;
 export const GRADE_PROFILE_LOW_MIN_SPACING_METERS = 15;
+/** Altitude steps finer than this aren't treated as rounding (FIT stores 0.2 m natively). */
+export const GRADE_PROFILE_ROUNDING_MIN_STEP_METERS = 0.25;
+export const GRADE_PROFILE_ROUNDED_MIN_SHARE = 0.95;
 /** Slower than this over a step counts as stopped and is left out… */
 export const GRADE_PROFILE_MOVING_MIN_SPEED_MPS = 0.5;
 /** …unless it's climbing at least this fast (360 m/h): a slow hike up a 40% wall is still moving. */
@@ -98,13 +101,35 @@ function median(values: number[]): number {
  */
 export function estimateElevationNoiseMeters(elevations: readonly number[]): number {
   if (elevations.length < 3) return 0;
+  const rounding = elevationRoundingMeters(elevations);
   const second: number[] = [];
   for (let index = 1; index < elevations.length - 1; index += 1) {
     second.push(elevations[index + 1]! - 2 * elevations[index]! + elevations[index - 1]!);
   }
   const center = median(second);
   const mad = median(second.map((value) => Math.abs(value - center)));
-  return (mad * 1.4826) / Math.sqrt(6);
+  // Rounded altitude (COROS writes whole meters) makes most second differences exactly 0, so the
+  // MAD reads 0. The rounding itself is noise of step/√12, and 1 m steps make false grades over a
+  // short window, so it is the floor.
+  return Math.max((mad * 1.4826) / Math.sqrt(6), rounding / Math.sqrt(12));
+}
+
+/**
+ * The step altitude is rounded to (e.g. 1 m), or 0 when it isn't visibly rounded: at least
+ * ROUNDED_MIN_SHARE of values sit on multiples of the smallest change between points.
+ */
+export function elevationRoundingMeters(elevations: readonly number[]): number {
+  let step = Infinity;
+  for (let index = 1; index < elevations.length; index += 1) {
+    const delta = Math.abs(elevations[index]! - elevations[index - 1]!);
+    if (delta > 1e-6 && delta < step) step = delta;
+  }
+  if (!Number.isFinite(step) || step < GRADE_PROFILE_ROUNDING_MIN_STEP_METERS) return 0;
+  const onGrid = elevations.filter((value) => {
+    const r = value / step;
+    return Math.abs(r - Math.round(r)) < 1e-3;
+  }).length;
+  return onGrid / elevations.length >= GRADE_PROFILE_ROUNDED_MIN_SHARE ? step : 0;
 }
 
 export function gradeProfileQuality(
@@ -176,11 +201,20 @@ function smoothedStepsPerMinute(samples: readonly TrackSample[]): Array<number |
   return out;
 }
 
+/** One moving 5 m step of a track: where it starts, its smoothed grade, time, and run or hike. */
+export type ActivityGradeStep = { atMeters: number; grade: number; seconds: number; hiking: boolean };
+
+export type ActivityGradeSteps = Pick<
+  ActivityGradeProfile,
+  "quality" | "smoothingMeters" | "elevationNoiseMeters" | "medianPointSpacingMeters" | "labelSource"
+> & { steps: ActivityGradeStep[] };
+
 /**
- * Build the grade profile for one activity, or null when the track has no clock times, no
- * elevation, too little distance, or points too far apart.
+ * The moving steps behind the grade profile (stopped time left out), or null when the track has
+ * no clock times, no elevation, too little distance, or points too far apart. Used by the profile
+ * and by backtests that score a run section by section.
  */
-export function buildActivityGradeProfile(points: readonly GpxTrackPoint[]): ActivityGradeProfile | null {
+export function buildActivityGradeSteps(points: readonly GpxTrackPoint[]): ActivityGradeSteps | null {
   const samples = toSamples(points);
   if (samples.length < GRADE_PROFILE_MIN_POINTS) return null;
   const totalMeters = samples[samples.length - 1]!.meters;
@@ -230,10 +264,7 @@ export function buildActivityGradeProfile(points: readonly GpxTrackPoint[]): Act
     return (prefix[to + 1]! - prefix[from]!) / (to - from + 1);
   });
 
-  const max = ACTIVITY_GRADE_PROFILE_MAX_PERCENT;
-  const bins = new Map<number, ActivityGradeProfileBin>();
-  let movingMeters = 0;
-  let movingSeconds = 0;
+  const steps: ActivityGradeStep[] = [];
   for (let index = 0; index + 1 < smoothed.length; index += 1) {
     const seconds = (gridTimeMs[index + 1]! - gridTimeMs[index]!) / 1000;
     if (!(seconds > 0)) continue;
@@ -242,7 +273,6 @@ export function buildActivityGradeProfile(points: readonly GpxTrackPoint[]): Act
     const moving =
       step / seconds >= GRADE_PROFILE_MOVING_MIN_SPEED_MPS || rise / seconds >= GRADE_PROFILE_MOVING_MIN_CLIMB_RATE_MPS;
     if (!moving) continue;
-    const gradePercent = Math.max(-max, Math.min(max, Math.round(grade * 100)));
 
     const cadence = stepsPerMinute?.[gridSample[index]!] ?? null;
     let hiking: boolean;
@@ -256,6 +286,27 @@ export function buildActivityGradeProfile(points: readonly GpxTrackPoint[]): Act
           : speed < GRADE_PROFILE_FALLBACK_HIKE_MAX_MPS;
     }
 
+    steps.push({ atMeters: index * step, grade, seconds, hiking });
+  }
+  if (steps.length === 0) return null;
+  return { quality, smoothingMeters, elevationNoiseMeters, medianPointSpacingMeters, labelSource, steps };
+}
+
+/**
+ * Build the grade profile for one activity, or null when the track has no clock times, no
+ * elevation, too little distance, or points too far apart.
+ */
+export function buildActivityGradeProfile(points: readonly GpxTrackPoint[]): ActivityGradeProfile | null {
+  const built = buildActivityGradeSteps(points);
+  if (!built) return null;
+  const { quality, smoothingMeters, elevationNoiseMeters, medianPointSpacingMeters, labelSource } = built;
+  const step = GRADE_PROFILE_STEP_METERS;
+  const max = ACTIVITY_GRADE_PROFILE_MAX_PERCENT;
+  const bins = new Map<number, ActivityGradeProfileBin>();
+  let movingMeters = 0;
+  let movingSeconds = 0;
+  for (const { grade, seconds, hiking } of built.steps) {
+    const gradePercent = Math.max(-max, Math.min(max, Math.round(grade * 100)));
     let bin = bins.get(gradePercent);
     if (!bin) {
       bin = { gradePercent, runMeters: 0, runSeconds: 0, hikeMeters: 0, hikeSeconds: 0 };

@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseActivityFile } from "./activityFile.js";
-import { buildActivityGradeProfile, estimateElevationNoiseMeters, gradeProfileQuality } from "./activityGradeProfile.js";
+import {
+  buildActivityGradeProfile,
+  elevationRoundingMeters,
+  estimateElevationNoiseMeters,
+  gradeProfileQuality
+} from "./activityGradeProfile.js";
+import { parseGpxActivityTrack } from "./courseParse.js";
 import type { GpxTrackPoint } from "./courseParse.js";
 import { encodeFitActivity } from "./fitTestEncoder.js";
 
@@ -140,7 +146,7 @@ test("quality thresholds", () => {
   assert.equal(gradeProfileQuality(0.1, 8), "typical");
   assert.equal(gradeProfileQuality(0.7, 3), "low");
   assert.equal(gradeProfileQuality(0.1, 20), "low");
-  assert.equal(estimateElevationNoiseMeters([1, 2, 3, 4, 5, 6]), 0);
+  assert.ok(estimateElevationNoiseMeters([1.1, 2.3, 3.5, 4.7, 5.9, 7.1]) < 1e-9);
 });
 
 test("without cadence, a slow climb is hiking by the speed rule", () => {
@@ -203,4 +209,32 @@ test("FIT cadence reaches the profile", () => {
   assert.ok(profile);
   assert.equal(profile.labelSource, "cadence");
   assert.ok(Math.abs(totals(profile, "hike").meters - 500) <= 25);
+});
+
+test("whole-meter altitude counts as rounding noise, not a clean file", () => {
+  const points = track([{ meters: 2000, grade: 0.05, speed: 3, cadence: 85 }]).map((point) => ({
+    ...point,
+    elevationMeters: Math.round(point.elevationMeters!)
+  }));
+  const elevations = points.map((point) => point.elevationMeters!);
+  assert.equal(elevationRoundingMeters(elevations), 1);
+  assert.ok(Math.abs(estimateElevationNoiseMeters(elevations) - 1 / Math.sqrt(12)) < 1e-9);
+  const profile = buildActivityGradeProfile(points);
+  assert.ok(profile);
+  assert.equal(profile.quality, "typical");
+  assert.equal(profile.smoothingMeters, 30);
+  // FIT's native 0.2 m resolution is not treated as rounding.
+  assert.equal(elevationRoundingMeters(elevations.map((value, index) => value + (index % 5) * 0.2)), 0);
+});
+
+test("COROS GPX cadence (gpxdata:cadence) is read", () => {
+  const gpx = `<?xml version="1.0"?><gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxdata="http://www.cluetrust.com/XML/GPXDATA/1/0" creator="COROS Wearables" version="1.1"><trk><trkseg>
+<trkpt lat="37.28684" lon="-107.87856"><ele>1950</ele><time>2026-11-19T13:07:41Z</time><extensions><gpxdata:distance>0.00</gpxdata:distance><gpxdata:cadence>57</gpxdata:cadence></extensions></trkpt>
+<trkpt lat="37.28700" lon="-107.87860"><ele>1951</ele><time>2026-11-19T13:07:51Z</time><extensions><gpxdata:cadence>86</gpxdata:cadence></extensions></trkpt>
+</trkseg></trk></gpx>`;
+  const parsed = parseGpxActivityTrack(gpx);
+  assert.deepEqual(
+    parsed.points.map((point) => point.cadence),
+    [57, 86]
+  );
 });
