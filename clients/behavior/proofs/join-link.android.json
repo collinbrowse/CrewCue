@@ -2,18 +2,18 @@
   "id": "join-link",
   "platform": "android",
   "entry": "crewcue://dev/join-link",
-  "device": "crewcue_api_35 emulator (API 35, Play Store image) and crewcue_fold_api_35 foldable (folded and unfolded), emulator-5608, debug APK",
+  "device": "crewcue_api_35 phone emulator (API 35) and crewcue_fold_api_35 foldable (folded and unfolded), emulator-5608, debug APK",
   "date": "2026-11-24",
-  "commit": "claude/onboarding-7c-android-invite-links, rebased on 7b 26805c2f",
-  "session": "Local memory API (dev JWTs) seeded with Ana's Leadville 100 (paid, unlimited crew), Western States 100 (paid, one crew seat taken) and Hardrock 100 (unpaid). Signed out after pm clear; sign-up stood in for by a debug dev session for a new user (crew-cara) after a force-stop.",
-  "action": "adb shell am start -a android.intent.action.VIEW -d 'https://collinbrowse.github.io/crewcue/join/?code=017077' signed out; force-stop, then a new dev session; crewcue://join/<code> signed in for the full, unpaid, unknown and offline cases; a faked Play referrer (--es crewcueFakeReferrer 'utm_source=google-play&utm_medium=organic&crewcue_join%3D017077') on the first launch after pm clear.",
+  "commit": "d65d44a6",
+  "session": "Local memory API on port 3000, the only listener; the API log shows only this run's actors. Seeded: Ana's Leadville 100 (paid, unlimited crew, 055818), Western States 100 (paid, one crew seat taken, 257646), Hardrock 100 (unpaid). New sign-ups stood in for by debug dev sessions for new users (crew-cara, crew-dan, crew-eve) after a force-stop.",
+  "action": "Signed out, adb opened https://collinbrowse.github.io/crewcue/join/?code=055818 and crewcue://join/<code>; Sign up to join; force-stop; a dev session for a new user. Separately, the link opened and left, then a dev session. Also crewcue://join/12, Paste invite code, Join on a full race, an unknown code, and Wi-Fi and data off.",
   "checked": {
-    "Action": "pm get-app-links: collinbrowse.github.io verified (debug fingerprint). The https link opened the app, saved @pending-join.json (source link, no owner) and showed the code with 'You're joining Ana's race: Leadville 100.' A new session joined without a tap (POST join-by-code 200), cleared the file and landed on the race. The faked referrer showed the same join screen (source referrer); a second launch with another referrer was ignored. Unfolding mid-flow kept the code and preview.",
-    "Success": "Joined Leadville 100 after sign-up; session room and role crew_member stored. Rejoining Leadville signed in answered alreadyMember and moved to the race.",
-    "Empty": "crewcue://join/<5 digits> before the rebase: nothing saved. After the rebase it opens the join screen with \"That link didn't include an invite code. Paste it or type the 6 digits.\" (InviteLinksTest.aJoinLinkWithoutACodeStillOpensTheJoinScreen, Swift joinLinksAreKnownWithOrWithoutACode); not re-seen on the device. Not now and Back forgot the saved invite.",
-    "Error": "Unknown code 999999: 'That invite code was not found.' (code cleared). Western States: 'This race is full. Ask the runner to upgrade their pass.' (409, code kept). Hardrock: 'The runner hasn't unlocked this race yet.' (402, code kept).",
-    "Offline": "Wi-Fi and data off: 'Offline. Invite preview needs the network.', then Join: 'Offline. Joining a race needs the network.' with the code kept; back online, Join resolved.",
-    "Accessibility labels": "crewcue.join-link (dev route, agent:android:ready ok after the rebase), crewcue.join-crew, crewcue.join-crew.preview, crewcue.join-crew.leave. crewcue.join-crew.paste and crewcue.join-crew.race-full were added in the rebase and are covered by JVM and Swift tests only: the emulator re-run stalled under host load."
+    "Action": "Sign up to join confirmed the invite (confirmedInvite and confirmedInviteAtMs in the guest file) and opened Auth0 sign-up in a Custom Tab. The next new session (crew-dan on the phone, crew-eve on the unfolded foldable) joined without a tap: join-by-code 200, pending file cleared, the race's tab bar. A link opened and left, then a new session (crew-cara): no join-by-code call; the join screen shows the code and preview with Join and Not now. The foldable kept the code and preview across unfolding.",
+    "Success": "'You're joining Ana's race' with 'Leadville 100, 1 member, active' under it; after Sign up to join, the new account joined and landed in the race.",
+    "Empty": "crewcue://join/12: the join screen with 'That link didn't include an invite code. Paste it or type the 6 digits.' Paste invite code (crewcue.join-crew.paste) read 055818 from the clipboard and showed its preview.",
+    "Error": "Unknown code 999999: 'That invite code was not found.' Western States: 'This race is full. Ask the runner to add Full Crew so more crew can join.' on crewcue.join-crew.race-full (409).",
+    "Offline": "Wi-Fi and data off: 'Offline. Invite preview needs the network.'",
+    "Accessibility labels": "crewcue.join-link (dev route, agent:android:ready ok), crewcue.join-crew, crewcue.join-crew.preview, crewcue.join-crew.paste, crewcue.join-crew.race-full"
   },
   "screenshots": "Attached to the PR, not committed."
 }
