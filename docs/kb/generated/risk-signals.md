@@ -52,7 +52,7 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 1014 |
 | [apps/ios/CrewCue/Screens/Map/MapModel.swift](../../../apps/ios/CrewCue/Screens/Map/MapModel.swift) | 907 |
 | [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 899 |
-| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 875 |
+| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 878 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RacePreviewScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RacePreviewScreen.kt) | 861 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt) | 838 |
 | [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift) | 818 |
