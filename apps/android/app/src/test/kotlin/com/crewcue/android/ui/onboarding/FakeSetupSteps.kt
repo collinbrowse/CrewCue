@@ -74,11 +74,19 @@ object FakeSetupSteps {
                 }
                 JSONObject().put("adoption", adoption).put("raceStart", raceStart ?: JSONObject.NULL)
             }
-            "historyShowsContinue" -> JSONObject().put("value", flag("reviewing") || flag("importedThisVisit"))
+            "historyShowsContinue" -> JSONObject().put(
+                "value",
+                flag("reviewing") || flag("importedThisVisit") || flag("raceHasEstimate")
+            )
             "historyContinue" -> {
-                val moveOn = flag("attachedThisVisit") ||
-                    (flag("reviewing") && !flag("estimateDropped") && !flag("importedThisVisit"))
-                JSONObject().put("action", if (moveOn) "moveOn" else "recompute")
+                val action = when {
+                    flag("attachedThisVisit") -> "moveOn"
+                    flag("estimateDropped") || flag("importedThisVisit") -> "recompute"
+                    flag("reviewing") -> "moveOn"
+                    flag("raceHasEstimate") -> "keepRaceEstimate"
+                    else -> "recompute"
+                }
+                JSONObject().put("action", action).put("marks", action != "moveOn" || flag("attachedThisVisit"))
             }
             "resumeStep" -> {
                 val frontier = step("frontier") ?: return missing

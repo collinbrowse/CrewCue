@@ -237,6 +237,11 @@ class RunnerSetupViewModel(
     private var listedRaceName by mutableStateOf(savedState.get<String>(KEY_LISTED_RACE_NAME))
     /** The race list says the race has a course. */
     private var raceListHasCourse by ruleInput(savedState.get<Boolean>(KEY_RACE_LIST_HAS_COURSE) ?: false)
+    /**
+     * The race list says the race has an estimate: a phone with no setup progress for it (a
+     * reinstall, cleared data, another phone) keeps that one on the history step's Continue.
+     */
+    private var raceListHasEstimate by ruleInput(savedState.get<Boolean>(KEY_RACE_LIST_HAS_ESTIMATE) ?: false)
 
     /**
      * The relaunch check hasn't reopened a step yet and the runner hasn't moved since this launch.
@@ -321,6 +326,7 @@ class RunnerSetupViewModel(
             pendingCourse = null
             keepListedRaceName(null)
             keepRaceListHasCourse(false)
+            keepRaceListHasEstimate(false)
             keepReviewing(null)
             keepLocalStep(null)
             keepEditedStep(null)
@@ -732,6 +738,8 @@ class RunnerSetupViewModel(
                             )
                         )
                         keepRaceListHasCourse(true)
+                        // The save dropped the race's estimate.
+                        keepRaceListHasEstimate(false)
                         keepComparison(null)
                         teaser = null
                         moveOn(SetupSteps.HISTORY)
@@ -789,13 +797,17 @@ class RunnerSetupViewModel(
      */
     val historyImported: Boolean get() = draft.historyImported
 
-    /** Continue shows after an import on this visit, and always on a history step already passed. */
+    /**
+     * Continue shows after an import on this visit, always on a history step already passed, and
+     * on a race that already has an estimate (this phone has no setup progress for it).
+     */
     val historyShowsContinue: Boolean
         get() = rules.historyShowsContinue
 
     /**
-     * Continue keeps the estimate the race has (attached on this visit, or a reviewed step's)
-     * unless a course save dropped it; otherwise the plan with all history first.
+     * Continue keeps the estimate the race has (attached on this visit, a reviewed step's, or one
+     * attached on another phone) unless a course save dropped it; otherwise the plan with all
+     * history first.
      */
     fun finishHistory() = finishHistory("done")
 
@@ -810,17 +822,20 @@ class RunnerSetupViewModel(
             val visit = draft
             val zone = raceZone
             val reviewed = freshRules().reviewing
-            val recomputes = skipped || withContext(io) {
-                decisions.historyRecomputes(
+            val decision = withContext(io) {
+                decisions.historyContinue(
                     reviewing = reviewed,
                     estimateDropped = visit.historyRedo,
                     importedThisVisit = visit.historyImported,
-                    attachedThisVisit = visit.historyAttached
+                    attachedThisVisit = visit.historyAttached,
+                    raceHasEstimate = raceListHasEstimate
                 )
             }
-            // A new estimate, or one attached on this visit: the step is marked with how it ended.
-            // Moving on over an unchanged step keeps how it was marked before.
-            val marks = recomputes || visit.historyAttached
+            val recomputes = skipped || decision.recomputes
+            // A new estimate, one attached on this visit, or the race's kept on a phone that never
+            // ended the step: the step is marked with how it ended. Moving on over an unchanged,
+            // reviewed step keeps how it was marked before.
+            val marks = skipped || decision.marks
             if (recomputes && room != null) {
                 when (val result = withContext(io) { runtime.computeEstimate(room, zone, if (skipped) HISTORY_NONE else null) }) {
                     is RuntimeResult.Failure -> {
@@ -971,13 +986,14 @@ class RunnerSetupViewModel(
         return true
     }
 
-    /** The race list's row for setup's race: its name, whether it has a course, its start. */
+    /** The race list's row for setup's race: its name, whether it has a course and an estimate, its start. */
     private suspend fun followRace(races: JSONArray?) {
         val room = roomId ?: return
         races ?: return
         val row = (0 until races.length()).mapNotNull { races.optJSONObject(it) }.firstOrNull { it.optText("id") == room } ?: return
         row.optText("name").trim().ifEmpty { null }?.let(::keepListedRaceName)
         keepRaceListHasCourse(row.optBoolean("hasCourse"))
+        keepRaceListHasEstimate(row.optBoolean("hasEstimate"))
         followRaceStart(row.optText("raceStartAt").ifBlank { null }, row.optText("activatedAt").ifBlank { null })
     }
 
@@ -1074,6 +1090,7 @@ class RunnerSetupViewModel(
         val name = shownRaceName.orEmpty()
         roomId = null
         keepRaceListHasCourse(false)
+        keepRaceListHasEstimate(false)
         writeDraft(
             draft.copy(
                 roomId = null,
@@ -1314,7 +1331,8 @@ class RunnerSetupViewModel(
         courseUnsaved = draft.courseUnsaved == true && draft.courseFileName != null,
         start = startInstant,
         savedStart = draft.savedRaceStartAt,
-        historyImported = draft.historyImported
+        historyImported = draft.historyImported,
+        raceHasEstimate = raceListHasEstimate
     )
 
     /**
@@ -1395,6 +1413,11 @@ class RunnerSetupViewModel(
         savedState[KEY_RACE_LIST_HAS_COURSE] = value
     }
 
+    private fun keepRaceListHasEstimate(value: Boolean) {
+        raceListHasEstimate = value
+        savedState[KEY_RACE_LIST_HAS_ESTIMATE] = value
+    }
+
     private fun keepHistoryMessage(value: String?) {
         historyMessage = value
         savedState[KEY_HISTORY_MESSAGE] = value
@@ -1445,6 +1468,7 @@ class RunnerSetupViewModel(
         private const val KEY_EDITED_STEP = "runner-setup.edited-step"
         private const val KEY_LISTED_RACE_NAME = "runner-setup.listed-race-name"
         private const val KEY_RACE_LIST_HAS_COURSE = "runner-setup.race-list-has-course"
+        private const val KEY_RACE_LIST_HAS_ESTIMATE = "runner-setup.race-list-has-estimate"
         const val DIALOG_DATE = "date"
         const val DIALOG_TIME = "time"
         const val DIALOG_ZONE = "zone"
