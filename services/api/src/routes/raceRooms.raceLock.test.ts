@@ -10,7 +10,7 @@ import type { MapWorkspaceLayer, RaceMapWorkspace, RaceRoom } from "@crewcue/con
 import { buildApp } from "../app.js";
 import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
-import { runInFreshProcess } from "../lib/testFreshProcess.js";
+import { runStepsInFreshProcess as inFreshProcess } from "../lib/testFreshProcess.js";
 import {
   RACE_LOCK_AFTER_START_MS,
   aidStationLockAt,
@@ -434,33 +434,6 @@ test("PATCH /race-rooms/:roomId renames the race for race-setup editors", async 
   });
 });
 
-/**
- * Runs `steps` against a fresh API process (nothing of the room in memory, so it all comes back
- * from Postgres) and returns each step's status and body.
- */
-function inFreshProcess(steps: Array<{ method: string; url: string; user: string; payload?: unknown }>) {
-  const script = `
-    const { buildApp } = await import(process.argv[1]);
-    const steps = JSON.parse(process.argv[2]);
-    const app = buildApp();
-    await app.ready();
-    const out = [];
-    for (const step of steps) {
-      const token = app.jwt.sign({ sub: step.user, teamIds: ["team-1"], roomRoles: {} });
-      const res = await app.inject({
-        method: step.method,
-        url: step.url,
-        payload: step.payload,
-        headers: { authorization: "Bearer " + token }
-      });
-      out.push({ status: res.statusCode, body: res.json() });
-    }
-    process.stdout.write("\\nRESULT:" + JSON.stringify(out) + "\\n");
-    await app.close();
-    process.exit(0);
-  `;
-  return runInFreshProcess<Array<{ status: number; body: unknown }>>(script, [JSON.stringify(steps)]);
-}
 
 test(
   "a race locked at the first aid station stays locked after an API restart: no new start or route, rename and a start correction still work",
