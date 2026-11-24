@@ -17,6 +17,9 @@ public struct RaceSummary: Codable, Equatable, Sendable {
     /// The race has a Race Pass (paid). Deleting it loses the pass. Nil on a summary stored
     /// before this field.
     public var paid: Bool?
+    /// When the server deletes this unpaid race (`unpaidExpiresAt`, ISO). Nil on paid and expired
+    /// races, and on a summary stored before this field.
+    public var unpaidExpiresAt: String?
 
     public init(
         id: String,
@@ -26,7 +29,8 @@ public struct RaceSummary: Codable, Equatable, Sendable {
         displayName: String? = nil,
         raceLockedAt: String? = nil,
         ownerId: String? = nil,
-        paid: Bool? = nil
+        paid: Bool? = nil,
+        unpaidExpiresAt: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -36,6 +40,7 @@ public struct RaceSummary: Codable, Equatable, Sendable {
         self.raceLockedAt = raceLockedAt
         self.ownerId = ownerId
         self.paid = paid
+        self.unpaidExpiresAt = unpaidExpiresAt
     }
 
     /// The course line and start can no longer change. Renaming and aid-station edits still can.
@@ -53,7 +58,8 @@ public struct RaceSummary: Codable, Equatable, Sendable {
             displayName: name.isEmpty ? nil : name,
             raceLockedAt: room.raceLockedAt,
             ownerId: room.athleteId,
-            paid: room.entitlement.status == "paid"
+            paid: room.entitlement.status == "paid",
+            unpaidExpiresAt: room.unpaidExpiresAt
         )
     }
 
