@@ -18,7 +18,7 @@ function readBearer(request: FastifyRequest): string | undefined {
   if (!raw || typeof raw !== "string") {
     return undefined;
   }
-  const match = /^Bearer\s+(.+)$/i.exec(raw.trim());
+  const match = /^Bearer\s+(\S.*)$/i.exec(raw.trim());
   const token = match?.[1]?.trim();
   return token && token.length > 0 ? token : undefined;
 }
