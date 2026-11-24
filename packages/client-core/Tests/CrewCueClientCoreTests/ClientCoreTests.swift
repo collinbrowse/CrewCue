@@ -318,13 +318,16 @@ actor CourseImportTransport: HTTPTransport {
         ("crewcue://dev/room-members", "room-members"),
         ("crewcue://dev/activity-import", "activity-import"),
         ("crewcue://dev/account-deletion", "account-deletion"),
+        ("crewcue://dev/race-delete", "race-delete"),
         ("crewcue://dev/app-shell", "app-shell"),
         ("crewcue://dev/loader", "brand-loader"),
         ("crewcue://dev/billing-purchase", "billing-purchase"),
         ("crewcue://dev/billing-upgrade", "billing-upgrade"),
         ("crewcue://dev/billing-redeem", "billing-redeem"),
         ("crewcue://dev/onboarding-runner-setup", "onboarding-runner-setup"),
-        ("crewcue://dev/onboarding-race-preview", "onboarding-race-preview")
+        ("crewcue://dev/onboarding-race-preview", "onboarding-race-preview"),
+        ("crewcue://dev/race-rename", "race-rename"),
+        ("crewcue://dev/course-locked", "course-locked")
     ]
     for (url, featureId) in cases {
         let route = Route.parse(url)

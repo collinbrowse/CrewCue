@@ -10,6 +10,9 @@ final class ShellModel {
     var path: [Route] = []
     /// The settings sheet opens over any tab. `settingsFocus` is the section to scroll to.
     var showsSettings = false
+    /// The active race was just deleted: the person picks another race, or creates or joins
+    /// one. Until they do, no race is active (the race list never picks one for them).
+    var choosingRace = false
     var settingsFocus: String?
     var screen: FeatureScreen
     /// True when a dev URL included `?state=`. That query is fixture copy, not product state.
@@ -138,6 +141,13 @@ final class ShellModel {
     }
 
     /// The banner Map, Pace and Chat show, if any.
+    /// The top bar on every tab: the active race's name, else the app's.
+    var topBarTitle: String {
+        let name = roster.races.first(where: { $0.id == signedInRoomId })?.name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (name?.isEmpty == false ? name : nil) ?? "CrewCue"
+    }
+
     var raceAccess: RaceAccess? {
         if isUnpaidRunnerRace { return .unlock }
         if onboarding.state.flow == .raceLocked, let reason = onboarding.state.reason {
@@ -149,12 +159,16 @@ final class ShellModel {
     /// Re-reads the onboarding state. `races` is the race list when one just answered.
     func syncOnboarding(races: [OnboardingRace]? = nil) {
         onboarding.refresh(signedIn: isSignedIn, userId: signedInUserId, races: races, activeRoomId: signedInRoomId)
+        // Setup reads only its own race's entries (its race and the state's can differ, on the
+        // dev route or while a new race isn't listed yet).
         runnerSetup.follow(
             state: onboarding.state,
             signedIn: isSignedIn,
             userId: signedInUserId,
             displayName: signedInDisplayName,
-            race: onboarding.race(onboarding.state.roomId)
+            races: onboarding.races,
+            raceNames: Dictionary(roster.races.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }),
+            freshRaces: races != nil
         )
         syncRacePreview()
     }
@@ -216,6 +230,24 @@ final class ShellModel {
         enterShellIfNeeded()
     }
 
+    // MARK: Sign-in
+
+    /// The chooser's "I already have an account": the sign-in screen, set to sign in (runner
+    /// setup's Create account may have left it on sign-up).
+    func openSignIn() {
+        authModel.signingUp = false
+        show(Route(featureId: "auth-sign-in", state: .success))
+    }
+
+    /// Sign-in's Back. Signed out, the sign-in route always has the app's own launch behind it,
+    /// the screen sign-out lands on: the chooser, or the step a saved pick resumes. So Back opens
+    /// it however sign-in opened (the chooser, join's Back, a dev link), with the onboarding state
+    /// untouched. Not while Auth0 is working.
+    func leaveSignIn() {
+        guard !isSignedIn, route.featureId == "auth-sign-in", !authModel.isWorking else { return }
+        show(Route(featureId: "app-shell", state: .success))
+    }
+
     private func bindRunnerSetup() {
         runnerSetup.onRaceCreated = { [weak self] roomId in
             self?.noteJoined(roomId: roomId, role: "athlete")
@@ -246,8 +278,15 @@ final class ShellModel {
             self?.showBilling()
         }
         runnerSetup.onBack = { [weak self] in
-            self?.onboarding.clearChoice()
-            self?.syncOnboarding()
+            guard let self else { return }
+            onboarding.clearChoice()
+            // `crewcue://dev/onboarding-runner-setup` shows setup whatever the state: Back leaves
+            // it for the app's own launch, which now opens the chooser.
+            if route.featureId == "onboarding-runner-setup" {
+                fixtureOverlay = false
+                show(Route(featureId: "app-shell", state: .success))
+            }
+            syncOnboarding()
         }
     }
 
@@ -398,7 +437,11 @@ final class ShellModel {
             let rooms = try await RaceDayAPI.myRaceRooms(graph: client.graph)
             let races = rooms.map { RaceSummary(room: $0, userId: userId) }
             guard ticket == racesGeneration, signedInUserId == userId else { return }
-            let next = RaceRoster.reconciled(races: races, preferred: signedInRoomId)
+            var next = RaceRoster.reconciled(races: races, preferred: signedInRoomId)
+            if choosingRace, signedInRoomId == nil {
+                // After deleting the active race, the person chooses the next one.
+                next = RaceRoster(races: next.races, activeRoomId: nil)
+            }
             roster = next
             racesMessage = races.isEmpty ? "No races yet." : ""
             if let pending = pendingChatRoomId {
@@ -426,6 +469,7 @@ final class ShellModel {
     /// Switch every tab to another loaded race.
     func selectRace(_ roomId: String) {
         guard roomId != signedInRoomId, let race = roster.races.first(where: { $0.id == roomId }) else { return }
+        choosingRace = false
         roster.select(roomId)
         apply(race)
         syncOnboarding()
@@ -452,6 +496,7 @@ final class ShellModel {
     }
 
     func noteJoined(roomId: String, role: String?) {
+        choosingRace = false
         client.graph.session?.update { session in
             session.roomId = roomId
             if let role, !role.isEmpty {
@@ -474,6 +519,22 @@ final class ShellModel {
         }
     }
 
+    /// The owner deleted a race. It leaves the list at once. If it was the active race, no race
+    /// is active and the person is asked to choose another race, or to create or join one; Map,
+    /// Pace and Chat offer the same choices until they do.
+    func noteDeleted(roomId: String) {
+        let wasActive = roomId == signedInRoomId
+        let remaining = roster.races.filter { $0.id != roomId }
+        roster = RaceRoster(races: remaining, activeRoomId: wasActive ? nil : signedInRoomId)
+        if wasActive {
+            clearActiveRoom()
+            choosingRace = true
+        }
+        racesMessage = remaining.isEmpty ? "No races yet." : ""
+        syncOnboarding()
+        Task { await loadRaces() }
+    }
+
     /// A race the runner just created: note it, then open its Race Pass paywall.
     func noteCreated(roomId: String) {
         noteJoined(roomId: roomId, role: "athlete")
@@ -489,6 +550,15 @@ final class ShellModel {
     func showProfile() {
         show(Route(featureId: "profile", state: .success))
         enterShellIfNeeded()
+    }
+
+    /// A race renamed from Profile: the race list (and the top bar, which reads it) shows the new
+    /// name at once. Crew pick it up on their next race-list load.
+    func noteRenamed(roomId: String, name: String) {
+        roster.rename(roomId, to: name)
+        if roomId == signedInRoomId {
+            paceModel.noteRenamed(name)
+        }
     }
 
     func updateDisplayName(_ name: String) {
@@ -522,6 +592,7 @@ final class ShellModel {
         signedInDisplayName = nil
         racesGeneration += 1
         roster = RaceRoster()
+        choosingRace = false
         racesMessage = ""
         racesLoading = false
         pendingChatRoomId = nil

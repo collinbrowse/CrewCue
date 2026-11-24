@@ -21,7 +21,8 @@ function buildClaims(sub: string) {
 async function createPaidActiveRoom(
   app: ReturnType<typeof buildApp>,
   ownerToken: string,
-  athleteId = "owner-user"
+  athleteId = "owner-user",
+  raceStartAt = "2026-05-12T16:00:00.000Z"
 ): Promise<string> {
   const createResponse = await app.inject({
     method: "POST",
@@ -64,7 +65,7 @@ async function createPaidActiveRoom(
         { latitude: 42.01, longitude: -70.0 }
       ]),
       plannedPaceSecondsPerKm: 720,
-      raceStartAt: "2026-05-12T16:00:00.000Z"
+      raceStartAt
     },
     headers: {
       authorization: `Bearer ${ownerToken}`
@@ -560,7 +561,9 @@ test("a ping that waited for the room lock is projected on the course saved mean
   const app = buildApp();
   await app.ready();
   const ownerToken = app.jwt.sign(buildClaims("owner-user"));
-  const roomId = await createPaidActiveRoom(app, ownerToken);
+  // Started an hour ago: the race is not locked yet (no race ping, inside 48 h), so the route can change.
+  const raceStartAt = new Date(Math.floor(Date.now() / 1000) * 1000 - 3_600_000).toISOString();
+  const roomId = await createPaidActiveRoom(app, ownerToken, "owner-user", raceStartAt);
 
   let release: (() => void) | undefined;
   const gate = new Promise<void>((resolve) => {
@@ -599,7 +602,7 @@ test("a ping that waited for the room lock is projected on the course saved mean
         },
         routeOverlayLayer: lineStringRouteOverlayForCheckpoints(longer),
         plannedPaceSecondsPerKm: 720,
-        raceStartAt: "2026-05-12T16:00:00.000Z"
+        raceStartAt
       },
       headers: { authorization: `Bearer ${ownerToken}` }
     });

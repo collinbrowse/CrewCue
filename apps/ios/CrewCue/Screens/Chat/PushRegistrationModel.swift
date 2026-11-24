@@ -23,6 +23,8 @@ enum InstallDeviceId {
 final class PushRegistrationModel {
     private(set) var message = ""
     private(set) var isWorking = false
+    /// Notifications are allowed and this phone's token went to the server (or is queued for it).
+    private(set) var enabled = false
 
     private let client: AppClient
     private var role = ""
@@ -35,6 +37,8 @@ final class PushRegistrationModel {
     /// Registering asks for notification permission, so only the push deeplink registers on appear.
     func activate(role: String?, registerNow: Bool) async {
         self.role = role ?? ""
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        enabled = [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus)
         if registerNow {
             await register()
         }
@@ -51,13 +55,14 @@ final class PushRegistrationModel {
         let allowed = await authorization(status: settings.authorizationStatus)
         guard ticket == generation else { return }
         guard allowed else {
-            message = "Push permission was denied."
+            enabled = false
+            message = "Notifications are off for CrewCue. Turn them on in iOS Settings."
             return
         }
         let token = await RemoteNotificationTokenCenter.shared.requestToken()
         guard ticket == generation else { return }
         guard let token, !token.isEmpty else {
-            message = "No push token."
+            message = "This phone couldn't set up alerts. Try again."
             return
         }
         await enqueue(token: token, ticket: ticket)
@@ -75,8 +80,11 @@ final class PushRegistrationModel {
         message = ""
     }
 
+    static let offlineMessage = "Offline. Alerts start once this phone is back online."
+
     func clear() {
         generation += 1
+        enabled = false
         message = ""
         role = ""
         isWorking = false
@@ -110,7 +118,7 @@ final class PushRegistrationModel {
 
     private func enqueue(token: String, ticket: Int) async {
         guard let outbox = client.graph.outbox else {
-            message = "No push token."
+            message = "This phone couldn't set up alerts. Try again."
             return
         }
         let operation: StoredOperation
@@ -124,23 +132,19 @@ final class PushRegistrationModel {
             )
         } catch {
             guard ticket == generation else { return }
-            message = "No push token."
+            message = "This phone couldn't set up alerts. Try again."
             return
         }
         guard ticket == generation else { return }
         do {
             let report = try await RaceDayAPI.flushOutbox(graph: client.graph)
             guard ticket == generation else { return }
-            if report.pending.contains(operation.id) {
-                message = "Offline. Token queued."
-            } else {
-                message = "Push token queued for registration."
-            }
+            enabled = true
+            message = report.pending.contains(operation.id) ? Self.offlineMessage : ""
         } catch {
             guard ticket == generation else { return }
-            message = APIFailure.isOffline(error)
-                ? "Offline. Token queued."
-                : "Push token queued for registration."
+            enabled = true
+            message = APIFailure.isOffline(error) ? Self.offlineMessage : ""
         }
     }
 }

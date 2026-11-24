@@ -36,6 +36,8 @@ interface RacePreviewRuntime {
     fun create(room: ReplayRoom): RuntimeResult
     fun control(baseUrl: String, control: ReplayControl): RuntimeResult
     fun seek(baseUrl: String, seconds: Double): RuntimeResult
+    /** `demoRaceRunner`: where the replay's runner dot is now, for the Map's glide. Quick: no request. */
+    fun runner(baseUrl: String): RuntimeResult
     /** `markOnboardingStep` for the `preview` step ([outcome] `done` or `skipped`), with the shell's race list. */
     fun markPreview(outcome: String, roomId: String): RuntimeResult
 }
@@ -80,6 +82,9 @@ class BridgeRacePreviewRuntime(
 
     override fun seek(baseUrl: String, seconds: Double): RuntimeResult =
         raceDay.replay(baseUrl, viewerUserId = "").demoRaceSeek(seconds)
+
+    override fun runner(baseUrl: String): RuntimeResult =
+        raceDay.replay(baseUrl, viewerUserId = "").demoRaceRunner()
 }
 
 /**

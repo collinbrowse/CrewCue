@@ -11,10 +11,16 @@ import CrewCueClientCore
 /// width, so its scroll position and keyboard focus survive a fold or a display switch; only the
 /// preview moves between panes. Every value lives in the model, and both panes keep their
 /// controls out of reserved regions (the fold).
+///
+/// Back is the navigation bar's leading item (the setup screen is the root of the app's
+/// `NavigationStack`, and its steps are one model's state rather than pushed views), plus the
+/// edge swipe. It opens the previous step with everything entered kept; from the first step it
+/// returns to the chooser. The system places the bar, on iPhone Duo too.
 struct RunnerSetupView: View {
     @Bindable var model: RunnerSetupModel
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -26,6 +32,34 @@ struct RunnerSetupView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("crewcue.onboarding-runner-setup")
             .accessibilityLabel(OnboardingCopy.title(for: model.step) ?? "")
+            .toolbar {
+                if model.showsBack {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: model.goBack) {
+                            // The chevron and the word "Back", like a pushed screen's back button.
+                            // Not `Label(...).labelStyle(.titleAndIcon)`: tried on the iOS 27
+                            // simulator, the bar still draws a Label item as its icon alone.
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                    .fontWeight(.semibold)
+                                Text(OnboardingCopy.back)
+                            }
+                            // Tinted like the bar's other items (an image-only item takes the tint).
+                            .foregroundStyle(model.canGoBack ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                        }
+                        .disabled(!model.canGoBack)
+                        .accessibilityLabel(OnboardingCopy.back)
+                        .accessibilityIdentifier("crewcue.onboarding.back")
+                        // Right to left, the column and this item are both on the leading edge.
+                        .keepsFullWidthRowsClear()
+                    }
+                }
+            }
+            .gesture(EdgeSwipeBack(enabled: model.canGoBack, rightToLeft: layoutDirection == .rightToLeft, onBack: model.goBack))
+            // VoiceOver's escape (the two-finger Z) goes Back too, like a pushed screen's.
+            .accessibilityAction(.escape) {
+                if model.canGoBack { model.goBack() }
+            }
             .sheet(isPresented: $model.showsZonePicker) {
                 TimeZonePicker(model: model)
             }
@@ -84,7 +118,7 @@ struct RunnerSetupView: View {
 
     /// The step form, and on a compact width the preview under it. Each row pads itself, so the
     /// rows below a camera column (iPhone Duo's outer display) can run to the display's edge
-    /// while Back and the rows beside the column stay clear of it.
+    /// while the rows beside the column stay clear of it.
     private var formPane: some View {
         OcclusionScrollView {
             VStack(alignment: .leading, spacing: CrewSpace.margin) {
@@ -121,13 +155,6 @@ struct RunnerSetupView: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: CrewSpace.gutter) {
-            if model.canGoBack {
-                Button(OnboardingCopy.back, action: model.onBack)
-                    .font(CrewFont.bodyLarge)
-                    .foregroundStyle(theme.primary)
-                    .accessibilityIdentifier("crewcue.onboarding.back")
-                    .padding(.horizontal, CrewSpace.margin)
-            }
             StepHeader(step: model.step, index: model.stepIndex, count: model.stepCount)
                 .padding(.horizontal, CrewSpace.margin)
                 .fullWidthClearOfOcclusions()
@@ -165,13 +192,13 @@ struct RunnerSetupView: View {
         case .projectionTeaser:
             VStack(alignment: .leading, spacing: CrewSpace.gutter) {
                 TeaserTimeline(rows: model.teaserRows, timeZone: model.raceTimeZone)
-                if let course = model.coursePreview {
-                    CoursePreviewPanel(preview: course, summary: model.courseSummary)
+                if model.coursePreview != nil {
+                    coursePreview
                 }
             }
         case .course, .startTime, .history:
-            if let course = model.coursePreview {
-                CoursePreviewPanel(preview: course, summary: model.courseSummary)
+            if model.coursePreview != nil || model.previewingCourse {
+                coursePreview
             } else if splitsPreview {
                 SetupIllustration()
             }
@@ -179,6 +206,59 @@ struct RunnerSetupView: View {
             if splitsPreview {
                 SetupIllustration()
             }
+        }
+    }
+
+    /// The course preview, or the loader in its place while the file is read and the map loads.
+    private var coursePreview: some View {
+        CoursePreviewSlot(
+            preview: model.coursePreview,
+            summary: model.courseSummary,
+            previewing: model.previewingCourse,
+            reading: model.readingCourse,
+            mapReady: model.courseMapReady,
+            onMapReady: model.noteCourseMapReady
+        )
+    }
+}
+
+/// The edge swipe that goes Back, as a pushed screen's would (from the right edge in a
+/// right-to-left layout). A screen-edge recognizer only starts at the display's edge, so it leaves
+/// the form's scrolling and its controls alone.
+private struct EdgeSwipeBack: UIGestureRecognizerRepresentable {
+    var enabled: Bool
+    var rightToLeft: Bool
+    var onBack: () -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIScreenEdgePanGestureRecognizer {
+        let recognizer = UIScreenEdgePanGestureRecognizer()
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIScreenEdgePanGestureRecognizer, context: Context) {
+        recognizer.edges = rightToLeft ? .right : .left
+        recognizer.isEnabled = enabled
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIScreenEdgePanGestureRecognizer, context: Context) {
+        guard recognizer.state == .ended, enabled, let view = recognizer.view else { return }
+        let direction: CGFloat = recognizer.edges == .right ? -1 : 1
+        let travelled = recognizer.translation(in: view).x * direction
+        let speed = recognizer.velocity(in: view).x * direction
+        // Past a third of the width, or flicked: the same feel as the system's swipe back.
+        if travelled > view.bounds.width / 3 || (travelled > 24 && speed > 500) {
+            onBack()
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        // The form's scroll view keeps scrolling while the edge swipe is read.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
         }
     }
 }
@@ -226,13 +306,18 @@ private struct AccountStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
             if model.signedIn {
-                TextField(OnboardingCopy.displayName, text: $model.displayName)
-                    .textFieldStyle(.crew)
-                    .textContentType(.name)
-                    .submitLabel(.continue)
-                    .onSubmit(model.saveName)
-                    .accessibilityLabel(OnboardingCopy.displayName)
-                    .accessibilityIdentifier("crewcue.onboarding.display-name")
+                // The runner's own name, the one crew see in chat. The race is named on the
+                // course step.
+                SetupField(label: OnboardingCopy.displayName, help: OnboardingCopy.displayNameHelp) {
+                    TextField(OnboardingCopy.displayName, text: $model.displayName, prompt: Text(verbatim: ""))
+                        .textFieldStyle(.crew)
+                        .textContentType(.name)
+                        .submitLabel(.continue)
+                        .onSubmit(model.saveName)
+                        .accessibilityLabel(OnboardingCopy.displayName)
+                        .accessibilityHint(OnboardingCopy.displayNameHelp)
+                        .accessibilityIdentifier("crewcue.onboarding.display-name")
+                }
                 Button(OnboardingCopy.continueLabel, action: model.saveName)
                     .buttonStyle(.crewPrimary)
                     .disabled(!model.canSaveName)
@@ -254,13 +339,87 @@ private struct AccountStep: View {
     }
 }
 
+/// A text field with its label above and a line of help under it.
+private struct SetupField<Field: View>: View {
+    let label: String
+    let help: String
+    @ViewBuilder var field: Field
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // VoiceOver reads the field's own label and hint instead.
+            Text(label)
+                .font(CrewFont.label)
+                .foregroundStyle(theme.ink)
+                .accessibilityHidden(true)
+            field
+            Text(help)
+                .font(CrewFont.body)
+                .foregroundStyle(theme.body)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// The race's name, above the course file that creates the race. Once the race exists the name
+/// shows read-only: the API has no rename.
+private struct RaceNameField: View {
+    @Bindable var model: RunnerSetupModel
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        if model.raceNameLocked {
+            if let name = model.shownRaceName {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(OnboardingCopy.raceNameLabel)
+                        .font(CrewFont.label)
+                        .foregroundStyle(theme.body)
+                    Text(verbatim: name)
+                        .font(CrewFont.title)
+                        .foregroundStyle(theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(OnboardingCopy.raceNameLabel)
+                .accessibilityValue(name)
+                .accessibilityIdentifier("crewcue.onboarding.race-name")
+            }
+        } else {
+            SetupField(label: OnboardingCopy.raceNameLabel, help: OnboardingCopy.raceNameHelp) {
+                TextField(OnboardingCopy.raceNameLabel, text: $model.raceName, prompt: Text(OnboardingCopy.raceNamePlaceholder))
+                    .textFieldStyle(.crew)
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.done)
+                    .disabled(model.busy)
+                    .accessibilityLabel(OnboardingCopy.raceNameLabel)
+                    .accessibilityHint(OnboardingCopy.raceNameHelp)
+                    .accessibilityIdentifier("crewcue.onboarding.race-name")
+            }
+        }
+    }
+}
+
 private struct CourseStep: View {
     @Bindable var model: RunnerSetupModel
     @Environment(\.crew) private var theme
 
     var body: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+            RaceNameField(model: model)
+            courseFile
+        }
+        .courseImporter(model: model)
+    }
+
+    /// Nothing to continue with yet: the checklist's Empty state and Choose course file.
+    private var empty: Bool { model.shownCourseFileName == nil && model.courseContinue == .chooseFile }
+
+    private var courseFile: some View {
         VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-            if model.courseFileName == nil {
+            if empty {
                 // The checklist's Empty state.
                 Text(CrewCueClientCore.featureScreen(id: "onboarding-runner-setup", state: .empty).body)
                     .font(CrewFont.body)
@@ -268,40 +427,70 @@ private struct CourseStep: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("crewcue.onboarding.empty")
             }
-            if let name = model.courseFileName {
+            if let name = model.shownCourseFileName {
                 Label(name, systemImage: "doc")
                     .font(CrewFont.label)
                     .foregroundStyle(theme.ink)
                     .accessibilityIdentifier("crewcue.onboarding.course-file")
+            } else if model.courseContinue == .keepSavedCourse {
+                // The race saved its course and this phone doesn't hold the file (signed out and
+                // back in, another phone): Continue keeps it, nothing is uploaded again.
+                SavedCourse(fileName: model.savedCourseFileName)
             }
-            Button(model.courseFileName == nil ? OnboardingCopy.chooseCourseFile : OnboardingCopy.chooseAnotherCourseFile) {
+            Button(empty ? OnboardingCopy.chooseCourseFile : OnboardingCopy.chooseAnotherCourseFile) {
                 model.importingCourse = true
             }
-            .buttonStyle(model.courseFileName == nil ? .crewPrimary : .crewSecondary)
-            .crewBusy(model.busy && model.coursePreview == nil && model.courseFileName != nil)
-            .disabled(model.busy)
+            .buttonStyle(empty ? .crewPrimary : .crewSecondary)
+            .crewBusy(model.previewingCourse)
+            // The file creates the race, which needs its name first.
+            .disabled(!model.canChooseCourse)
             .accessibilityIdentifier("crewcue.onboarding.choose-course")
             if model.courseNeedsRetry {
-                // The preview failed: this previews the same file again, it doesn't move on.
+                // The preview failed: this reads the same file again, it doesn't move on. A race
+                // still to be created needs its name first.
                 Button(OnboardingCopy.tryAgain) {
-                    Task { await model.previewCourse() }
+                    Task { await model.retryCourse() }
                 }
                 .buttonStyle(.crewPrimary)
+                .disabled(!model.canChooseCourse)
                 .accessibilityIdentifier("crewcue.onboarding.retry")
-            } else if model.courseFileName != nil {
+                if model.pendingCourse != nil {
+                    // A file picked after Back that couldn't be read: keep the course from before.
+                    Button(OnboardingCopy.pickerCancel, action: model.cancelPendingCourse)
+                        .buttonStyle(.crewGhost)
+                        .accessibilityIdentifier("crewcue.onboarding.cancel-course")
+                }
+            } else if !empty {
                 Button(OnboardingCopy.continueLabel) {
-                    if model.coursePreview == nil {
-                        Task { await model.previewCourse() }
-                    } else {
-                        model.continueCourse()
-                    }
+                    Task { await model.continueCourse() }
                 }
                 .buttonStyle(.crewPrimary)
-                .disabled(model.busy)
+                .disabled(!model.canContinueCourse)
                 .accessibilityIdentifier("crewcue.onboarding.continue")
             }
         }
-        .courseImporter(model: model)
+    }
+}
+
+/// The course the race saved, shown without its file on this phone.
+private struct SavedCourse: View {
+    let fileName: String?
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(OnboardingCopy.courseSaved, systemImage: "checkmark.circle")
+                .font(CrewFont.label)
+                .foregroundStyle(theme.ink)
+            if let fileName {
+                Text(verbatim: fileName)
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.body)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("crewcue.onboarding.course-saved")
     }
 }
 
@@ -349,17 +538,19 @@ private struct StartTimeStep: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("crewcue.onboarding.dst-gap")
             }
-            if model.courseXml == nil {
-                // The race has no saved course and this phone lost the file: pick it again.
+            if model.startNeedsCourseFile {
+                // The race has no saved course and this phone lost the file: pick it again. A race
+                // that has its course never needs the file here.
                 Button(OnboardingCopy.chooseCourseFile) { model.importingCourse = true }
                     .buttonStyle(.crewSecondary)
+                    .disabled(model.busy)
                     .accessibilityIdentifier("crewcue.onboarding.choose-course")
             }
             Button(OnboardingCopy.continueLabel) {
-                Task { await model.saveStart() }
+                Task { await model.continueStart() }
             }
             .buttonStyle(.crewPrimary)
-            .disabled(!model.canSaveStart)
+            .disabled(!model.canContinueStart)
             .crewBusy(model.busy)
             .accessibilityIdentifier("crewcue.onboarding.continue")
         }
@@ -373,6 +564,8 @@ private struct HistoryStep: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+            HistoryTips()
+                .padding(.bottom, CrewSpace.stackSm)
             if let message = model.historyMessage {
                 Text(message)
                     .font(CrewFont.body)
@@ -388,10 +581,13 @@ private struct HistoryStep: View {
                     .accessibilityIdentifier("crewcue.onboarding.history-comparison")
             }
             Button(OnboardingCopy.importPastRun) { model.importingHistory = true }
-                .buttonStyle(model.historyLine == nil ? .crewPrimary : .crewSecondary)
+                .buttonStyle(model.historyShowsContinue ? .crewSecondary : .crewPrimary)
                 .disabled(model.busy)
                 .accessibilityIdentifier("crewcue.onboarding.import-history")
-            if model.historyImported {
+            if model.historyShowsContinue {
+                // After an import, always on a history step already passed, and on a race that
+                // already has an estimate: Continue keeps that estimate unless a course save
+                // dropped it.
                 Button(OnboardingCopy.continueLabel) {
                     Task { await model.continueHistory() }
                 }
@@ -409,6 +605,36 @@ private struct HistoryStep: View {
         .fileImporter(isPresented: $model.importingHistory, allowedContentTypes: SettingsActivityImportSection.contentTypes) { result in
             Task { await model.pickedHistory(result) }
         }
+    }
+}
+
+/// Which file to pick, the formats the importer takes, and that the step is optional, under the
+/// step's lead (`OnboardingCopy.explanation(for: .history)`).
+private struct HistoryTips: View {
+    @Environment(\.crew) private var theme
+    @ScaledMetric(relativeTo: .body) private var dot: CGFloat = 6
+
+    var body: some View {
+        let size = dot
+        VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+            ForEach(OnboardingCopy.historyTips, id: \.self) { tip in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    // Sits on the first line, about halfway up its lowercase letters.
+                    Circle()
+                        .fill(theme.primary)
+                        .frame(width: size, height: size)
+                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] + size / 2 }
+                        .accessibilityHidden(true)
+                    Text(tip)
+                        .font(CrewFont.body)
+                        .foregroundStyle(theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("crewcue.onboarding.history-tips")
     }
 }
 

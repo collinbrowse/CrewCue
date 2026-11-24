@@ -337,6 +337,33 @@
       "scope": "v1",
       "ios": "pass",
       "android": "pass"
+    },
+    {
+      "id": "race-rename",
+      "entry": "crewcue://dev/race-rename",
+      "label": "crewcue.race-rename",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "course-locked",
+      "entry": "crewcue://dev/course-locked",
+      "label": "crewcue.course-locked",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "race-delete",
+      "entry": "crewcue://dev/race-delete",
+      "label": "crewcue.race-delete",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
     }
   ]
 }

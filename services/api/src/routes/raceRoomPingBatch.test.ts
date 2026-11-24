@@ -3,10 +3,9 @@ import assert from "node:assert/strict";
 import type { AthletePingBatchResponse, RaceRoomPingTrackResponse } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { backlogFloorMs, setPingBeforeLockDelayForTests, setRaceRoomStatusForTests } from "./raceRooms.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -14,7 +13,12 @@ function buildClaims(sub: string) {
   return { sub, teamIds: ["team-1"], roomRoles: {} };
 }
 
-async function createPaidActiveRoom(app: ReturnType<typeof buildApp>, ownerToken: string): Promise<string> {
+async function createPaidActiveRoom(
+  app: ReturnType<typeof buildApp>,
+  ownerToken: string,
+  // Started long ago, so only the 48 h backlog limit applies in these route tests.
+  raceStartAt = "2026-05-12T16:00:00.000Z"
+): Promise<string> {
   const create = await app.inject({
     method: "POST",
     url: "/race-rooms",
@@ -45,8 +49,7 @@ async function createPaidActiveRoom(app: ReturnType<typeof buildApp>, ownerToken
         { latitude: 42.01, longitude: -70.0 }
       ]),
       plannedPaceSecondsPerKm: 720,
-      // Started long ago, so only the 48 h backlog limit applies in these route tests.
-      raceStartAt: "2026-05-12T16:00:00.000Z"
+      raceStartAt
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -287,7 +290,6 @@ test(
     await app.close();
 
     // A fresh process has no memory of this room or its path; both must come back from Postgres.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const [roomId, athlete, crew, pointsJson] = process.argv.slice(2);
@@ -308,12 +310,7 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, athlete, crew, JSON.stringify(points)],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+    const result = runInFreshProcess(script, [roomId, athlete, crew, JSON.stringify(points)]) as {
       before: RaceRoomPingTrackResponse;
       replay: AthletePingBatchResponse;
       after: RaceRoomPingTrackResponse;
@@ -361,7 +358,9 @@ test("a backlog upload that waited for the room lock is projected on the course 
   const app = buildApp();
   await app.ready();
   const token = app.jwt.sign(buildClaims("owner-user"));
-  const roomId = await createPaidActiveRoom(app, token);
+  // Started an hour ago: the race is not locked yet (no race ping, inside 48 h), so the route can change.
+  const raceStartAt = new Date(Math.floor(Date.now() / 1000) * 1000 - 3_600_000).toISOString();
+  const roomId = await createPaidActiveRoom(app, token, raceStartAt);
 
   let release: (() => void) | undefined;
   const gate = new Promise<void>((resolve) => {
@@ -401,7 +400,7 @@ test("a backlog upload that waited for the room lock is projected on the course 
         },
         routeOverlayLayer: lineStringRouteOverlayForCheckpoints(longer),
         plannedPaceSecondsPerKm: 720,
-        raceStartAt: "2026-05-12T16:00:00.000Z"
+        raceStartAt
       },
       headers: { authorization: `Bearer ${token}` }
     });

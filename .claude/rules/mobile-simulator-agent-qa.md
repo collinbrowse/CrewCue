@@ -32,6 +32,7 @@ Never report a mobile UI task complete without simulator proof.
 3. Fail → fix code → re-run harness if needed → repeat (cap **5** sim iterations, then stop with a blocker report).
    Changed the launch path (`CrewCueApp`, `AppRoot`, the splash, the first screen)? One launch can pass by luck. Run `npm run test:ios:launch-loop` on an iOS 27 simulator; its header says how to end the splash over an animating screen.
 4. Before Done: `npm run agent:pr:done -- <pr>`.
+5. Finished with the simulator: `npm run agent:ios:done` (shuts down yours and its Duo twin, deletes `.xcresult` bundles; `-- --delete` also deletes the simulators).
 
 ## Evidence (PR only)
 

@@ -47,6 +47,18 @@ private struct SilentTestLogger: Logger {
     #expect(races[1].role == "athlete")
 }
 
+@Test func onlyTheOwnerIsOfferedRaceDelete() async throws {
+    let races = try await RaceDayAPI.myRaces(graph: roomsGraph(), userId: "me")
+    #expect(races[0].ownerId == "ada")
+    #expect(races[0].isOwned(by: "me") == false)
+    #expect(races[1].isOwned(by: "me") == true)
+    #expect(races[1].isOwned(by: nil) == false)
+    // A summary stored before ownerId existed decodes and offers no delete.
+    let stored = try JSONDecoder().decode(RaceSummary.self, from: Data(#"{"id":"x","name":"X","role":"athlete"}"#.utf8))
+    #expect(stored.ownerId == nil)
+    #expect(stored.isOwned(by: "me") == false)
+}
+
 @Test func roleLabelsNeverShowWireValues() {
     #expect(RaceRole.label("athlete") == "Runner")
     #expect(RaceRole.label("crew_member") == "Crew member")
@@ -109,7 +121,7 @@ private struct SilentTestLogger: Logger {
     #expect(RoomStorage.directory(userDirectory: root, roomId: "../x").path.contains("..") == false)
 }
 
-@Test func courseSettingsDraftsStayPerRoomThroughTheRuntime() async throws {
+@Test func courseReadoutComesFromTheCachedScheduleThroughTheRuntime() async throws {
     let storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     defer { try? FileManager.default.removeItem(at: storage) }
     func call(_ fields: [String: Any]) async throws -> [String: Any] {
@@ -120,13 +132,25 @@ private struct SilentTestLogger: Logger {
         let raw = await RuntimeCall.perform(String(decoding: data, as: UTF8.self))
         return try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
     }
-    _ = try await call(["op": "writeCourseSettings", "roomId": "a", "cutoffNote": "Aid 3 by 2pm", "stoppageSeconds": 120])
-    _ = try await call(["op": "writeCourseSettings", "roomId": "b", "cutoffNote": "Twin Lakes 6pm", "stoppageSeconds": 60])
-    let a = try await call(["op": "readCourseSettings", "roomId": "a", "baseURL": "https://example.invalid"])
-    let b = try await call(["op": "readCourseSettings", "roomId": "b", "baseURL": "https://example.invalid"])
-    #expect(((a["result"] as? [String: Any])?["cutoffNote"] as? String) == "Aid 3 by 2pm")
-    #expect(((b["result"] as? [String: Any])?["cutoffNote"] as? String) == "Twin Lakes 6pm")
+    func stop(_ id: String, _ stoppage: Double, cutoff: String? = nil, margin: Double? = nil) -> ScheduleStop {
+        ScheduleStop(
+            id: "stop-\(id)", checkpointId: id, clockArrivalAt: "2026-08-15T14:10:00.000Z", elapsedSeconds: 0,
+            plannedStoppageSeconds: stoppage, cutoffStatus: cutoff, cutoffMarginSeconds: margin
+        )
+    }
+    try ScheduleCache.save(
+        CrewScheduleSheet(roomId: "a", raceStartAt: "2026-08-15T13:00:00.000Z", stops: [
+            stop("start", 120), stop("aid-1", 120), stop("aid-2", 300, cutoff: "warn", margin: 600), stop("finish", 0)
+        ]),
+        directory: RoomStorage.directory(userDirectory: UserStorage(root: storage).directory(userId: "me"), roomId: "a")
+    )
+    let a = try await call(["op": "courseReadout", "roomId": "a", "titles": ["aid-2": "Twin Lakes"]])
+    let result = try #require(a["result"] as? [String: Any])
+    #expect((result["empty"] as? Bool) == false)
+    let rows = try #require(result["rows"] as? [[String: String]])
+    #expect(rows == [["title": "Aid 1", "duration": "2 min"], ["title": "Twin Lakes", "duration": "5 min"]])
+    #expect((result["cutoffs"] as? [String]) == ["Twin Lakes: only 10 min ahead of the cutoff"])
 
-    let missingRoom = try await call(["op": "writeCourseSettings", "cutoffNote": "x", "stoppageSeconds": 1])
-    #expect((missingRoom["ok"] as? Bool) == false)
+    let b = try await call(["op": "courseReadout", "roomId": "b"])
+    #expect(((b["result"] as? [String: Any])?["empty"] as? Bool) == true)
 }

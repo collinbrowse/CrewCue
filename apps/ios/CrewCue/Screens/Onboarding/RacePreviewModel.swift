@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 import Observation
 import CrewCueClientCore
@@ -128,6 +129,11 @@ final class RacePreviewModel {
         let chat: ChatModel
         let userId: String
         let roomId: String
+        /// The course line the replay's runner follows, drawn as the Map's course (the race map
+        /// joins the checkpoints; the replay's trail runs along this line, so it draws this one).
+        let route: [CLLocationCoordinate2D]
+        /// The dot between updates: it glides along `route` while the replay plays.
+        let glide: RunnerGlide
     }
 
     /// No role: the replay only watches, so its models offer no edit and attempt no write.
@@ -143,8 +149,12 @@ final class RacePreviewModel {
     private(set) var beat: DemoRaceBeat = .following
     /// 0 to 1 through the replay.
     private(set) var progress: Double = 0
+    /// The replay clock runs. The Map's dot glides only then.
     private(set) var isPlaying = false
     private(set) var pausedByUser = false
+    /// How many pings the replay's Map path holds: its path chip counts these, not the points
+    /// the replay adds along the course between pings.
+    private(set) var pathPings = 0
     /// Offline, the replay plays from the room saved on this phone.
     private(set) var fromSavedRace = false
     /// Compact width shows this one; it follows the beats, and the strip can pick another.
@@ -325,10 +335,22 @@ final class RacePreviewModel {
             finishEtaAt = finish
         }
         guard ticket == generation else { return }
+        // Off the main actor: the script lays its path along the whole course line, thousands of
+        // points on a long route.
+        let logger = client.graph.logger
+        let built = await Task.detached(priority: .userInitiated) {
+            Result { try DemoRace.session(roomData: data, viewerUserId: viewer, finishEtaAt: finishEtaAt, logger: logger) }
+        }.value
+        guard ticket == generation else {
+            // Ended or started over meanwhile: this replay never plays, and its directory goes.
+            if case .success(let late) = built { late.player.skip() }
+            return
+        }
         let session: DemoRaceSession
-        do {
-            session = try DemoRace.session(roomData: data, viewerUserId: viewer, finishEtaAt: finishEtaAt, logger: client.graph.logger)
-        } catch {
+        switch built {
+        case .success(let ready):
+            session = ready
+        case .failure(let error):
             status = Status(DemoRace.unavailableState(error))
             client.graph.logger.log("race preview replay unavailable: \((error as? DemoRaceError)?.message ?? "unknown")")
             return
@@ -349,11 +371,14 @@ final class RacePreviewModel {
             pace: PaceModel(client: graph, storage: storage),
             chat: ChatModel(client: graph),
             userId: viewer,
-            roomId: session.roomId
+            roomId: session.roomId,
+            route: session.player.script.course.line.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) },
+            glide: RunnerGlide(player: session.player)
         )
         replay = next
         await next.map.activate(userId: viewer, roomId: session.roomId, role: Self.viewerRole)
         guard ticket == generation else { return }
+        countPathPings()
         await next.pace.activate(userId: viewer, roomId: session.roomId, role: Self.viewerRole)
         guard ticket == generation else { return }
         next.chat.activate(userId: viewer, roomId: session.roomId, role: Self.viewerRole)
@@ -440,6 +465,16 @@ final class RacePreviewModel {
         }
         guard !snapshot.isFinished, let replay else { return }
         await replay.map.refreshNow()
+        countPathPings()
+    }
+
+    /// The pings in the path the replay's Map just read (`pathPings`).
+    private func countPathPings() {
+        guard let player = session?.player else {
+            pathPings = 0
+            return
+        }
+        pathPings = player.script.pings(through: player.snapshot.stepIndex).count
     }
 
     /// Plays unless the person paused, the app is in the background, or the view is away.
@@ -478,6 +513,7 @@ final class RacePreviewModel {
         }
         replay = nil
         isPlaying = false
+        pathPings = 0
         if ended != nil {
             // A read already in flight when the replay ended may still write once; sweep again.
             Task.detached(priority: .utility) {

@@ -11,8 +11,7 @@ import { resetChatPushTransport, setChatPushTransport, type ChatPushDispatchInpu
 import { _settleChatPushForTests } from "./chatRoutes.js";
 import { runChatRetentionPass } from "../lib/chatRetention.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 type App = ReturnType<typeof buildApp>;
 
@@ -101,11 +100,11 @@ async function list(app: App, token: string, roomId: string, query = "") {
   });
 }
 
-async function registerPush(app: App, token: string, deviceId: string, platform = "ios") {
+async function registerPush(app: App, token: string, deviceId: string, platform = "ios", pushToken = `tok-${deviceId}`) {
   const res = await app.inject({
     method: "POST",
     url: "/chat/push/tokens",
-    payload: { deviceId, platform, token: `tok-${deviceId}` },
+    payload: { deviceId, platform, token: pushToken },
     headers: { authorization: `Bearer ${token}` }
   });
   assert.equal(res.statusCode, 201);
@@ -511,6 +510,52 @@ test("chat messages: a token the provider rejects is pruned", async () => {
   });
 });
 
+test("chat messages: a phone handed to someone else stops getting the first crew member's race chat", async () => {
+  await withApp(async (app) => {
+    const captured = capturePush();
+    const run = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const ownerSub = `owner-handoff-${run}`;
+    const adaSub = `ada-handoff-${run}`;
+    const boSub = `bo-handoff-${run}`;
+    const owner = app.jwt.sign(claims(ownerSub));
+    const ada = app.jwt.sign(claims(adaSub));
+    const bo = app.jwt.sign(claims(boSub));
+    // Ada crews the first race; Bo crews only the second.
+    const adaRace = await createRoom(app, owner, ownerSub);
+    await addMember(app, adaRace, owner, ada, "Ada");
+    const boRace = await createRoom(app, owner, ownerSub);
+    await addMember(app, boRace, owner, bo, "Bo");
+
+    const register = (who: string, deviceId: string, pushToken: string) =>
+      registerPush(app, who, deviceId, "ios", pushToken);
+    const pushedTokens = async (roomId: string, clientMessageId: string) => {
+      const before = captured.length;
+      assert.equal((await send(app, owner, roomId, { clientMessageId, text: "leaving aid 4" })).statusCode, 201);
+      await _settleChatPushForTests();
+      return captured.slice(before).flatMap((push) => push.targets.map((t) => t.token));
+    };
+
+    // Same app install: Ada signs out, Bo signs in, and the phone re-registers its device id and token.
+    const phone = `phone-${run}`;
+    const phoneToken = `apns-${run}`;
+    await register(ada, phone, phoneToken);
+    assert.deepEqual(await pushedTokens(adaRace, `a1-${run}`), [phoneToken], "Ada's phone gets her race chat");
+    await register(bo, phone, phoneToken);
+    assert.deepEqual(await pushedTokens(adaRace, `a2-${run}`), [], "Ada's race chat no longer reaches Bo's phone");
+    assert.deepEqual(await pushedTokens(boRace, `b1-${run}`), [phoneToken], "Bo's race chat reaches it");
+
+    // Reinstalled app: a new device id, but the OS hands back the same push token.
+    const oldInstall = `old-install-${run}`;
+    const reinstallToken = `apns-reinstall-${run}`;
+    await register(ada, oldInstall, reinstallToken);
+    assert.deepEqual(await pushedTokens(adaRace, `a3-${run}`), [reinstallToken]);
+    await register(bo, `new-install-${run}`, reinstallToken);
+    assert.deepEqual(await pushedTokens(adaRace, `a4-${run}`), [], "the old install's row went with its token");
+    assert.deepEqual((await listChatPushDevicesForUsers([adaSub])).map((d) => d.deviceId), []);
+    assert.deepEqual((await pushedTokens(boRace, `b2-${run}`)).sort(), [phoneToken, reinstallToken].sort());
+  });
+});
+
 test("chat messages: oversize text, oversize photo, and wrong photo type are refused", async () => {
   await withApp(async (app) => {
     const owner = app.jwt.sign(claims("owner-limit"));
@@ -623,7 +668,6 @@ test(
     });
 
     // A fresh process has no chat state in memory; everything must come back from Postgres.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const [roomId, owner, crew] = process.argv.slice(2);
@@ -647,12 +691,7 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, ownerToken, crewToken],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+    const result = runInFreshProcess(script, [roomId, ownerToken, crewToken]) as {
       beforeTexts: string[];
       beforeCursor: string;
       retryStatus: number;

@@ -324,6 +324,14 @@ export interface RaceRoom {
   /** Official race clock anchor (ISO). Preferred over legacy `activatedAt` for new clients. */
   raceStartAt?: string;
   /**
+   * When the race was used (ISO), which locks its course line and start: no new route or GPX, no
+   * new start. Renaming and aid-station edits stay open. Stored when the first runner ping at or
+   * after `raceStartAt` is accepted on a paid room. In responses it is the effective lock: the
+   * stored time, else `raceStartAt` + 48 hours once that has passed. Absent when unlocked; an
+   * unpaid or expired room is never locked. Refused edits answer 409 `{ code: "race_locked" }`.
+   */
+  raceLockedAt?: string;
+  /**
    * Past events this room's course is linked to by an operator (`npm run course-history:link`).
    * Absent means auto-link. Kept on the room, not the course, so a course save doesn't drop it.
    */

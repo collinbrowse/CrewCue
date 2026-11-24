@@ -40,6 +40,8 @@ Not set by agents. In the Auth0 dashboard:
 
 Without them, deletion still removes all CrewCue data and returns `identityProvider: "not_configured"` (logged as a warning). The Auth0 login itself survives, so signing in again creates an empty account.
 
-## Web deletion link
+## Web deletion page
 
-The apps read the web deletion URL from build config (`ACCOUNT_DELETION_URL`, default `https://crewcue.app/delete-account`) and show it under the delete button. The page itself, and the privacy-policy text describing this table, are #569. Record the final URL in [readiness.md](readiness.md) and in the Play Data safety form.
+Deletion happens in the app only. The apps show no web link: Apple asks only for in-app deletion, and an in-app link to a page CrewCue doesn't own is worse than none (the old default, `crewcue.app`, belongs to a different company).
+
+Google Play still asks for a web URL in the Data safety form, where people who uninstalled can request deletion. Before Play submission, publish that page on a domain CrewCue owns (#569, with the privacy policy) and record it in [readiness.md](readiness.md) and the Data safety form. Don't add it back to the apps.

@@ -12,6 +12,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,9 +24,18 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.Posture
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
@@ -46,6 +57,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -53,8 +65,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -163,23 +178,55 @@ private fun RunnerSetup(shell: ShellViewModel, flow: OnboardingFlow, text: Onboa
             }
         }
     )
-    LaunchedEffect(model, flow) { model.sync(flow) }
+    // Each fresh race list too: the race's name, course and start, and the relaunch check.
+    val races = shell.onboardingRaces
+    LaunchedEffect(model, flow, races) { model.sync(flow, races.rows, races.version) }
     LaunchedEffect(model) { model.effects.collect(shell::onSetupEffect) }
-    // The state names the step before the first frame; a loader only if it doesn't.
+    // client-core's answers for the step (RunnerSetupViewModel.rules), asked off Main: the loader
+    // until the first one comes back (a frame or so on open), or while the state names no step.
     val step = model.step
     if (step == null) {
         SetupLoading(shell, text)
         return
     }
-    BackHandler(enabled = step == SetupSteps.START_TIME && !model.busy) { model.backToCourse() }
-    BackHandler(enabled = step == SetupSteps.ACCOUNT && session == null) { shell.chooseAgain() }
-    AdaptiveSetupLayout(
-        form = { inlinePreview -> StepForm(shell, model, step, text, inlinePreview) },
-        preview = { LivePreview(model, step, text) }
-    )
+    // System Back and the predictive back gesture do what the arrow does. Taken whenever the arrow
+    // shows; while a step saves (RunnerSetupViewModel.goBack) or Auth0 is open for the account
+    // step it does nothing, so it never closes the app or leaves mid-request.
+    val authWorking = session == null && shell.signInConnection != null
+    val back = { if (!authWorking) model.goBack() }
+    BackHandler(enabled = model.showsBack, onBack = back)
+    Column(Modifier.fillMaxSize()) {
+        if (model.showsBack) SetupTopBar(text.back, enabled = !model.busy && !authWorking, onBack = back)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            AdaptiveSetupLayout(
+                form = { inlinePreview -> StepForm(shell, model, step, text, inlinePreview) },
+                preview = { LivePreview(model, step, text) }
+            )
+        }
+    }
     // Above the layout, so a fold or resize that changes the panes never closes a picker or
     // loses a half-made pick: which one is open lives in the ViewModel.
     if (step == SetupSteps.START_TIME) StartTimeDialogs(model, text)
+}
+
+/**
+ * The standard top app bar with only the navigation arrow, over the page's own ground: the step
+ * before this one, or from the first step the chooser (only while no race exists).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SetupTopBar(label: String, enabled: Boolean, onBack: () -> Unit) {
+    TopAppBar(
+        title = {},
+        navigationIcon = {
+            IconButton(onClick = onBack, enabled = enabled, modifier = Modifier.testTag(BACK_TAG)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = label)
+            }
+        },
+        // The route already sits below the status bar (FeatureHost).
+        windowInsets = WindowInsets(0),
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+    )
 }
 
 /**
@@ -296,8 +343,15 @@ private fun StepForm(shell: ShellViewModel, model: RunnerSetupViewModel, step: S
                 SetupSteps.TEASER -> TeaserStep(model, text)
             }
             // Right under the step's buttons, before any preview, so it shows without scrolling.
+            // The course step's Try again waits for the race's name, like Choose course file.
             val context = LocalContext.current
-            StatusLine(model.status, text) { model.retry(context.isOnline()) }
+            StatusLine(
+                model.status,
+                text,
+                onRetry = { model.retry(context.isOnline()) },
+                retryEnabled = model.canRetry,
+                onCancel = if (model.canCancelCourse) model::cancelPendingCourse else null
+            )
             // Compact: the course below the form, in the same scroll.
             if (inlinePreview) InlineCoursePreview(model, text)
         }
@@ -317,7 +371,16 @@ private fun AccountStep(shell: ShellViewModel, model: RunnerSetupViewModel, text
         )
         SetupSecondaryButton(text.label("signIn"), setupTag("account.sign-in"), { shell.signIn(activity) }, enabled = !working)
     } else {
-        CrewTextField(model.draft.displayName, model::updateName, text.label("displayName"), Modifier.testTag(setupTag("account.name")))
+        // "Your name", with what it is for under it. It never starts with the email (client-core
+        // `SuggestedDisplayName`, read when the draft is made).
+        CrewTextField(
+            model.draft.displayName,
+            model::updateName,
+            text.label("displayName"),
+            Modifier.testTag(DISPLAY_NAME_TAG),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+            supportingText = text.label("displayNameHelp").ifBlank { null }
+        )
         SetupPrimaryButton(
             text.label("continueStep"),
             setupTag("account.continue"),
@@ -336,8 +399,13 @@ private fun AccountStep(shell: ShellViewModel, model: RunnerSetupViewModel, text
     }
 }
 
+/**
+ * The system file picker for a course file; the picked file goes to [RunnerSetupViewModel.chooseCourse].
+ * GPX has no registered MIME type on most devices, so it opens on any file and the server checks
+ * the content.
+ */
 @Composable
-private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText) {
+private fun rememberCoursePicker(model: RunnerSetupViewModel): () -> Unit {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -347,24 +415,108 @@ private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText) {
             model.chooseCourse(name, xml, context.isOnline())
         }
     }
-    // GPX has no registered MIME type on most devices; the server checks the content.
-    val choose = { picker.launch(arrayOf("*/*")) }
-    val fileName = model.draft.courseFileName
-    if (fileName == null) {
-        Text(text.setupEmpty, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else {
-        Text(
+    return { picker.launch(arrayOf("*/*")) }
+}
+
+/**
+ * The race's name first (the course file creates the race with it), then the course file. The
+ * main button follows client-core `RunnerSetupSteps.courseContinue`: Choose course file, Continue
+ * on a previewed file, or "Course saved" and Continue on a phone that doesn't hold the race's file.
+ * After a failed preview the step's Try again (under it) reads the same file again.
+ */
+@Composable
+private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText) {
+    val context = LocalContext.current
+    val choose = rememberCoursePicker(model)
+    RaceNameField(model, text)
+    val fileName = model.shownCourseFileName
+    when {
+        model.showsCourseSaved -> CourseSavedLine(text.label("courseSaved"), model.savedCourseFileName)
+        fileName != null -> Text(
             fileName,
             modifier = Modifier.testTag(setupTag("course.file")),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
+        else -> Text(text.setupEmpty, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    if (model.preview == null) {
-        SetupPrimaryButton(text.label("chooseCourseFile"), setupTag("course.choose"), choose, busy = model.busy)
+    val action = model.courseAction
+    when {
+        // Try again (and Cancel, for a file picked after Back) sit under the step, with the error.
+        model.courseNeedsRetry -> Unit
+        action == CourseContinue.ChooseFile ->
+            SetupPrimaryButton(
+                text.label("chooseCourseFile"),
+                setupTag("course.choose"),
+                choose,
+                enabled = model.canChooseCourse,
+                busy = model.busy
+            )
+        else ->
+            SetupPrimaryButton(
+                text.label("continueStep"),
+                setupTag("course.continue"),
+                { model.continueCourse(context.isOnline()) },
+                enabled = model.canContinueCourse,
+                busy = model.busy
+            )
+    }
+    if (model.courseNeedsRetry || action != CourseContinue.ChooseFile) {
+        SetupSecondaryButton(text.label("chooseAnotherFile"), setupTag("course.choose-another"), choose, enabled = model.canChooseCourse)
+    }
+}
+
+/**
+ * The race's name: a field until the race exists (kept in the draft as it is typed), then the
+ * name read-only, because the API has no rename.
+ */
+@Composable
+private fun RaceNameField(model: RunnerSetupViewModel, text: OnboardingText) {
+    val label = text.label("raceName")
+    if (model.raceNameLocked) {
+        val name = model.shownRaceName ?: return
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .testTag(RACE_NAME_TAG)
+                .semantics(mergeDescendants = true) {},
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        }
     } else {
-        SetupPrimaryButton(text.label("continueStep"), setupTag("course.continue"), model::confirmCourse, enabled = !model.busy)
-        SetupSecondaryButton(text.label("chooseAnotherFile"), setupTag("course.choose-another"), choose, enabled = !model.busy)
+        CrewTextField(
+            model.draft.raceName.orEmpty(),
+            model::updateRaceName,
+            label,
+            Modifier.testTag(RACE_NAME_TAG),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+            placeholder = text.label("raceNamePlaceholder").ifBlank { null },
+            supportingText = text.label("raceNameHelp").ifBlank { null }
+        )
+    }
+}
+
+/** "Course saved", with the file's name when this phone knows it: nothing is uploaded again. */
+@Composable
+private fun CourseSavedLine(label: String, fileName: String?) {
+    val spoken = listOfNotNull(label, fileName).joinToString(", ")
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .testTag(COURSE_SAVED_TAG)
+            .clearAndSetSemantics { contentDescription = spoken },
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            fileName?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
@@ -385,14 +537,21 @@ private fun StartTimeStep(model: RunnerSetupViewModel, text: OnboardingText) {
             color = MaterialTheme.colorScheme.error
         )
     }
+    // The course goes with the start and this phone lost its file: pick it again here.
+    if (model.startNeedsCourseFile) {
+        val choose = rememberCoursePicker(model)
+        Text(text.setupEmpty, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SetupPrimaryButton(text.label("chooseCourseFile"), setupTag("start.choose-course"), choose, enabled = model.canChooseCourse, busy = model.busy)
+        return
+    }
+    // Continue moves on, or saves only what changed (client-core `RunnerSetupSteps.startTimeContinue`).
     SetupPrimaryButton(
         text.label("continueStep"),
         setupTag("start.continue"),
-        { model.saveStart(context.isOnline()) },
-        enabled = model.startInstant != null,
+        { model.continueStart(context.isOnline()) },
+        enabled = model.canContinueStart,
         busy = model.busy
     )
-    // System Back returns to the course step (see RunnerSetup); its file buttons stay on that step.
 }
 
 /** The date, time and zone pickers, whichever the ViewModel has open. */
@@ -419,6 +578,7 @@ private fun HistoryStep(model: RunnerSetupViewModel, text: OnboardingText) {
             model.importHistory(name, content, context.isOnline())
         }
     }
+    HistoryTips(text.historyTips)
     model.historyMessage?.let { line ->
         Text(
             line,
@@ -437,12 +597,31 @@ private fun HistoryStep(model: RunnerSetupViewModel, text: OnboardingText) {
     }
     // FIT and TCX have no registered MIME type on most devices; the server checks the content.
     val choose = { picker.launch(arrayOf("*/*")) }
-    if (model.historyImported) {
+    // Continue after an import on this visit, and always on a history step already passed (its
+    // estimate still holds); Skip always attaches the rough estimate.
+    if (model.historyShowsContinue) {
         SetupPrimaryButton(text.label("continueStep"), setupTag("history.continue"), model::finishHistory, busy = model.busy)
         SetupSecondaryButton(text.label("importHistory"), setupTag("history.import"), choose, enabled = !model.busy)
     } else {
         SetupPrimaryButton(text.label("importHistory"), setupTag("history.import"), choose, busy = model.busy)
-        SetupSecondaryButton(text.label("skipHistory"), setupTag("history.skip"), model::skipHistory, enabled = !model.busy)
+    }
+    SetupSecondaryButton(text.label("skipHistory"), setupTag("history.skip"), model::skipHistory, enabled = !model.busy)
+}
+
+/** Under the lead (the step's explanation): which run to pick, the formats, and that it is optional. */
+@Composable
+private fun HistoryTips(tips: List<String>) {
+    if (tips.isEmpty()) return
+    Column(
+        Modifier.fillMaxWidth().testTag(HISTORY_TIPS_TAG),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        tips.forEach { tip ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("•", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                Text(tip, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
     }
 }
 
@@ -453,15 +632,25 @@ private fun TeaserStep(model: RunnerSetupViewModel, text: OnboardingText) {
         if (model.busy) SetupLoader(setupTag("teaser.loading"))
         return
     }
-    // client-core's clock, the one its summary and the history comparison write too.
+    // client-core's clock, the one its summary and the history comparison write too, in the
+    // race's zone (the start's), named under the finish when it isn't this phone's.
     val finish = teaser.finishClock ?: "—"
+    val zone = model.teaserZoneLabel
     Column(
         Modifier.testTag(setupTag("teaser.finish")).semantics(mergeDescendants = true) {
-            contentDescription = "${text.label("finish")} $finish"
+            contentDescription = listOfNotNull("${text.label("finish")} $finish", zone).joinToString(", ")
         }
     ) {
         Kicker(text.label("finish"))
         Text(finish, style = MetricLargeStyle, color = MaterialTheme.colorScheme.primary)
+        zone?.let {
+            Text(
+                it,
+                modifier = Modifier.testTag(setupTag("teaser.zone")),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         teaser.summary?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -478,10 +667,11 @@ private fun TeaserStep(model: RunnerSetupViewModel, text: OnboardingText) {
  */
 @Composable
 private fun InlineCoursePreview(model: RunnerSetupViewModel, text: OnboardingText) {
-    val course = model.preview?.takeIf { !it.isEmpty } ?: return
+    val course = model.preview?.takeIf { !it.isEmpty }
+    if (course == null && !model.courseLoading) return
     Column(Modifier.padding(top = 8.dp).testTag(setupTag("preview.inline")), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Kicker(text.label("coursePreview"))
-        CourseMapPreview(course, text)
+        CoursePreviewSlot(course, model.courseLoading, model.courseLoadingCaption, text, onRendered = model::noteCourseMapReady)
     }
 }
 
@@ -499,11 +689,11 @@ private fun LivePreview(model: RunnerSetupViewModel, step: String, text: Onboard
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Kicker(text.label("coursePreview"))
-        val course = model.preview
-        if (course == null || course.isEmpty) {
+        val course = model.preview?.takeIf { !it.isEmpty }
+        if (course == null && !model.courseLoading) {
             Illustration()
         } else {
-            CourseMapPreview(course, text)
+            CoursePreviewSlot(course, model.courseLoading, model.courseLoadingCaption, text, onRendered = model::noteCourseMapReady)
         }
         if (step == SetupSteps.START_TIME || step == SetupSteps.HISTORY) {
             val start = model.start
@@ -519,6 +709,9 @@ private fun LivePreview(model: RunnerSetupViewModel, step: String, text: Onboard
             Column(Modifier.testTag(setupTag("preview.finish"))) {
                 Kicker(text.label("finish"))
                 Text(finish, style = MetricLargeStyle, color = MaterialTheme.colorScheme.primary)
+                model.teaserZoneLabel?.let {
+                    Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         model.comparison?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary) }

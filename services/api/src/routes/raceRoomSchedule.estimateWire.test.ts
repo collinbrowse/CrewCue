@@ -13,20 +13,32 @@ import {
   type PacingEstimate,
   type RaceCourseCheckpoint,
   type RaceRoomProjection,
-  type RaceRoom
+  type RaceRoom,
 } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { resetActivityHistoryStoreForTests } from "../lib/activityHistoryStore.js";
 import {
   getPacingEstimateById,
   resetPacingEstimateStoreForTests,
-  savePacingEstimate
+  savePacingEstimate,
 } from "../lib/pacingEstimateStore.js";
+import { deleteRaceRoomAndData } from "../lib/raceRoomDeletion.js";
+import { isRoomPersistenceEnabled } from "../lib/roomPersistence.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 import { getRaceRoom, saveRaceRoom } from "./raceRooms.js";
-import { movingElapsedSecondsFromEstimate, projectCrewScheduleSheet } from "./raceRoomSchedule.js";
+import {
+  movingElapsedSecondsFromEstimate,
+  projectCrewScheduleSheet,
+} from "./raceRoomSchedule.js";
 
-const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
+const GOLDEN_CHECKPOINT_IDS = [
+  "start",
+  "aid-1",
+  "aid-2",
+  "aid-3",
+  "finish",
+] as const;
 const RACE_START_AT = "2026-08-15T13:00:00.000Z";
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 
@@ -34,13 +46,17 @@ function buildClaims(sub: string) {
   return {
     sub,
     teamIds: ["team-1"],
-    roomRoles: {}
+    roomRoles: {},
   };
 }
 
 type TestApp = ReturnType<typeof buildApp>;
 
-async function createPaidRoom(app: TestApp, ownerToken: string, name: string): Promise<string> {
+async function createPaidRoom(
+  app: TestApp,
+  ownerToken: string,
+  name: string,
+): Promise<string> {
   const createResponse = await app.inject({
     method: "POST",
     url: "/race-rooms",
@@ -48,9 +64,9 @@ async function createPaidRoom(app: TestApp, ownerToken: string, name: string): P
       teamId: "team-1",
       athleteId: (app.jwt.decode(ownerToken) as { sub: string }).sub, // owner is the race athlete (#538)
       name,
-      creatorRole: "team_manager"
+      creatorRole: "team_manager",
     },
-    headers: { authorization: `Bearer ${ownerToken}` }
+    headers: { authorization: `Bearer ${ownerToken}` },
   });
   assert.equal(createResponse.statusCode, 201);
   const roomId = (createResponse.json() as { id: string }).id;
@@ -58,13 +74,13 @@ async function createPaidRoom(app: TestApp, ownerToken: string, name: string): P
     method: "POST",
     url: `/race-rooms/${roomId}/entitlement`,
     payload: { status: "paid" },
-    headers: { authorization: `Bearer ${ownerToken}` }
+    headers: { authorization: `Bearer ${ownerToken}` },
   });
   assert.equal(entitlement.statusCode, 200);
   return roomId;
 }
 
-async function put50kCourse(app: TestApp, roomId: string, ownerToken: string) {
+async function put50kCourse(app: TestApp, roomId: string, ownerToken: string, raceStartAt = RACE_START_AT) {
   const fixture = load50kCourseWithAids();
   const response = await app.inject({
     method: "PUT",
@@ -73,9 +89,9 @@ async function put50kCourse(app: TestApp, roomId: string, ownerToken: string) {
       plannedPaceSecondsPerKm: fixture.plannedPaceSecondsPerKm,
       course: { checkpoints: fixture.checkpoints },
       routeOverlayLayer: fixture.routeOverlayLayer,
-      raceStartAt: RACE_START_AT
+      raceStartAt,
     },
-    headers: { authorization: `Bearer ${ownerToken}` }
+    headers: { authorization: `Bearer ${ownerToken}` },
   });
   assert.equal(response.statusCode, 200);
   return response.json() as RaceRoom;
@@ -85,7 +101,7 @@ async function getSchedule(app: TestApp, roomId: string, token?: string) {
   return app.inject({
     method: "GET",
     url: `/race-rooms/${roomId}/schedule`,
-    headers: token ? { authorization: `Bearer ${token}` } : undefined
+    headers: token ? { authorization: `Bearer ${token}` } : undefined,
   });
 }
 
@@ -93,20 +109,20 @@ async function attachEstimate(
   app: TestApp,
   roomId: string,
   token: string,
-  payload: object
+  payload: object,
 ) {
   return app.inject({
     method: "PUT",
     url: `/race-rooms/${roomId}/pacing-estimate`,
     payload,
-    headers: { authorization: `Bearer ${token}` }
+    headers: { authorization: `Bearer ${token}` },
   });
 }
 
 async function createEstimateViaApi(
   app: TestApp,
   token: string,
-  room: RaceRoom
+  room: RaceRoom,
 ): Promise<PacingEstimate> {
   assert.ok(room.course?.checkpoints);
   const response = await app.inject({
@@ -115,8 +131,8 @@ async function createEstimateViaApi(
     headers: { authorization: `Bearer ${token}` },
     payload: {
       raceStartAt: RACE_START_AT,
-      checkpoints: room.course.checkpoints
-    }
+      checkpoints: room.course.checkpoints,
+    },
   });
   assert.equal(response.statusCode, 200, response.body);
   return parsePacingEstimate(response.json());
@@ -128,7 +144,12 @@ function stopByCheckpoint(sheet: CrewScheduleSheet, checkpointId: string) {
   return stop;
 }
 
-async function withApp(run: (ctx: { app: TestApp; tokenFor: (sub: string) => string }) => Promise<void>) {
+async function withApp(
+  run: (ctx: {
+    app: TestApp;
+    tokenFor: (sub: string) => string;
+  }) => Promise<void>,
+) {
   await resetActivityHistoryStoreForTests();
   await resetPacingEstimateStoreForTests();
   const app = buildApp();
@@ -136,7 +157,7 @@ async function withApp(run: (ctx: { app: TestApp; tokenFor: (sub: string) => str
   try {
     await run({
       app,
-      tokenFor: (sub) => app.jwt.sign(buildClaims(sub))
+      tokenFor: (sub) => app.jwt.sign(buildClaims(sub)),
     });
   } finally {
     await app.close();
@@ -166,19 +187,25 @@ test("EC2 invalid estimate id / body returns 400", async () => {
     await put50kCourse(app, roomId, ownerToken);
 
     const missingId = await attachEstimate(app, roomId, ownerToken, {
-      pacingEstimateId: "est_does_not_exist"
+      pacingEstimateId: "est_does_not_exist",
     });
     assert.equal(missingId.statusCode, 400);
-    assert.equal((missingId.json() as { code?: string }).code, "invalid_estimate_id");
+    assert.equal(
+      (missingId.json() as { code?: string }).code,
+      "invalid_estimate_id",
+    );
 
     const empty = await attachEstimate(app, roomId, ownerToken, {});
     assert.equal(empty.statusCode, 400);
 
     const badBody = await attachEstimate(app, roomId, ownerToken, {
-      estimate: { id: "x", coldStart: true }
+      estimate: { id: "x", coldStart: true },
     });
     assert.equal(badBody.statusCode, 400);
-    assert.equal((badBody.json() as { code?: string }).code, "invalid_estimate_body");
+    assert.equal(
+      (badBody.json() as { code?: string }).code,
+      "invalid_estimate_body",
+    );
   });
 });
 
@@ -197,12 +224,12 @@ test("EC3 unauthorized attach returns 401/403; cannot attach another athlete est
     const unauth = await app.inject({
       method: "PUT",
       url: `/race-rooms/${roomId}/pacing-estimate`,
-      payload: { pacingEstimateId: ownerEstimate.id }
+      payload: { pacingEstimateId: ownerEstimate.id },
     });
     assert.equal(unauth.statusCode, 401);
 
     const stranger = await attachEstimate(app, roomId, strangerToken, {
-      pacingEstimateId: ownerEstimate.id
+      pacingEstimateId: ownerEstimate.id,
     });
     assert.equal(stranger.statusCode, 403);
 
@@ -210,24 +237,24 @@ test("EC3 unauthorized attach returns 401/403; cannot attach another athlete est
       method: "POST",
       url: `/race-rooms/${roomId}/invites`,
       payload: { email: "crew-w34@example.com", role: "crew_member" },
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(invite.statusCode, 201);
     const accept = await app.inject({
       method: "POST",
       url: `/race-rooms/${roomId}/invites/accept`,
       payload: { token: (invite.json() as { token: string }).token },
-      headers: { authorization: `Bearer ${crewToken}` }
+      headers: { authorization: `Bearer ${crewToken}` },
     });
     assert.equal(accept.statusCode, 200);
 
     const crewAttach = await attachEstimate(app, roomId, crewToken, {
-      pacingEstimateId: ownerEstimate.id
+      pacingEstimateId: ownerEstimate.id,
     });
     assert.equal(crewAttach.statusCode, 403);
 
     const foreign = await attachEstimate(app, roomId, ownerToken, {
-      pacingEstimateId: otherEstimate.id
+      pacingEstimateId: otherEstimate.id,
     });
     assert.equal(foreign.statusCode, 403);
   });
@@ -240,16 +267,20 @@ test("EC4 N/A offline — attach + schedule are in-process HTTP only", async () 
 test("EC5 re-attach same estimate is idempotent", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-ec5");
-    const roomId = await createPaidRoom(app, ownerToken, "EC5 idempotent attach");
+    const roomId = await createPaidRoom(
+      app,
+      ownerToken,
+      "EC5 idempotent attach",
+    );
     const room = await put50kCourse(app, roomId, ownerToken);
     const estimate = await createEstimateViaApi(app, ownerToken, room);
 
     const first = await attachEstimate(app, roomId, ownerToken, {
-      pacingEstimateId: estimate.id
+      pacingEstimateId: estimate.id,
     });
     assert.equal(first.statusCode, 200);
     const second = await attachEstimate(app, roomId, ownerToken, {
-      pacingEstimateId: estimate.id
+      pacingEstimateId: estimate.id,
     });
     assert.equal(second.statusCode, 200);
     assert.deepEqual(first.json(), second.json());
@@ -268,11 +299,13 @@ test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving 
     const computed = await createEstimateViaApi(app, ownerToken, room);
 
     const attach = await attachEstimate(app, roomId, ownerToken, {
-      pacingEstimateId: computed.id
+      pacingEstimateId: computed.id,
     });
     assert.equal(attach.statusCode, 200);
     // The room-less response is the teaser shape; the paid room's attach answers the whole plan.
-    const estimate = parsePacingEstimate((attach.json() as { estimate: unknown }).estimate);
+    const estimate = parsePacingEstimate(
+      (attach.json() as { estimate: unknown }).estimate,
+    );
 
     const response = await getSchedule(app, roomId, ownerToken);
     assert.equal(response.statusCode, 200);
@@ -284,20 +317,27 @@ test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving 
     }
 
     // Moving baselines from estimate; stoppage from prior stops still stacks.
-    const startStoppage = stopByCheckpoint(sheet, "start").plannedStoppageSeconds;
-    const aid1Eta = estimate.aidEtas.find((row) => row.checkpointId === "aid-1");
+    const startStoppage = stopByCheckpoint(
+      sheet,
+      "start",
+    ).plannedStoppageSeconds;
+    const aid1Eta = estimate.aidEtas.find(
+      (row) => row.checkpointId === "aid-1",
+    );
     assert.ok(aid1Eta);
     assert.equal(
       stopByCheckpoint(sheet, "aid-1").elapsedSeconds,
-      aid1Eta.elapsedSeconds + startStoppage
+      aid1Eta.elapsedSeconds + startStoppage,
     );
 
     const aid1 = stopByCheckpoint(sheet, "aid-1");
-    const aid2Eta = estimate.aidEtas.find((row) => row.checkpointId === "aid-2");
+    const aid2Eta = estimate.aidEtas.find(
+      (row) => row.checkpointId === "aid-2",
+    );
     assert.ok(aid2Eta);
     assert.equal(
       stopByCheckpoint(sheet, "aid-2").elapsedSeconds,
-      aid2Eta.elapsedSeconds + startStoppage + aid1.plannedStoppageSeconds
+      aid2Eta.elapsedSeconds + startStoppage + aid1.plannedStoppageSeconds,
     );
 
     const finishMoving = estimate.expectedFinishElapsedSeconds;
@@ -305,7 +345,8 @@ test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving 
     for (const id of GOLDEN_CHECKPOINT_IDS) {
       if (id === "finish") break;
       const stop = stopByCheckpoint(sheet, id);
-      priorStoppage += stop.plannedStoppageSeconds + (stop.delayOverrideSeconds ?? 0);
+      priorStoppage +=
+        stop.plannedStoppageSeconds + (stop.delayOverrideSeconds ?? 0);
     }
     const finishStop = stopByCheckpoint(sheet, "finish");
     assert.equal(finishStop.elapsedSeconds, finishMoving + priorStoppage);
@@ -313,11 +354,14 @@ test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving 
     // PR D (#484): movingElapsedSeconds is the moving-only baseline; elapsed − moving == cumulative
     // prior dwell (0 at the start, growing as prior stoppage stacks).
     assert.equal(finishStop.movingElapsedSeconds, finishMoving);
-    assert.equal(finishStop.elapsedSeconds - (finishStop.movingElapsedSeconds ?? 0), priorStoppage);
+    assert.equal(
+      finishStop.elapsedSeconds - (finishStop.movingElapsedSeconds ?? 0),
+      priorStoppage,
+    );
     assert.equal(stopByCheckpoint(sheet, "start").movingElapsedSeconds, 0);
     assert.equal(
       stopByCheckpoint(sheet, "aid-1").movingElapsedSeconds,
-      aid1Eta.elapsedSeconds
+      aid1Eta.elapsedSeconds,
     );
   });
 });
@@ -330,20 +374,25 @@ test("Trap 2: attach-by-id derives plannedPaceSecondsPerKm from the estimate bas
     const beforePace = room.plannedPaceSecondsPerKm;
     const estimate = await createEstimateViaApi(app, ownerToken, room);
 
-    const attach = await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id });
+    const attach = await attachEstimate(app, roomId, ownerToken, {
+      pacingEstimateId: estimate.id,
+    });
     assert.equal(attach.statusCode, 200);
 
     const stored = await getPacingEstimateById(estimate.id);
     assert.ok(stored?.baselineTrack && stored.baselineTrack.points.length >= 2);
-    const last = stored.baselineTrack.points[stored.baselineTrack.points.length - 1]!;
-    const expectedPace = last.referenceElapsedSeconds / (last.distanceMetersFromStart / 1000);
+    const last =
+      stored.baselineTrack.points[stored.baselineTrack.points.length - 1]!;
+    const expectedPace =
+      last.referenceElapsedSeconds / (last.distanceMetersFromStart / 1000);
 
     const persisted = await getRaceRoom(roomId);
     assert.ok(persisted);
     assert.equal(typeof persisted.plannedPaceSecondsPerKm, "number");
     assert.ok(
-      Math.abs((persisted.plannedPaceSecondsPerKm as number) - expectedPace) < 1e-6,
-      `expected derived pace ${expectedPace}, got ${persisted.plannedPaceSecondsPerKm}`
+      Math.abs((persisted.plannedPaceSecondsPerKm as number) - expectedPace) <
+        1e-6,
+      `expected derived pace ${expectedPace}, got ${persisted.plannedPaceSecondsPerKm}`,
     );
     // The estimate now drives the plan of record, not the timestamped-GPX fallback pace.
     assert.notEqual(persisted.plannedPaceSecondsPerKm, beforePace);
@@ -353,21 +402,30 @@ test("Trap 2: attach-by-id derives plannedPaceSecondsPerKm from the estimate bas
 test("attach refreshes projection so Pace planned splits match the estimate baseline", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-pace-proj");
-    const roomId = await createPaidRoom(app, ownerToken, "Pace projection refresh");
+    const roomId = await createPaidRoom(
+      app,
+      ownerToken,
+      "Pace projection refresh",
+    );
     const room = await put50kCourse(app, roomId, ownerToken);
 
     // Seed the bootstrap projection (Pace's data source) against the pre-attach plan.
     const beforeProj = await app.inject({
       method: "GET",
       url: `/race-rooms/${roomId}/projection`,
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(beforeProj.statusCode, 200, beforeProj.body);
     const beforeBody = beforeProj.json() as {
       plannedPaceSecondsPerKm: number;
-      checkpointSplits: Array<{ checkpointId: string; plannedElapsedSecondsAtCross: number }>;
+      checkpointSplits: Array<{
+        checkpointId: string;
+        plannedElapsedSecondsAtCross: number;
+      }>;
     };
-    const beforeAid1 = beforeBody.checkpointSplits.find((s) => s.checkpointId === "aid-1");
+    const beforeAid1 = beforeBody.checkpointSplits.find(
+      (s) => s.checkpointId === "aid-1",
+    );
     assert.ok(beforeAid1);
 
     // Prefer roomId so the estimate baseline matches the course polyline Pace uses.
@@ -375,50 +433,69 @@ test("attach refreshes projection so Pace planned splits match the estimate base
       method: "POST",
       url: "/pacing-estimates",
       headers: { authorization: `Bearer ${ownerToken}` },
-      payload: { roomId }
+      payload: { roomId },
     });
     assert.equal(estimateResponse.statusCode, 200, estimateResponse.body);
     const estimate = parsePacingEstimate(estimateResponse.json());
 
-    const attach = await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id });
+    const attach = await attachEstimate(app, roomId, ownerToken, {
+      pacingEstimateId: estimate.id,
+    });
     assert.equal(attach.statusCode, 200);
 
     const afterProj = await app.inject({
       method: "GET",
       url: `/race-rooms/${roomId}/projection`,
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(afterProj.statusCode, 200, afterProj.body);
     const afterBody = afterProj.json() as {
       plannedPaceSecondsPerKm: number;
-      checkpointSplits: Array<{ checkpointId: string; plannedElapsedSecondsAtCross: number }>;
+      checkpointSplits: Array<{
+        checkpointId: string;
+        plannedElapsedSecondsAtCross: number;
+      }>;
     };
-    const afterAid1 = afterBody.checkpointSplits.find((s) => s.checkpointId === "aid-1");
+    const afterAid1 = afterBody.checkpointSplits.find(
+      (s) => s.checkpointId === "aid-1",
+    );
     assert.ok(afterAid1);
 
     const persisted = await getRaceRoom(roomId);
     assert.ok(persisted?.plannedPaceSecondsPerKm);
-    assert.equal(afterBody.plannedPaceSecondsPerKm, persisted.plannedPaceSecondsPerKm);
+    assert.equal(
+      afterBody.plannedPaceSecondsPerKm,
+      persisted.plannedPaceSecondsPerKm,
+    );
     assert.notEqual(
       afterAid1.plannedElapsedSecondsAtCross,
       beforeAid1.plannedElapsedSecondsAtCross,
-      "Pace planned split must change when the estimate attaches"
+      "Pace planned split must change when the estimate attaches",
     );
 
     // Aid ETA from the estimate is the moving baseline; projection planned elapsed should match it.
-    const aid1Eta = estimate.aidEtas.find((row) => row.checkpointId === "aid-1");
+    const aid1Eta = estimate.aidEtas.find(
+      (row) => row.checkpointId === "aid-1",
+    );
     assert.ok(aid1Eta);
     assert.ok(
-      Math.abs(afterAid1.plannedElapsedSecondsAtCross - aid1Eta.elapsedSeconds) <= 2,
-      `projection aid-1 planned ${afterAid1.plannedElapsedSecondsAtCross} vs estimate ${aid1Eta.elapsedSeconds}`
+      Math.abs(
+        afterAid1.plannedElapsedSecondsAtCross - aid1Eta.elapsedSeconds,
+      ) <= 2,
+      `projection aid-1 planned ${afterAid1.plannedElapsedSecondsAtCross} vs estimate ${aid1Eta.elapsedSeconds}`,
     );
 
     // Finish planned elapsed on the last split should track the estimate finish (moving).
-    const finishSplit = afterBody.checkpointSplits.find((s) => s.checkpointId === "finish");
+    const finishSplit = afterBody.checkpointSplits.find(
+      (s) => s.checkpointId === "finish",
+    );
     assert.ok(finishSplit);
     assert.ok(
-      Math.abs(finishSplit.plannedElapsedSecondsAtCross - estimate.expectedFinishElapsedSeconds) <= 2,
-      `projection finish planned ${finishSplit.plannedElapsedSecondsAtCross} vs estimate ${estimate.expectedFinishElapsedSeconds}`
+      Math.abs(
+        finishSplit.plannedElapsedSecondsAtCross -
+          estimate.expectedFinishElapsedSeconds,
+      ) <= 2,
+      `projection finish planned ${finishSplit.plannedElapsedSecondsAtCross} vs estimate ${estimate.expectedFinishElapsedSeconds}`,
     );
     assert.ok(room.id);
   });
@@ -427,77 +504,105 @@ test("attach refreshes projection so Pace planned splits match the estimate base
 test("attach preserves closed check-ins when the athlete has no GPS ping yet", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-attach-keeps-checkin");
-    const roomId = await createPaidRoom(app, ownerToken, "Attach keeps check-in");
+    const roomId = await createPaidRoom(
+      app,
+      ownerToken,
+      "Attach keeps check-in",
+    );
     const seeded = await put50kCourse(app, roomId, ownerToken);
 
-    const baseline = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const baseline = parseCrewScheduleSheet(
+      (await getSchedule(app, roomId, ownerToken)).json(),
+    );
     const plannedAid1 =
       stopByCheckpoint(baseline, "aid-1").plannedStoppageSeconds +
       (stopByCheckpoint(baseline, "aid-1").delayOverrideSeconds ?? 0);
     const deltaSeconds = 240;
     const actualStopSeconds = plannedAid1 + deltaSeconds;
     const arrivalAt = "2026-08-15T14:00:00.000Z";
-    const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
+    const departureAt = new Date(
+      Date.parse(arrivalAt) + actualStopSeconds * 1000,
+    ).toISOString();
 
     const checkIn = await app.inject({
       method: "POST",
       url: `/race-rooms/${roomId}/checkpoints/aid-1/manual-stop`,
       payload: { arrivalAt, departureAt },
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(checkIn.statusCode, 200, checkIn.body);
 
-    const beforeAttach = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const beforeAttach = parseCrewScheduleSheet(
+      (await getSchedule(app, roomId, ownerToken)).json(),
+    );
     assert.equal(
       stopByCheckpoint(beforeAttach, "aid-2").elapsedSeconds,
-      stopByCheckpoint(baseline, "aid-2").elapsedSeconds + deltaSeconds
+      stopByCheckpoint(baseline, "aid-2").elapsedSeconds + deltaSeconds,
     );
 
     const estimateResponse = await app.inject({
       method: "POST",
       url: "/pacing-estimates",
       headers: { authorization: `Bearer ${ownerToken}` },
-      payload: { roomId }
+      payload: { roomId },
     });
     assert.equal(estimateResponse.statusCode, 200, estimateResponse.body);
     const estimate = parsePacingEstimate(estimateResponse.json());
     assert.equal(
-      (await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id })).statusCode,
-      200
+      (
+        await attachEstimate(app, roomId, ownerToken, {
+          pacingEstimateId: estimate.id,
+        })
+      ).statusCode,
+      200,
     );
 
-    const after = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const after = parseCrewScheduleSheet(
+      (await getSchedule(app, roomId, ownerToken)).json(),
+    );
     assert.equal(after.pacingEstimateId, estimate.id);
     const persisted = await getRaceRoom(roomId);
     assert.ok(persisted);
     const expected = projectCrewScheduleSheet(persisted, {
       closedActualStopSecondsByCheckpointId: { "aid-1": actualStopSeconds },
-      pacingEstimate: estimate
+      pacingEstimate: estimate,
     });
     assert.deepEqual(after.stops, expected.stops);
 
-    const aid1Eta = estimate.aidEtas.find((row) => row.checkpointId === "aid-1");
+    const aid1Eta = estimate.aidEtas.find(
+      (row) => row.checkpointId === "aid-1",
+    );
     assert.ok(aid1Eta);
     const afterProj = await app.inject({
       method: "GET",
       url: `/race-rooms/${roomId}/projection`,
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(afterProj.statusCode, 200, afterProj.body);
     const afterBody = afterProj.json() as {
       checkpointSplits: Array<{
         checkpointId: string;
         plannedElapsedSecondsAtCross: number;
-        visits: Array<{ resolvedSource: string; activeActualStopSeconds: number | null }>;
+        visits: Array<{
+          resolvedSource: string;
+          activeActualStopSeconds: number | null;
+        }>;
       }>;
     };
-    const aid1Split = afterBody.checkpointSplits.find((row) => row.checkpointId === "aid-1");
+    const aid1Split = afterBody.checkpointSplits.find(
+      (row) => row.checkpointId === "aid-1",
+    );
     assert.ok(aid1Split);
     assert.equal(aid1Split.visits[0]?.resolvedSource, "manual_crew");
-    assert.equal(aid1Split.visits[0]?.activeActualStopSeconds, actualStopSeconds);
+    assert.equal(
+      aid1Split.visits[0]?.activeActualStopSeconds,
+      actualStopSeconds,
+    );
     assert.ok(
-      Math.abs(aid1Split.plannedElapsedSecondsAtCross - aid1Eta.elapsedSeconds) <= 2,
-      `Pace planned split must still refresh after attach; got ${aid1Split.plannedElapsedSecondsAtCross} vs estimate ${aid1Eta.elapsedSeconds}`
+      Math.abs(
+        aid1Split.plannedElapsedSecondsAtCross - aid1Eta.elapsedSeconds,
+      ) <= 2,
+      `Pace planned split must still refresh after attach; got ${aid1Split.plannedElapsedSecondsAtCross} vs estimate ${aid1Eta.elapsedSeconds}`,
     );
     assert.ok(seeded.id);
   });
@@ -506,9 +611,15 @@ test("attach preserves closed check-ins when the athlete has no GPS ping yet", a
 test("in-race attach refreshes projection from the accepted ping without dropping live progress", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-pace-live-proj");
-    const roomId = await createPaidRoom(app, ownerToken, "Pace live projection refresh");
+    const roomId = await createPaidRoom(
+      app,
+      ownerToken,
+      "Pace live projection refresh",
+    );
     const room = await put50kCourse(app, roomId, ownerToken);
-    const aid1 = room.course?.checkpoints.find((checkpoint) => checkpoint.id === "aid-1");
+    const aid1 = room.course?.checkpoints.find(
+      (checkpoint) => checkpoint.id === "aid-1",
+    );
     assert.ok(aid1);
 
     const pingResponse = await app.inject({
@@ -517,35 +628,41 @@ test("in-race attach refreshes projection from the accepted ping without droppin
       payload: {
         latitude: aid1.latitude,
         longitude: aid1.longitude,
-        recordedAt: new Date().toISOString()
+        recordedAt: new Date().toISOString(),
       },
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(pingResponse.statusCode, 201, pingResponse.body);
-    const pingProjection = (pingResponse.json() as { projection?: RaceRoomProjection }).projection;
+    const pingProjection = (
+      pingResponse.json() as { projection?: RaceRoomProjection }
+    ).projection;
     assert.ok(pingProjection);
     assert.notEqual(pingProjection.asOfPingId, "bootstrap");
     assert.ok(pingProjection.progressMeters > 0);
 
-    const beforeAid1 = pingProjection.checkpointSplits.find((split) => split.checkpointId === "aid-1");
+    const beforeAid1 = pingProjection.checkpointSplits.find(
+      (split) => split.checkpointId === "aid-1",
+    );
     assert.ok(beforeAid1);
 
     const estimateResponse = await app.inject({
       method: "POST",
       url: "/pacing-estimates",
       headers: { authorization: `Bearer ${ownerToken}` },
-      payload: { roomId }
+      payload: { roomId },
     });
     assert.equal(estimateResponse.statusCode, 200, estimateResponse.body);
     const estimate = parsePacingEstimate(estimateResponse.json());
 
-    const attach = await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id });
+    const attach = await attachEstimate(app, roomId, ownerToken, {
+      pacingEstimateId: estimate.id,
+    });
     assert.equal(attach.statusCode, 200, attach.body);
 
     const afterProj = await app.inject({
       method: "GET",
       url: `/race-rooms/${roomId}/projection`,
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(afterProj.statusCode, 200, afterProj.body);
     const afterBody = afterProj.json() as RaceRoomProjection;
@@ -553,19 +670,25 @@ test("in-race attach refreshes projection from the accepted ping without droppin
     assert.notEqual(afterBody.asOfPingId, "bootstrap");
     assert.equal(afterBody.progressMeters, pingProjection.progressMeters);
 
-    const afterAid1 = afterBody.checkpointSplits.find((split) => split.checkpointId === "aid-1");
+    const afterAid1 = afterBody.checkpointSplits.find(
+      (split) => split.checkpointId === "aid-1",
+    );
     assert.ok(afterAid1);
     assert.notEqual(
       afterAid1.plannedElapsedSecondsAtCross,
       beforeAid1.plannedElapsedSecondsAtCross,
-      "live Pace planned split must change when the estimate attaches"
+      "live Pace planned split must change when the estimate attaches",
     );
 
-    const aid1Eta = estimate.aidEtas.find((row) => row.checkpointId === "aid-1");
+    const aid1Eta = estimate.aidEtas.find(
+      (row) => row.checkpointId === "aid-1",
+    );
     assert.ok(aid1Eta);
     assert.ok(
-      Math.abs(afterAid1.plannedElapsedSecondsAtCross - aid1Eta.elapsedSeconds) <= 2,
-      `projection aid-1 planned ${afterAid1.plannedElapsedSecondsAtCross} vs estimate ${aid1Eta.elapsedSeconds}`
+      Math.abs(
+        afterAid1.plannedElapsedSecondsAtCross - aid1Eta.elapsedSeconds,
+      ) <= 2,
+      `projection aid-1 planned ${afterAid1.plannedElapsedSecondsAtCross} vs estimate ${aid1Eta.elapsedSeconds}`,
     );
   });
 });
@@ -577,8 +700,12 @@ test("EC7 estimate + delay overlay shifts later clocks", async () => {
     const room = await put50kCourse(app, roomId, ownerToken);
     const estimate = await createEstimateViaApi(app, ownerToken, room);
     assert.equal(
-      (await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id })).statusCode,
-      200
+      (
+        await attachEstimate(app, roomId, ownerToken, {
+          pacingEstimateId: estimate.id,
+        })
+      ).statusCode,
+      200,
     );
 
     const baselineResponse = await getSchedule(app, roomId, ownerToken);
@@ -590,7 +717,7 @@ test("EC7 estimate + delay overlay shifts later clocks", async () => {
       method: "PUT",
       url: `/race-rooms/${roomId}/stop-plans/aid-1`,
       payload: { delayOverrideSeconds: delaySeconds },
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(put.statusCode, 200);
 
@@ -599,15 +726,21 @@ test("EC7 estimate + delay overlay shifts later clocks", async () => {
     const after = parseCrewScheduleSheet(afterResponse.json());
     assert.equal(after.pacingEstimateId, estimate.id);
 
-    assert.equal(stopByCheckpoint(after, "start").elapsedSeconds, stopByCheckpoint(baseline, "start").elapsedSeconds);
-    assert.equal(stopByCheckpoint(after, "aid-1").elapsedSeconds, stopByCheckpoint(baseline, "aid-1").elapsedSeconds);
+    assert.equal(
+      stopByCheckpoint(after, "start").elapsedSeconds,
+      stopByCheckpoint(baseline, "start").elapsedSeconds,
+    );
+    assert.equal(
+      stopByCheckpoint(after, "aid-1").elapsedSeconds,
+      stopByCheckpoint(baseline, "aid-1").elapsedSeconds,
+    );
     assert.equal(
       stopByCheckpoint(after, "aid-2").elapsedSeconds,
-      stopByCheckpoint(baseline, "aid-2").elapsedSeconds + delaySeconds
+      stopByCheckpoint(baseline, "aid-2").elapsedSeconds + delaySeconds,
     );
     assert.equal(
       stopByCheckpoint(after, "finish").elapsedSeconds,
-      stopByCheckpoint(baseline, "finish").elapsedSeconds + delaySeconds
+      stopByCheckpoint(baseline, "finish").elapsedSeconds + delaySeconds,
     );
   });
 });
@@ -615,12 +748,20 @@ test("EC7 estimate + delay overlay shifts later clocks", async () => {
 test("EC8 estimate + closed check-in actual shifts later clocks", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-ec8");
-    const roomId = await createPaidRoom(app, ownerToken, "EC8 estimate+checkin");
+    const roomId = await createPaidRoom(
+      app,
+      ownerToken,
+      "EC8 estimate+checkin",
+    );
     const room = await put50kCourse(app, roomId, ownerToken);
     const estimate = await createEstimateViaApi(app, ownerToken, room);
     assert.equal(
-      (await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id })).statusCode,
-      200
+      (
+        await attachEstimate(app, roomId, ownerToken, {
+          pacingEstimateId: estimate.id,
+        })
+      ).statusCode,
+      200,
     );
 
     const baselineResponse = await getSchedule(app, roomId, ownerToken);
@@ -632,13 +773,15 @@ test("EC8 estimate + closed check-in actual shifts later clocks", async () => {
     const deltaSeconds = 240;
     const actualStopSeconds = plannedAid1 + deltaSeconds;
     const arrivalAt = "2026-08-15T14:00:00.000Z";
-    const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
+    const departureAt = new Date(
+      Date.parse(arrivalAt) + actualStopSeconds * 1000,
+    ).toISOString();
 
     const checkIn = await app.inject({
       method: "POST",
       url: `/race-rooms/${roomId}/checkpoints/aid-1/manual-stop`,
       payload: { arrivalAt, departureAt },
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(checkIn.statusCode, 200, checkIn.body);
 
@@ -647,14 +790,17 @@ test("EC8 estimate + closed check-in actual shifts later clocks", async () => {
     const after = parseCrewScheduleSheet(afterResponse.json());
     assert.equal(after.pacingEstimateId, estimate.id);
 
-    assert.equal(stopByCheckpoint(after, "aid-1").elapsedSeconds, stopByCheckpoint(baseline, "aid-1").elapsedSeconds);
+    assert.equal(
+      stopByCheckpoint(after, "aid-1").elapsedSeconds,
+      stopByCheckpoint(baseline, "aid-1").elapsedSeconds,
+    );
     assert.equal(
       stopByCheckpoint(after, "aid-2").elapsedSeconds,
-      stopByCheckpoint(baseline, "aid-2").elapsedSeconds + deltaSeconds
+      stopByCheckpoint(baseline, "aid-2").elapsedSeconds + deltaSeconds,
     );
     assert.equal(
       stopByCheckpoint(after, "finish").elapsedSeconds,
-      stopByCheckpoint(baseline, "finish").elapsedSeconds + deltaSeconds
+      stopByCheckpoint(baseline, "finish").elapsedSeconds + deltaSeconds,
     );
   });
 });
@@ -674,33 +820,41 @@ test("attach by estimate body works and seeds store ownership", async () => {
         {
           checkpointId: "aid-1",
           clockArrivalAt: "2026-08-15T15:00:00.000Z",
-          elapsedSeconds: 7200
+          elapsedSeconds: 7200,
         },
         {
           checkpointId: "aid-2",
           clockArrivalAt: "2026-08-15T16:30:00.000Z",
-          elapsedSeconds: 12_600
+          elapsedSeconds: 12_600,
         },
         {
           checkpointId: "aid-3",
           clockArrivalAt: "2026-08-15T18:00:00.000Z",
-          elapsedSeconds: 18_000
-        }
+          elapsedSeconds: 18_000,
+        },
       ],
-      explanation: "Manual cold-start body for attach test."
+      explanation: "Manual cold-start body for attach test.",
     });
 
     const attach = await attachEstimate(app, roomId, ownerToken, { estimate });
     assert.equal(attach.statusCode, 200);
 
-    const sheet = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const sheet = parseCrewScheduleSheet(
+      (await getSchedule(app, roomId, ownerToken)).json(),
+    );
     assert.equal(sheet.pacingEstimateId, estimate.id);
-    const startStoppage = stopByCheckpoint(sheet, "start").plannedStoppageSeconds;
-    assert.equal(stopByCheckpoint(sheet, "aid-1").elapsedSeconds, 7200 + startStoppage);
+    const startStoppage = stopByCheckpoint(
+      sheet,
+      "start",
+    ).plannedStoppageSeconds;
+    assert.equal(
+      stopByCheckpoint(sheet, "aid-1").elapsedSeconds,
+      7200 + startStoppage,
+    );
 
     // Re-attach by id after body seeded the store.
     const again = await attachEstimate(app, roomId, ownerToken, {
-      pacingEstimateId: estimate.id
+      pacingEstimateId: estimate.id,
     });
     assert.equal(again.statusCode, 200);
   });
@@ -709,11 +863,16 @@ test("attach by estimate body works and seeds store ownership", async () => {
 test("attach by estimate body derives planned pace from finish when no stored baseline exists", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-body-pace");
-    const roomId = await createPaidRoom(app, ownerToken, "attach body fallback pace");
+    const roomId = await createPaidRoom(
+      app,
+      ownerToken,
+      "attach body fallback pace",
+    );
     const room = await put50kCourse(app, roomId, ownerToken);
     assert.ok(room.course?.derivedMetrics?.canonicalDistanceMeters);
     const beforePace = room.plannedPaceSecondsPerKm;
-    const courseLengthKm = room.course.derivedMetrics.canonicalDistanceMeters / 1000;
+    const courseLengthKm =
+      room.course.derivedMetrics.canonicalDistanceMeters / 1000;
 
     const estimate = parsePacingEstimate({
       id: "est_manual_body_no_baseline",
@@ -721,7 +880,7 @@ test("attach by estimate body derives planned pace from finish when no stored ba
       expectedFinishAt: "2026-08-15T21:20:00.000Z",
       expectedFinishElapsedSeconds: 30_000,
       aidEtas: [],
-      explanation: "Manual estimate body without a stored baseline."
+      explanation: "Manual estimate body without a stored baseline.",
     });
 
     const attach = await attachEstimate(app, roomId, ownerToken, { estimate });
@@ -732,24 +891,30 @@ test("attach by estimate body derives planned pace from finish when no stored ba
     const expectedPace = estimate.expectedFinishElapsedSeconds / courseLengthKm;
     assert.ok(
       Math.abs(persisted.plannedPaceSecondsPerKm - expectedPace) < 1e-6,
-      `expected fallback pace ${expectedPace}, got ${persisted.plannedPaceSecondsPerKm}`
+      `expected fallback pace ${expectedPace}, got ${persisted.plannedPaceSecondsPerKm}`,
     );
     assert.notEqual(persisted.plannedPaceSecondsPerKm, beforePace);
 
-    const sheet = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const sheet = parseCrewScheduleSheet(
+      (await getSchedule(app, roomId, ownerToken)).json(),
+    );
     assert.equal(sheet.pacingEstimateId, estimate.id);
     const finishStop = stopByCheckpoint(sheet, "finish");
-    assert.equal(finishStop.movingElapsedSeconds, estimate.expectedFinishElapsedSeconds);
+    assert.equal(
+      finishStop.movingElapsedSeconds,
+      estimate.expectedFinishElapsedSeconds,
+    );
 
     const projection = await app.inject({
       method: "GET",
       url: `/race-rooms/${roomId}/projection`,
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(projection.statusCode, 200, projection.body);
     assert.equal(
-      (projection.json() as { plannedPaceSecondsPerKm: number }).plannedPaceSecondsPerKm,
-      persisted.plannedPaceSecondsPerKm
+      (projection.json() as { plannedPaceSecondsPerKm: number })
+        .plannedPaceSecondsPerKm,
+      persisted.plannedPaceSecondsPerKm,
     );
   });
 });
@@ -767,16 +932,18 @@ test("foreign athlete cannot attach estimate body they do not own when id exists
       expectedFinishAt: "2026-08-15T20:00:00.000Z",
       expectedFinishElapsedSeconds: 25_200,
       aidEtas: [],
-      explanation: "Owned by other athlete."
+      explanation: "Owned by other athlete.",
     });
     await savePacingEstimate("other-w34-body-foreign", estimate);
 
-    const forbidden = await attachEstimate(app, roomId, ownerToken, { estimate });
+    const forbidden = await attachEstimate(app, roomId, ownerToken, {
+      estimate,
+    });
     assert.equal(forbidden.statusCode, 403);
 
     // Owner of estimate who is not a room editor also cannot attach.
     const notMember = await attachEstimate(app, roomId, otherToken, {
-      pacingEstimateId: estimate.id
+      pacingEstimateId: estimate.id,
     });
     assert.equal(notMember.statusCode, 403);
   });
@@ -785,12 +952,20 @@ test("foreign athlete cannot attach estimate body they do not own when id exists
 test("replacing course GPX (route overlay) detaches the stale plan-of-record estimate", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-replace-gpx");
-    const roomId = await createPaidRoom(app, ownerToken, "replace GPX detaches estimate");
+    const roomId = await createPaidRoom(
+      app,
+      ownerToken,
+      "replace GPX detaches estimate",
+    );
     const seeded = await put50kCourse(app, roomId, ownerToken);
     const estimate = await createEstimateViaApi(app, ownerToken, seeded);
     assert.equal(
-      (await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id })).statusCode,
-      200
+      (
+        await attachEstimate(app, roomId, ownerToken, {
+          pacingEstimateId: estimate.id,
+        })
+      ).statusCode,
+      200,
     );
     assert.equal((await getRaceRoom(roomId))?.pacingEstimateId, estimate.id);
 
@@ -802,7 +977,9 @@ test("replacing course GPX (route overlay) detaches the stale plan-of-record est
     assert.equal(persisted?.pacingEstimateId, undefined);
     assert.equal(persisted?.pacingEstimate, undefined);
 
-    const sheet = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const sheet = parseCrewScheduleSheet(
+      (await getSchedule(app, roomId, ownerToken)).json(),
+    );
     assert.equal(sheet.pacingEstimateId, undefined);
     assert.deepEqual(sheet, projectCrewScheduleSheet(replaced));
   });
@@ -811,12 +988,23 @@ test("replacing course GPX (route overlay) detaches the stale plan-of-record est
 test("course PUT without a new route overlay keeps the attached estimate", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-keep-estimate");
-    const roomId = await createPaidRoom(app, ownerToken, "start-only keeps estimate");
-    const seeded = await put50kCourse(app, roomId, ownerToken);
+    const roomId = await createPaidRoom(
+      app,
+      ownerToken,
+      "start-only keeps estimate",
+    );
+    // A start still ahead: a race past its start + 48 h is locked (lib/raceLock.ts).
+    const DAY_MS = 86_400_000;
+    const ahead = Math.floor(Date.now() / DAY_MS) * DAY_MS + 30 * DAY_MS;
+    const seeded = await put50kCourse(app, roomId, ownerToken, new Date(ahead).toISOString());
     const estimate = await createEstimateViaApi(app, ownerToken, seeded);
     assert.equal(
-      (await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id })).statusCode,
-      200
+      (
+        await attachEstimate(app, roomId, ownerToken, {
+          pacingEstimateId: estimate.id,
+        })
+      ).statusCode,
+      200,
     );
 
     const attached = await getRaceRoom(roomId);
@@ -828,19 +1016,21 @@ test("course PUT without a new route overlay keeps the attached estimate", async
         plannedPaceSecondsPerKm: attached.plannedPaceSecondsPerKm,
         course: {
           checkpoints: attached.course.checkpoints,
-          baselineTrack: attached.course.baselineTrack
+          baselineTrack: attached.course.baselineTrack,
         },
-        raceStartAt: "2026-08-16T13:00:00.000Z",
-        courseFileName: attached.courseFileName
+        raceStartAt: new Date(ahead + DAY_MS).toISOString(),
+        courseFileName: attached.courseFileName,
       },
-      headers: { authorization: `Bearer ${ownerToken}` }
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     assert.equal(startOnly.statusCode, 200, startOnly.body);
     const kept = startOnly.json() as RaceRoom;
     assert.equal(kept.pacingEstimateId, estimate.id);
     assert.equal(kept.pacingEstimate?.id, estimate.id);
 
-    const sheet = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const sheet = parseCrewScheduleSheet(
+      (await getSchedule(app, roomId, ownerToken)).json(),
+    );
     assert.equal(sheet.pacingEstimateId, estimate.id);
   });
 });
@@ -851,9 +1041,13 @@ test("clearing room estimate field restores pace baseline (unit)", async () => {
     const roomId = await createPaidRoom(app, ownerToken, "clear estimate");
     const seeded = await put50kCourse(app, roomId, ownerToken);
     const estimate = await createEstimateViaApi(app, ownerToken, seeded);
-    await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id });
+    await attachEstimate(app, roomId, ownerToken, {
+      pacingEstimateId: estimate.id,
+    });
 
-    const withEstimate = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const withEstimate = parseCrewScheduleSheet(
+      (await getSchedule(app, roomId, ownerToken)).json(),
+    );
     assert.ok(withEstimate.pacingEstimateId);
 
     const room = await getRaceRoom(roomId);
@@ -863,7 +1057,9 @@ test("clearing room estimate field restores pace baseline (unit)", async () => {
     delete cleared.pacingEstimateId;
     await saveRaceRoom(cleared);
 
-    const without = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const without = parseCrewScheduleSheet(
+      (await getSchedule(app, roomId, ownerToken)).json(),
+    );
     assert.equal(without.pacingEstimateId, undefined);
     assert.deepEqual(without, projectCrewScheduleSheet(cleared));
   });
@@ -871,17 +1067,41 @@ test("clearing room estimate field restores pace baseline (unit)", async () => {
 
 test("estimate projection interpolates unanchored checkpoints and stacks their dwell", () => {
   const checkpoints: RaceCourseCheckpoint[] = [
-    { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0, plannedStopSeconds: 30 },
-    { id: "aid-1", latitude: 0, longitude: 0, distanceMetersFromStart: 10_000, plannedStopSeconds: 60 },
+    {
+      id: "start",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 0,
+      plannedStopSeconds: 30,
+    },
+    {
+      id: "aid-1",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 10_000,
+      plannedStopSeconds: 60,
+    },
     {
       id: "landmark",
       latitude: 0,
       longitude: 0,
       distanceMetersFromStart: 15_000,
-      plannedStopSeconds: 120
+      plannedStopSeconds: 120,
     },
-    { id: "aid-2", latitude: 0, longitude: 0, distanceMetersFromStart: 20_000, plannedStopSeconds: 90 },
-    { id: "finish", latitude: 0, longitude: 0, distanceMetersFromStart: 40_000, plannedStopSeconds: 0 }
+    {
+      id: "aid-2",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 20_000,
+      plannedStopSeconds: 90,
+    },
+    {
+      id: "finish",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 40_000,
+      plannedStopSeconds: 0,
+    },
   ];
   const estimate: PacingEstimate = {
     id: "est_interpolate_unanchored",
@@ -892,15 +1112,15 @@ test("estimate projection interpolates unanchored checkpoints and stacks their d
       {
         checkpointId: "aid-1",
         clockArrivalAt: "2026-08-15T14:00:00.000Z",
-        elapsedSeconds: 3600
+        elapsedSeconds: 3600,
       },
       {
         checkpointId: "aid-2",
         clockArrivalAt: "2026-08-15T15:00:00.000Z",
-        elapsedSeconds: 7200
-      }
+        elapsedSeconds: 7200,
+      },
     ],
-    explanation: "Synthetic estimate with a gap between aid anchors."
+    explanation: "Synthetic estimate with a gap between aid anchors.",
   };
   const room = {
     id: "room-estimate-interpolation",
@@ -912,7 +1132,11 @@ test("estimate projection interpolates unanchored checkpoints and stacks their d
     raceStartAt: RACE_START_AT,
     activatedAt: RACE_START_AT,
     memberships: [],
-    entitlement: { status: "paid", lastUpdatedAt: RACE_START_AT, source: "manual" },
+    entitlement: {
+      status: "paid",
+      lastUpdatedAt: RACE_START_AT,
+      source: "manual",
+    },
     course: {
       checkpoints,
       derivedMetrics: {
@@ -920,37 +1144,74 @@ test("estimate projection interpolates unanchored checkpoints and stacks their d
         elevationGainMeters: 0,
         elevationLossMeters: 0,
         elevationSource: "none",
-        metricsVersion: 1
-      }
+        metricsVersion: 1,
+      },
     },
     plannedPaceSecondsPerKm: 600,
     pacingEstimateId: estimate.id,
-    pacingEstimate: estimate
+    pacingEstimate: estimate,
   } as RaceRoom;
 
-  const moving = movingElapsedSecondsFromEstimate(estimate, checkpoints, 40_000);
+  const moving = movingElapsedSecondsFromEstimate(
+    estimate,
+    checkpoints,
+    40_000,
+  );
   assert.equal(moving.get("landmark"), 5400);
 
   const sheet = projectCrewScheduleSheet(room);
   assert.equal(stopByCheckpoint(sheet, "aid-1").elapsedSeconds, 3600 + 30);
-  assert.equal(stopByCheckpoint(sheet, "landmark").elapsedSeconds, 5400 + 30 + 60);
-  assert.equal(stopByCheckpoint(sheet, "aid-2").elapsedSeconds, 7200 + 30 + 60 + 120);
-  assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, 14_400 + 30 + 60 + 120 + 90);
+  assert.equal(
+    stopByCheckpoint(sheet, "landmark").elapsedSeconds,
+    5400 + 30 + 60,
+  );
+  assert.equal(
+    stopByCheckpoint(sheet, "aid-2").elapsedSeconds,
+    7200 + 30 + 60 + 120,
+  );
+  assert.equal(
+    stopByCheckpoint(sheet, "finish").elapsedSeconds,
+    14_400 + 30 + 60 + 120 + 90,
+  );
 });
 
 test("estimate projection sorts checkpoints by distance and ignores stale aid ETAs", () => {
   const checkpoints: RaceCourseCheckpoint[] = [
-    { id: "finish", latitude: 0, longitude: 0, distanceMetersFromStart: 40_000, plannedStopSeconds: 0 },
-    { id: "aid-2", latitude: 0, longitude: 0, distanceMetersFromStart: 20_000, plannedStopSeconds: 90 },
+    {
+      id: "finish",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 40_000,
+      plannedStopSeconds: 0,
+    },
+    {
+      id: "aid-2",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 20_000,
+      plannedStopSeconds: 90,
+    },
     {
       id: "landmark",
       latitude: 0,
       longitude: 0,
       distanceMetersFromStart: 15_000,
-      plannedStopSeconds: 120
+      plannedStopSeconds: 120,
     },
-    { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0, plannedStopSeconds: 30 },
-    { id: "aid-1", latitude: 0, longitude: 0, distanceMetersFromStart: 10_000, plannedStopSeconds: 60 }
+    {
+      id: "start",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 0,
+      plannedStopSeconds: 30,
+    },
+    {
+      id: "aid-1",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 10_000,
+      plannedStopSeconds: 60,
+    },
   ];
   const estimate: PacingEstimate = {
     id: "est_unsorted_stale_etas",
@@ -961,20 +1222,21 @@ test("estimate projection sorts checkpoints by distance and ignores stale aid ET
       {
         checkpointId: "aid-2",
         clockArrivalAt: "2026-08-15T15:00:00.000Z",
-        elapsedSeconds: 7200
+        elapsedSeconds: 7200,
       },
       {
         checkpointId: "stale-aid-from-previous-course",
         clockArrivalAt: "2026-08-15T13:30:00.000Z",
-        elapsedSeconds: 1800
+        elapsedSeconds: 1800,
       },
       {
         checkpointId: "aid-1",
         clockArrivalAt: "2026-08-15T14:00:00.000Z",
-        elapsedSeconds: 3600
-      }
+        elapsedSeconds: 3600,
+      },
     ],
-    explanation: "Synthetic estimate with unordered ETAs and a stale checkpoint id."
+    explanation:
+      "Synthetic estimate with unordered ETAs and a stale checkpoint id.",
   };
   const room = {
     id: "room-estimate-unsorted-stale",
@@ -986,7 +1248,11 @@ test("estimate projection sorts checkpoints by distance and ignores stale aid ET
     raceStartAt: RACE_START_AT,
     activatedAt: RACE_START_AT,
     memberships: [],
-    entitlement: { status: "paid", lastUpdatedAt: RACE_START_AT, source: "manual" },
+    entitlement: {
+      status: "paid",
+      lastUpdatedAt: RACE_START_AT,
+      source: "manual",
+    },
     course: {
       checkpoints,
       derivedMetrics: {
@@ -994,32 +1260,43 @@ test("estimate projection sorts checkpoints by distance and ignores stale aid ET
         elevationGainMeters: 0,
         elevationLossMeters: 0,
         elevationSource: "none",
-        metricsVersion: 1
-      }
+        metricsVersion: 1,
+      },
     },
     plannedPaceSecondsPerKm: 600,
     pacingEstimateId: estimate.id,
-    pacingEstimate: estimate
+    pacingEstimate: estimate,
   } as RaceRoom;
 
   const sheet = projectCrewScheduleSheet(room);
   assert.deepEqual(
     sheet.stops.map((stop) => stop.checkpointId),
-    ["start", "aid-1", "landmark", "aid-2", "finish"]
+    ["start", "aid-1", "landmark", "aid-2", "finish"],
   );
   assert.equal(stopByCheckpoint(sheet, "aid-1").movingElapsedSeconds, 3600);
   assert.equal(stopByCheckpoint(sheet, "landmark").movingElapsedSeconds, 5400);
   assert.equal(stopByCheckpoint(sheet, "aid-2").movingElapsedSeconds, 7200);
   assert.equal(stopByCheckpoint(sheet, "finish").movingElapsedSeconds, 14_400);
-  assert.equal(stopByCheckpoint(sheet, "landmark").elapsedSeconds, 5400 + 30 + 60);
-  assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, 14_400 + 30 + 60 + 120 + 90);
+  assert.equal(
+    stopByCheckpoint(sheet, "landmark").elapsedSeconds,
+    5400 + 30 + 60,
+  );
+  assert.equal(
+    stopByCheckpoint(sheet, "finish").elapsedSeconds,
+    14_400 + 30 + 60 + 120 + 90,
+  );
 });
 
 test("estimate projection treats farthest checkpoint as finish when finish id is absent", () => {
   const checkpoints: RaceCourseCheckpoint[] = [
     { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0 },
     { id: "aid-1", latitude: 0, longitude: 0, distanceMetersFromStart: 10_000 },
-    { id: "last-aid", latitude: 0, longitude: 0, distanceMetersFromStart: 30_000 }
+    {
+      id: "last-aid",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 30_000,
+    },
   ];
   const estimate: PacingEstimate = {
     id: "est_no_finish_id",
@@ -1030,18 +1307,23 @@ test("estimate projection treats farthest checkpoint as finish when finish id is
       {
         checkpointId: "aid-1",
         clockArrivalAt: "2026-08-15T14:00:00.000Z",
-        elapsedSeconds: 3600
+        elapsedSeconds: 3600,
       },
       {
         checkpointId: "last-aid",
         clockArrivalAt: "2026-08-15T15:45:00.000Z",
-        elapsedSeconds: 9900
-      }
+        elapsedSeconds: 9900,
+      },
     ],
-    explanation: "Synthetic estimate for a course whose terminal checkpoint is not named finish."
+    explanation:
+      "Synthetic estimate for a course whose terminal checkpoint is not named finish.",
   };
 
-  const moving = movingElapsedSecondsFromEstimate(estimate, checkpoints, 30_000);
+  const moving = movingElapsedSecondsFromEstimate(
+    estimate,
+    checkpoints,
+    30_000,
+  );
   assert.equal(moving.get("aid-1"), 3600);
   assert.equal(moving.get("last-aid"), 12_000);
 });
@@ -1051,8 +1333,18 @@ test("estimate projection stamps the plan's finish on the farthest checkpoint on
   const checkpoints: RaceCourseCheckpoint[] = [
     { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0 },
     { id: "aid-1", latitude: 0, longitude: 0, distanceMetersFromStart: 10_000 },
-    { id: "last-aid", latitude: 0, longitude: 0, distanceMetersFromStart: 30_000 },
-    { id: "viewpoint", latitude: 0, longitude: 0, distanceMetersFromStart: 35_000 }
+    {
+      id: "last-aid",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 30_000,
+    },
+    {
+      id: "viewpoint",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 35_000,
+    },
   ];
   const estimate: PacingEstimate = {
     id: "est_short_checkpoints",
@@ -1060,33 +1352,70 @@ test("estimate projection stamps the plan's finish on the farthest checkpoint on
     expectedFinishAt: "2026-08-15T17:00:00.000Z",
     expectedFinishElapsedSeconds: 14_400,
     aidEtas: [
-      { checkpointId: "aid-1", clockArrivalAt: "2026-08-15T14:00:00.000Z", elapsedSeconds: 3600 },
-      { checkpointId: "last-aid", clockArrivalAt: "2026-08-15T15:45:00.000Z", elapsedSeconds: 9900 }
+      {
+        checkpointId: "aid-1",
+        clockArrivalAt: "2026-08-15T14:00:00.000Z",
+        elapsedSeconds: 3600,
+      },
+      {
+        checkpointId: "last-aid",
+        clockArrivalAt: "2026-08-15T15:45:00.000Z",
+        elapsedSeconds: 9900,
+      },
     ],
-    explanation: "Synthetic estimate whose finish is read at the route's end."
+    explanation: "Synthetic estimate whose finish is read at the route's end.",
   };
 
   const short = movingElapsedSecondsFromEstimate(estimate, checkpoints, 40_000);
-  assert.equal(short.get("last-aid"), 9900, "the last aid keeps the plan's own ETA there");
+  assert.equal(
+    short.get("last-aid"),
+    9900,
+    "the last aid keeps the plan's own ETA there",
+  );
   // The farthest checkpoint, no aid ETA of its own: halfway from the last aid to the route's end.
   assert.equal(short.get("viewpoint"), Math.round(9900 + (14_400 - 9900) / 2));
 
   // Within the course-length tolerance (1% of 40 km) the farthest checkpoint is the finish line.
   const nearEnd = checkpoints.map((checkpoint) =>
-    checkpoint.id === "viewpoint" ? { ...checkpoint, distanceMetersFromStart: 39_700 } : checkpoint
+    checkpoint.id === "viewpoint"
+      ? { ...checkpoint, distanceMetersFromStart: 39_700 }
+      : checkpoint,
   );
-  assert.equal(movingElapsedSecondsFromEstimate(estimate, nearEnd, 40_000).get("viewpoint"), 14_400);
+  assert.equal(
+    movingElapsedSecondsFromEstimate(estimate, nearEnd, 40_000).get(
+      "viewpoint",
+    ),
+    14_400,
+  );
   const outside = checkpoints.map((checkpoint) =>
-    checkpoint.id === "viewpoint" ? { ...checkpoint, distanceMetersFromStart: 39_500 } : checkpoint
+    checkpoint.id === "viewpoint"
+      ? { ...checkpoint, distanceMetersFromStart: 39_500 }
+      : checkpoint,
   );
-  assert.ok((movingElapsedSecondsFromEstimate(estimate, outside, 40_000).get("viewpoint") ?? 0) < 14_400);
+  assert.ok(
+    (movingElapsedSecondsFromEstimate(estimate, outside, 40_000).get(
+      "viewpoint",
+    ) ?? 0) < 14_400,
+  );
 });
 
 test("estimate projection does not treat an early finish id as the race finish", () => {
   const checkpoints: RaceCourseCheckpoint[] = [
     { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0 },
-    { id: "finish", title: "Finish", latitude: 0, longitude: 0, distanceMetersFromStart: 100 },
-    { id: "finish-2", title: "Finish", latitude: 0, longitude: 0, distanceMetersFromStart: 40_000 }
+    {
+      id: "finish",
+      title: "Finish",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 100,
+    },
+    {
+      id: "finish-2",
+      title: "Finish",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 40_000,
+    },
   ];
   const estimate: PacingEstimate = {
     id: "est_loop_finish",
@@ -1094,10 +1423,140 @@ test("estimate projection does not treat an early finish id as the race finish",
     expectedFinishAt: "2026-08-15T16:20:00.000Z",
     expectedFinishElapsedSeconds: 14_400,
     aidEtas: [],
-    explanation: "Loop course whose first Finish waypoint is the outbound pass."
+    explanation:
+      "Loop course whose first Finish waypoint is the outbound pass.",
   };
 
-  const moving = movingElapsedSecondsFromEstimate(estimate, checkpoints, 40_000);
+  const moving = movingElapsedSecondsFromEstimate(
+    estimate,
+    checkpoints,
+    40_000,
+  );
   assert.equal(moving.get("finish-2"), 14_400);
   assert.ok((moving.get("finish") ?? 0) < 600);
 });
+
+test(
+  "after an API restart the crew's aid ETAs still come from the runner's attached plan, and the plan still attaches by id",
+  {
+    skip: !isRoomPersistenceEnabled() && "needs Postgres (test:pg)",
+    timeout: 90_000,
+  },
+  async () => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const runner = `runner-plan-restart-${suffix}`;
+    const crew = `crew-plan-restart-${suffix}`;
+    // Not `withApp`: its cleanup truncates the stored estimates the restart must read back.
+    // Unique user ids keep the rooms apart; the estimate row is shared across runs (see below).
+    const createdRoomIds: string[] = [];
+    try {
+      const app = buildApp();
+      await app.ready();
+      const runnerToken = app.jwt.sign(buildClaims(runner));
+      const crewToken = app.jwt.sign(buildClaims(crew));
+      const roomId = await createPaidRoom(app, runnerToken, "Plan restart");
+      createdRoomIds.push(roomId);
+      const room = await put50kCourse(app, roomId, runnerToken);
+      // A second race of the runner's, still without a plan: the restart attaches the plan here.
+      const laterRoomId = await createPaidRoom(
+        app,
+        runnerToken,
+        "Plan restart, next race",
+      );
+      createdRoomIds.push(laterRoomId);
+      await put50kCourse(app, laterRoomId, runnerToken);
+      const computed = await createEstimateViaApi(app, runnerToken, room);
+      const attach = await attachEstimate(app, roomId, runnerToken, {
+        pacingEstimateId: computed.id,
+      });
+      assert.equal(attach.statusCode, 200, attach.body);
+      const joined = await app.inject({
+        method: "POST",
+        url: "/race-rooms/join-by-code",
+        payload: { roomCode: room.joinCode },
+        headers: { authorization: `Bearer ${crewToken}` },
+      });
+      assert.equal(joined.statusCode, 200, joined.body);
+      const before = await getSchedule(app, roomId, crewToken);
+      assert.equal(before.statusCode, 200, before.body);
+      const sheetBefore = parseCrewScheduleSheet(before.json());
+      assert.equal(sheetBefore.pacingEstimateId, computed.id);
+      const roomBefore = (await getRaceRoom(roomId))!;
+      // The plan, not the course's flat pace, sets the aid ETAs crew read.
+      assert.notDeepEqual(
+        sheetBefore,
+        parseCrewScheduleSheet(projectCrewScheduleSheet(room)),
+      );
+      await app.close();
+
+      type Read = { status: number; body: unknown };
+      const after = runInFreshProcess<{
+        room: Read;
+        schedule: Read;
+        reattach: Read;
+        attachLater: Read;
+        laterSchedule: Read;
+      }>(
+        `
+      const { buildApp } = await import(process.argv[1]);
+      const [roomId, laterRoomId, estimateId, runnerToken, crewToken] = process.argv.slice(2);
+      const app = buildApp();
+      await app.ready();
+      const call = async (method, url, token, payload) => {
+        const res = await app.inject({ method, url, payload, headers: { authorization: "Bearer " + token } });
+        return { status: res.statusCode, body: res.json() };
+      };
+      const room = await call("GET", "/race-rooms/" + roomId, crewToken);
+      const schedule = await call("GET", "/race-rooms/" + roomId + "/schedule", crewToken);
+      const reattach = await call("PUT", "/race-rooms/" + roomId + "/pacing-estimate", runnerToken, { pacingEstimateId: estimateId });
+      const attachLater = await call("PUT", "/race-rooms/" + laterRoomId + "/pacing-estimate", runnerToken, { pacingEstimateId: estimateId });
+      const laterSchedule = await call("GET", "/race-rooms/" + laterRoomId + "/schedule", runnerToken);
+      process.stdout.write("\\nRESULT:" + JSON.stringify({ room, schedule, reattach, attachLater, laterSchedule }) + "\\n");
+      await app.close();
+      process.exit(0);
+    `,
+        [roomId, laterRoomId, computed.id, runnerToken, crewToken],
+      );
+      for (const [label, res] of Object.entries(after)) {
+        assert.equal(res.status, 200, `${label}: ${JSON.stringify(res.body)}`);
+      }
+
+      // Crew read the same sheet after the restart: every aid ETA is still the plan's.
+      assert.deepEqual(
+        parseCrewScheduleSheet(after.schedule.body),
+        sheetBefore,
+      );
+      const roomAfter = (after.room.body as { room: RaceRoom }).room;
+      assert.equal(roomAfter.pacingEstimateId, computed.id);
+      assert.deepEqual(roomAfter.pacingEstimate, roomBefore.pacingEstimate);
+      assert.equal(
+        roomAfter.plannedPaceSecondsPerKm,
+        roomBefore.plannedPaceSecondsPerKm,
+      );
+      // Re-sending the same plan after the restart changes nothing.
+      assert.deepEqual(after.reattach.body, attach.json());
+      // The stored estimate itself came back from Postgres: it attaches to the runner's next race.
+      assert.equal(
+        (after.attachLater.body as { pacingEstimateId: string })
+          .pacingEstimateId,
+        computed.id,
+      );
+      assert.equal(
+        parseCrewScheduleSheet(after.laterSchedule.body).pacingEstimateId,
+        computed.id,
+      );
+      // The estimate id is a digest of the plan's inputs, so on a reused database the row also
+      // names rooms from earlier runs: check this run's two races are recorded, not the exact set.
+      const stored = await getPacingEstimateById(computed.id);
+      for (const id of [roomId, laterRoomId]) {
+        assert.ok(
+          stored?.roomIds.includes(id),
+          `estimate roomIds records ${id}`,
+        );
+      }
+    } finally {
+      // Not `withApp`, so nothing else removes this run's two rooms; later tests read the team board.
+      for (const id of createdRoomIds) await deleteRaceRoomAndData(id);
+    }
+  },
+);

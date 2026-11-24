@@ -117,6 +117,24 @@ private struct ScriptedOffline: HTTPTransport {
     #expect(fields["raceStartAt"] as? String == "2026-08-16T03:00:00.000Z")
 }
 
+// MARK: suggestedDisplayName
+
+@Test func suggestedDisplayNameOpNeverSuggestsTheEmail() async throws {
+    func suggest(_ fields: [String: Any]) async throws -> Any? {
+        try result(try await runtime(["op": "suggestedDisplayName"].merging(fields) { $1 }))["name"]
+    }
+    // Auth0 email sign-up: name is the email, nickname the part before the @ (Android never sends it).
+    #expect(try await suggest(["name": "pat.runner@example.com", "email": "pat.runner@example.com"]) is NSNull)
+    #expect(try await suggest(["name": "Pat.Runner", "email": "pat.runner@example.com"]) is NSNull)
+    // A saved name has no email beside it: an @ is still never a name.
+    #expect(try await suggest(["name": "pat@work"]) is NSNull)
+    #expect(try await suggest(["email": "pat@example.com"]) is NSNull)
+    #expect(try await suggest(["name": "   ", "email": NSNull()]) is NSNull)
+    // A real name (Google, Apple) is suggested, trimmed.
+    #expect(try await suggest(["name": "  Pat Runner ", "email": "pat.runner@example.com"]) as? String == "Pat Runner")
+    #expect(try await suggest(["name": "Pat Runner"]) as? String == "Pat Runner")
+}
+
 // MARK: gpxPreview
 
 private let previewJSON = """
@@ -559,6 +577,128 @@ private let paidLastAidStop = #"{"id":"s3","checkpointId":"aid-2","elapsedSecond
     {"room":{"id":"r1","course":{"checkpoints":[],"baselineTrack":{"points":[{"distanceMetersFromStart":0,"elevationMeters":5},{"distanceMetersFromStart":50,"elevationMeters":9}]}},"mapWorkspace":{"layers":[{"id":"l","geometry":\(String(decoding: try JSONSerialization.data(withJSONObject: geometry), as: UTF8.self))}]}}}
     """
     #expect(CoursePayload.make(from: Data(paid.utf8))["elevation"] as? [[Double]] == [[0, 5], [50, 9]])
+}
+
+/// A phone without the course file names the saved one ("Course saved", the file's name) from the
+/// room `loadRoom` reads, as iOS does from the decoded room.
+@Test func loadRoomPayloadCarriesTheSavedCourseFileName() throws {
+    let saved = """
+    {"room":{"id":"r1","name":"Canyons 2027","courseFileName":"course-50k-edited.gpx","course":{"checkpoints":[]}}}
+    """
+    #expect(CoursePayload.make(from: Data(saved.utf8))["courseFileName"] as? String == "course-50k-edited.gpx")
+    let none = """
+    {"room":{"id":"r1","name":"Canyons 2027","course":{"checkpoints":[]}}}
+    """
+    #expect(CoursePayload.make(from: Data(none.utf8))["courseFileName"] as? String == "")
+}
+
+// MARK: course summary
+
+/// The line under the course map ("31.1 mi · 4 checkpoints") comes from client-core in the payload
+/// Android draws, written as iOS writes it from the same preview (`CoursePreview.lengthMeters`).
+@Test func gpxPreviewAndLoadRoomCarryTheCourseSummaryIosWrites() async throws {
+    let base = "https://gpx-preview-summary.test"
+    let server = ScriptedServer(["POST /race-rooms/r1/course/gpx-preview": [(200, previewJSON)]])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let preview = try result(try await runtime([
+        "op": "gpxPreview", "baseURL": base, "token": "t", "userId": "ada",
+        "roomId": "r1", "fileName": "route.gpx", "gpxXml": "<gpx/>"
+    ]))
+    let ios = try CoursePreview(previewData: Data(previewJSON.utf8), fileName: "route.gpx")
+    let expected = OnboardingCopy.courseSummary(lengthMeters: ios.lengthMeters, checkpoints: ios.checkpoints.count)
+    #expect(expected == "0.7 mi · 2 checkpoints")
+    #expect(preview["summary"] as? String == expected)
+
+    // A saved course read from the room: along its route line, else along its checkpoints.
+    let checkpoints = #"[{"id":"start","title":"Start","latitude":39.0,"longitude":-120.0,"distanceMetersFromStart":0},{"id":"aid-1","title":"Aid 1","latitude":39.05,"longitude":-120.0,"distanceMetersFromStart":5560},{"id":"finish","title":"Finish","latitude":39.1,"longitude":-120.0,"distanceMetersFromStart":11120}]"#
+    let route = #"{"type":"LineString","coordinates":[[-120.0,39.0],[-120.05,39.05],[-120.0,39.1]]}"#
+    let withRoute = """
+    {"room":{"id":"r1","course":{"checkpoints":\(checkpoints)},"mapWorkspace":{"selectedLayerId":"l","layers":[{"id":"l","geometry":\(route)}]}}}
+    """
+    let routed = CoursePreview(
+        courseFileName: "",
+        checkpoints: [],
+        plannedPaceSecondsPerKm: nil,
+        route: [CourseRoutePoint(latitude: 39.0, longitude: -120.0), CourseRoutePoint(latitude: 39.05, longitude: -120.05), CourseRoutePoint(latitude: 39.1, longitude: -120.0)]
+    )
+    #expect(CoursePayload.make(from: Data(withRoute.utf8))["summary"] as? String
+        == OnboardingCopy.courseSummary(lengthMeters: routed.lengthMeters, checkpoints: 3))
+    let checkpointsOnly = #"{"room":{"id":"r1","course":{"checkpoints":\#(checkpoints)}}}"#
+    #expect(CoursePayload.make(from: Data(checkpointsOnly.utf8))["summary"] as? String == "6.9 mi · 3 checkpoints")
+    // No course: no line to write.
+    #expect(CoursePayload.make(from: Data(#"{"room":{"id":"r1","course":{"checkpoints":[]}}}"#.utf8))["summary"] as? String == "")
+    #expect(CoursePayload.empty(offline: true)["summary"] == nil)
+}
+
+// MARK: race time zone
+
+/// The teaser writes its clocks in the race's zone (the start time step's), which Android sends as
+/// `timeZone`; left out, the device zone, so other callers are unchanged.
+@Test func theTeasersClocksReadInThePassedZoneElseTheDevicesZone() async throws {
+    let room = """
+    {"room":{"id":"r1","teamId":"team","athleteId":"ada","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","raceStartAt":"2026-08-15T12:00:00.000Z","memberships":[],"entitlement":{"status":"unpaid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"},"pacingEstimate":\(estimateJSON)}}
+    """
+    let base = "https://estimate-race-zone.test"
+    let server = ScriptedServer([
+        "GET /race-rooms/r1": [(200, room)],
+        "GET /race-rooms/r1/schedule": [(200, plannedSheetJSON)]
+    ])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let pacific = try #require(TimeZone(identifier: "America/Los_Angeles"))
+    let request: [String: Any] = ["op": "loadEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete", "roomId": "r1"]
+    let inRaceZone = try result(try await runtime(request.merging(["timeZone": "America/Los_Angeles"]) { $1 }))
+    let pacificClock = ScheduleFormat.formatScheduleClock("2026-08-15T22:18:00.000Z", timeZone: pacific)
+    #expect(inRaceZone["finishAt"] as? String == "2026-08-15T22:18:00.000Z")
+    #expect(inRaceZone["finishClock"] as? String == pacificClock)
+    #expect(inRaceZone["summary"] as? String == "No history yet.\nFinish 10:18:00 · \(pacificClock)")
+    let onDevice = try result(try await runtime(request))
+    let deviceClock = ScheduleFormat.formatScheduleClock("2026-08-15T22:18:00.000Z", timeZone: DeviceTimeZone.current)
+    #expect(onDevice["finishClock"] as? String == deviceClock)
+    #expect(onDevice["summary"] as? String == "No history yet.\nFinish 10:18:00 · \(deviceClock)")
+    // Not an IANA region: the device zone, never a fixed offset.
+    let abbreviation = try result(try await runtime(request.merging(["timeZone": "PST"]) { $1 }))
+    #expect(abbreviation["finishClock"] as? String == deviceClock)
+
+    // The timeline's rows, the same way.
+    let sheet = try #require(try JSONSerialization.jsonObject(with: Data(plannedSheetJSON.utf8)) as? [String: Any])
+    let checkpoints: [[String: Any]] = [
+        ["id": "start", "title": "Start", "latitude": 39.0, "longitude": -120.0, "distanceMetersFromStart": 0],
+        ["id": "finish", "title": "Finish", "latitude": 39.01, "longitude": -120.0, "distanceMetersFromStart": 1100]
+    ]
+    func finishLabel(_ zone: String?) async throws -> String? {
+        var fields: [String: Any] = ["op": "projectAidSheet", "sheet": sheet, "checkpoints": checkpoints, "selectedIndex": 0, "follow": true]
+        if let zone { fields["timeZone"] = zone }
+        let rows = try #require(try result(try await runtime(fields))["timeline"] as? [[String: Any]])
+        return rows.first { $0["checkpointId"] as? String == "finish" }?["clockLabel"] as? String
+    }
+    #expect(try await finishLabel("America/Los_Angeles") == pacificClock)
+    #expect(try await finishLabel(nil) == deviceClock)
+}
+
+/// The history step's comparison line is on the race's clock too.
+@Test func theHistoryComparisonReadsInThePassedZone() async throws {
+    let withHistory = #"{"id":"e2","coldStart":false,"expectedFinishAt":"2026-08-15T21:42:00.000Z","expectedFinishElapsedSeconds":34920,"aidEtas":[],"explanation":"History."}"#
+    let sheet = plannedSheetJSON.replacingOccurrences(of: "\"elapsedSeconds\":37080", with: "\"elapsedSeconds\":35400")
+        .replacingOccurrences(of: "2026-08-15T22:18:00.000Z", with: "2026-08-15T21:50:00.000Z")
+        .replacingOccurrences(of: #""stops":"#, with: #""pacingEstimateId":"e2","stops":"#)
+    let base = "https://estimate-compare-zone.test"
+    let server = ScriptedServer([
+        "POST /pacing-estimates": [(201, estimateJSON), (201, withHistory)],
+        "PUT /race-rooms/r1/pacing-estimate": [(200, "{\"estimate\":\(withHistory)}")],
+        "GET /race-rooms/r1/schedule": [(200, sheet)]
+    ])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let compared = try result(try await runtime([
+        "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete",
+        "timeZone": "America/Los_Angeles", "roomId": "r1", "historyMode": "compare"
+    ]))
+    let pacific = try #require(TimeZone(identifier: "America/Los_Angeles"))
+    let line = try #require(compared["comparison"] as? String)
+    #expect(line.hasPrefix("Finish \(ScheduleFormat.formatScheduleClock("2026-08-15T21:50:00.000Z", timeZone: pacific)) instead of "))
+    #expect(compared["finishClock"] as? String == ScheduleFormat.formatScheduleClock("2026-08-15T21:50:00.000Z", timeZone: pacific))
 }
 
 // MARK: labels

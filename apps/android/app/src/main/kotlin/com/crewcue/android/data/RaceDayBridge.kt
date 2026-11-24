@@ -87,9 +87,12 @@ class RaceDayBridge private constructor(
         selectedIndex: Int,
         follow: Boolean,
         elevation: JSONArray? = null,
-        live: JSONObject? = null
+        live: JSONObject? = null,
+        /** The zone (IANA id) the rows' clocks are written in; null: this phone's. */
+        timeZone: String? = null
     ): RuntimeResult = call("projectAidSheet") {
         if (sheet != null) put("sheet", sheet)
+        if (timeZone != null) put("timeZone", timeZone)
         put("checkpoints", checkpoints)
         if (runner != null) put("runner", runner)
         if (live != null) put("live", live)
@@ -122,7 +125,11 @@ class RaceDayBridge private constructor(
 
     fun stopTrackingSession(): RuntimeResult = call("stopTrackingSession")
 
-    fun loadEstimate(roomId: String): RuntimeResult = call("loadEstimate") { put("roomId", roomId) }
+    /** [timeZone]: the zone (IANA id) `finishClock` and `summary` are written in; null: this phone's. */
+    fun loadEstimate(roomId: String, timeZone: String? = null): RuntimeResult = call("loadEstimate") {
+        put("roomId", roomId)
+        if (timeZone != null) put("timeZone", timeZone)
+    }
 
     /**
      * [trigger] is "auto" (athlete history changed), "cold_start" (crew seeds a room with no plan)
@@ -138,9 +145,12 @@ class RaceDayBridge private constructor(
          * The runner's history step: `none` (Skip, a cold start even after an import) or `compare`
          * (after an import; the result also carries `comparison`, the line to show). Null: all history.
          */
-        historyMode: String? = null
+        historyMode: String? = null,
+        /** The zone (IANA id) `finishClock`, `summary` and `comparison` are written in; null: this phone's. */
+        timeZone: String? = null
     ): RuntimeResult =
         call("computeEstimate") {
+            if (timeZone != null) put("timeZone", timeZone)
             put("roomId", roomId)
             put("usableHistoryCount", usableHistoryCount)
             put("trigger", trigger)
@@ -331,7 +341,10 @@ class RaceDayBridge private constructor(
 
     fun listOutbox(): RuntimeResult = call("listOutbox")
 
-    fun exportCrewSheet(roomId: String): RuntimeResult = call("exportCrewSheet") { put("roomId", roomId) }
+    fun exportCrewSheet(roomId: String, raceName: String = ""): RuntimeResult = call("exportCrewSheet") {
+        put("roomId", roomId)
+        put("raceName", raceName)
+    }
 
     /** #250 Pace edit draft: rows, projected stops, and timeline for the typed minutes. Pure; no network. */
     fun stopPlanDraft(
@@ -357,12 +370,10 @@ class RaceDayBridge private constructor(
         put("stops", edits)
     }
 
-    fun readCourseSettings(roomId: String): RuntimeResult = call("readCourseSettings") { put("roomId", roomId) }
-
-    fun writeCourseSettings(roomId: String, cutoffNote: String, stoppageSeconds: Double): RuntimeResult = call("writeCourseSettings") {
+    /** Aid station stops and cutoffs from the cached schedule; `titles` maps checkpoint ids to names. */
+    fun courseReadout(roomId: String, titles: Map<String, String>): RuntimeResult = call("courseReadout") {
         put("roomId", roomId)
-        put("cutoffNote", cutoffNote)
-        put("stoppageSeconds", stoppageSeconds)
+        put("titles", org.json.JSONObject(titles))
     }
 
     /** `{roomId,isPaid,isUnlimited,crewCount,crewLimit?,hasCrewSeat,offers[],summary}`. Not entitlement-gated. */
@@ -421,8 +432,13 @@ class RaceDayBridge private constructor(
         if (!choice.isNullOrBlank()) put("choice", choice)
     }
 
-    /** Forgets the user's onboarding progress (the signed-out guest's when signed out). */
-    fun resetOnboarding(): RuntimeResult = call("resetOnboarding")
+    /**
+     * Forgets the user's onboarding progress (the signed-out guest's when signed out). With
+     * [choiceOnly], only the runner or crew pick: Back from the runner's first setup step.
+     */
+    fun resetOnboarding(choiceOnly: Boolean = false): RuntimeResult = call("resetOnboarding") {
+        if (choiceOnly) put("choiceOnly", true)
+    }
 
     /** Shared onboarding strings: chooser, step titles and explanations, errors and control `labels`. */
     fun onboardingCopy(): RuntimeResult = call("onboardingCopy")
@@ -437,6 +453,28 @@ class RaceDayBridge private constructor(
             put("minute", minute)
             put("timeZone", timeZone)
         }
+
+    /** client-core `RaceStartInput` the other way: a saved [raceStartAt] as the fields in [timeZone]. */
+    fun raceStartFields(raceStartAt: String, timeZone: String): RuntimeResult = call("raceStartInput") {
+        put("raceStartAt", raceStartAt)
+        put("timeZone", timeZone)
+    }
+
+    /**
+     * One client-core `RunnerSetupSteps` decision (the `runnerSetupStep` op), with [input]'s
+     * fields. Pure, no request: quick on the calling thread, except `courseFingerprint` on a
+     * large file.
+     */
+    fun runnerSetupStep(decision: String, input: JSONObject): RuntimeResult = call("runnerSetupStep") {
+        put("decision", decision)
+        input.keys().forEach { key -> put(key, input.get(key)) }
+    }
+
+    /** `PATCH /race-rooms/:roomId/race-start`: the start alone, which moves the attached estimate with it. */
+    fun updateRaceStart(roomId: String, raceStartAt: String): RuntimeResult = call("updateRaceStart") {
+        put("roomId", roomId)
+        put("raceStartAt", raceStartAt)
+    }
 
     /** The server's parse of a GPX before it is saved: `line`, `checkpoints`, `elevation`, `plannedPaceSecondsPerKm`. */
     fun gpxPreview(roomId: String, fileName: String, gpxXml: String): RuntimeResult = call("gpxPreview") {
@@ -455,6 +493,19 @@ class RaceDayBridge private constructor(
         if (!role.isNullOrBlank()) put("role", role)
         if (!billing.isNullOrBlank()) put("billing", billing)
         if (onboarding != null) put("onboarding", onboarding)
+    }
+
+    /**
+     * client-core `SuggestedDisplayName`: the name the account step suggests for crew, from the
+     * sign-in identity's [name] and [email] (a saved name passes no email). Null for an email or
+     * the email's local part, so the field starts empty. Pure and quick: safe on the calling thread.
+     */
+    fun suggestedDisplayName(name: String?, email: String?): String? {
+        val result = call("suggestedDisplayName") {
+            if (name != null) put("name", name)
+            if (!email.isNullOrBlank()) put("email", email)
+        }
+        return (result as? RuntimeResult.Success)?.result?.optText("name")?.ifBlank { null }
     }
 
     /** Removes demo replay folders a killed process left in [tempDir] (the app's cache directory). */
@@ -496,6 +547,13 @@ class RaceDayBridge private constructor(
 
     /** On a [replay] bridge: forward to [seconds] of wall time played; play or pause stays. */
     fun demoRaceSeek(seconds: Double): RuntimeResult = call("demoRaceSeek") { put("seconds", seconds) }
+
+    /**
+     * On a [replay] bridge: where the runner's dot is now (`DemoRacePlayer.runnerPosition`), on the
+     * course line: `latitude`, `longitude`, `lineMeters`, `recordedAt` and `fromRecordedAt`, or an
+     * empty object before the first ping. Paused, it holds. No request: a Map samples it every frame.
+     */
+    fun demoRaceRunner(): RuntimeResult = call("demoRaceRunner")
 
     private fun JSONObject.onboardingContext(races: JSONArray?, activeRoomId: String?) {
         if (races != null) put("races", races)

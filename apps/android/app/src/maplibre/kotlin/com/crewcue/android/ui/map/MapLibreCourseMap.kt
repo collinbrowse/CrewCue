@@ -7,6 +7,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -27,6 +29,7 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
@@ -68,6 +71,9 @@ private const val TRACK_SOURCE = "crewcue-runner-track"
 private const val TRACK_LAYER = "crewcue-runner-track-line"
 private const val RUNNER_SOURCE = "crewcue-runner-position"
 private const val RUNNER_LAYER = "crewcue-runner-position-dot"
+/** The onboarding replay's gliding dot: the trail from the last settled point to the dot, redrawn each frame. */
+private const val GLIDE_SOURCE = "crewcue-runner-glide"
+private const val GLIDE_LAYER = "crewcue-runner-glide-line"
 
 object MapLibreBootstrap {
     @JvmStatic
@@ -91,7 +97,10 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         onStyleFailed: () -> Unit,
         onTilesUnavailable: () -> Unit,
         recenterRequest: Int,
-        framing: CourseFraming
+        framing: CourseFraming,
+        trackTimes: List<Long>,
+        glide: (() -> RunnerGlideFrame?)?,
+        onRendered: (line: List<CoursePoint>, points: List<MapCheckpoint>) -> Unit
     ) {
         val context = LocalContext.current
         val dark = context.isDarkMode()
@@ -102,11 +111,30 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         val ready = rememberUpdatedState(onStyleReady)
         val failed = rememberUpdatedState(onStyleFailed)
         val tilesUnavailable = rememberUpdatedState(onTilesUnavailable)
+        val rendered = rememberUpdatedState(onRendered)
         val pointState = rememberUpdatedState(points)
         val lineState = rememberUpdatedState(line)
         val trackState = rememberUpdatedState(track)
+        val timesState = rememberUpdatedState(trackTimes)
+        val glideState = rememberUpdatedState(glide)
+        val drawnPath = remember { DrawnPath() }
+        /** The runner as the map should show it now: the race's path whole, or the replay's glide. */
+        fun drawRunner(style: Style) {
+            val provider = glideState.value
+            if (provider == null) {
+                drawTrack(style, trackState.value, paletteState.value)
+            } else {
+                drawGlide(style, trackState.value, timesState.value, provider(), paletteState.value, drawnPath)
+            }
+        }
         val framingState = rememberUpdatedState(framing)
         val framed = remember { booleanArrayOf(false) }
+        /** The course line and checkpoints last handed to the style, which a finished render reports. */
+        val drawnCourse = remember { arrayOfNulls<Pair<List<CoursePoint>, List<MapCheckpoint>>>(1) }
+        fun drawCourse(style: Style, map: MapLibreMap, view: MapView, line: List<CoursePoint>, points: List<MapCheckpoint>) {
+            runCatching { draw(style, map, view, line, points, framed, framingState.value, paletteState.value) }
+                .onSuccess { drawnCourse[0] = line to points }
+        }
         val usingBlankStyle = remember { booleanArrayOf(false) }
         val mapView = remember(context) {
             if (!MapLibre.hasInstance()) {
@@ -125,11 +153,17 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                         view.getMapAsync { map ->
                             // No ready.value(): the failure message stays up over the blank map.
                             map.setStyle(Style.Builder().fromJson(blankStyleJson(dark))) { style ->
-                                runCatching { draw(style, map, view, lineState.value, pointState.value, framed, framingState.value, paletteState.value) }
-                                runCatching { drawTrack(style, trackState.value, paletteState.value) }
+                                drawCourse(style, map, view, lineState.value, pointState.value)
+                                runCatching { drawRunner(style) }
                             }
                         }
                     }
+                }
+                // A full frame (style, course and tiles drawn), with the course it drew: a preview's
+                // loader can go once it is that preview's course.
+                view.addOnDidFinishRenderingMapListener { fully ->
+                    val course = drawnCourse[0]
+                    if (fully && course != null) rendered.value(course.first, course.second)
                 }
                 view.addOnTileActionListener { operation, _, _, _, _, _, _ ->
                     if (operation == TileOperation.Error && !context.isOnline()) {
@@ -147,8 +181,8 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                     map.uiSettings.attributionGravity = android.view.Gravity.TOP or android.view.Gravity.START
                     map.setStyle(Style.Builder().fromUri(styleUrl(dark))) { style ->
                         ready.value()
-                        runCatching { draw(style, map, view, lineState.value, pointState.value, framed, framingState.value, paletteState.value) }
-                        runCatching { drawTrack(style, trackState.value, paletteState.value) }
+                        drawCourse(style, map, view, lineState.value, pointState.value)
+                        runCatching { drawRunner(style) }
                     }
                 }
                 // A preview fits the course again after a fold, unfold or resize; the Map screen
@@ -191,11 +225,28 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
             update = { view ->
                 view.getMapAsync { map ->
                     val style = map.style ?: return@getMapAsync
-                    runCatching { draw(style, map, view, line, points, framed, framing, palette) }
-                    runCatching { drawTrack(style, track, palette) }
+                    drawCourse(style, map, view, line, points)
+                    if (glide == null) {
+                        runCatching { drawTrack(style, track, palette) }
+                    } else {
+                        // Not observed here: each glide frame redraws only the runner (below), never the course.
+                        val frame = Snapshot.withoutReadObservation { glide() }
+                        runCatching { drawGlide(style, track, trackTimes, frame, palette, drawnPath) }
+                    }
                 }
             }
         )
+        if (glide != null) {
+            // Every new frame of the replay's dot: the stretch since the glide began and the dot.
+            LaunchedEffect(mapView) {
+                snapshotFlow { glideState.value?.invoke() }.collect { frame ->
+                    mapView.getMapAsync { map ->
+                        val style = map.style?.takeIf { it.isFullyLoaded } ?: return@getMapAsync
+                        runCatching { drawGlide(style, trackState.value, timesState.value, frame, paletteState.value, drawnPath) }
+                    }
+                }
+            }
+        }
         LaunchedEffect(recenterRequest) {
             if (recenterRequest == 0) return@LaunchedEffect
             mapView.getMapAsync { map ->
@@ -220,7 +271,7 @@ private fun draw(
         val existing = style.getSource(LINE_SOURCE) as? GeoJsonSource
         if (existing == null) {
             style.addSource(GeoJsonSource(LINE_SOURCE, geoJson))
-            style.addLayer(
+            style.addUnderRunner(
                 LineLayer(LINE_LAYER, LINE_SOURCE).withProperties(
                     PropertyFactory.lineColor(palette.line),
                     PropertyFactory.lineWidth(5f),
@@ -238,7 +289,7 @@ private fun draw(
         if (existing == null) {
             style.addSource(GeoJsonSource(POINT_SOURCE, geoJson))
             style.addSource(GeoJsonSource(TITLE_SOURCE, geoJson))
-            style.addLayer(
+            style.addUnderRunner(
                 CircleLayer(CIRCLE_LAYER, POINT_SOURCE).withProperties(
                     PropertyFactory.circleRadius(7f),
                     PropertyFactory.circleColor(palette.marker),
@@ -246,7 +297,7 @@ private fun draw(
                     PropertyFactory.circleStrokeWidth(2.5f)
                 )
             )
-            style.addLayer(
+            style.addUnderRunner(
                 SymbolLayer(TITLE_LAYER, TITLE_SOURCE).withProperties(
                     PropertyFactory.textField(Expression.get("title")),
                     PropertyFactory.textFont(arrayOf(TITLE_FONT)),
@@ -264,6 +315,15 @@ private fun draw(
     }
     // Not laid out yet, or nothing to fit: the layout listener fits it once the map has a size.
     if (!framed[0] && fitCourse(map, view, line, points, framing, animate = false)) framed[0] = true
+}
+
+/**
+ * A course layer, under the runner's path and dot when those are already drawn: the path can
+ * arrive before the course does (the room read answering after the first path read), and must
+ * still draw over it, not hidden under the wider course line.
+ */
+private fun Style.addUnderRunner(layer: Layer) {
+    if (getLayer(TRACK_LAYER) != null) addLayerBelow(layer, TRACK_LAYER) else addLayer(layer)
 }
 
 /**
@@ -286,14 +346,79 @@ private fun drawTrack(style: Style, track: List<CoursePoint>, palette: CoursePal
     } else {
         pathSource.setGeoJson(lineJson)
     }
-    val last = track.lastOrNull()
-    val dotJson = if (last == null) {
+    drawDot(style, track.lastOrNull(), palette)
+}
+
+/** The settled path the replay last drew, so a frame redraws only the stretch and the dot. */
+private class DrawnPath {
+    var style: Style? = null
+    var track: List<CoursePoint>? = null
+    var count = -1
+}
+
+/**
+ * The onboarding replay's runner. With a [frame], the path up to where the glide began (one shape,
+ * redrawn only when that changes), the stretch from there through the points passed since to the
+ * dot, and the dot where the frame has it on the course line ([GlideLayout]). Without one (before
+ * the first ping, or animations off) the path whole with the dot on its newest point, as
+ * [drawTrack] draws a race.
+ */
+private fun drawGlide(
+    style: Style,
+    track: List<CoursePoint>,
+    times: List<Long>,
+    frame: RunnerGlideFrame?,
+    palette: CoursePalette,
+    drawn: DrawnPath
+) {
+    if (frame == null || track.isEmpty() || times.size != track.size) {
+        drawSettledPath(style, track, track.size, palette, drawn)
+        drawLine(style, GLIDE_SOURCE, GLIDE_LAYER, null, palette)
+        drawDot(style, track.lastOrNull(), palette)
+        return
+    }
+    val layout = GlideLayout.of(frame, track, times)
+    drawSettledPath(style, track, layout.settled, palette, drawn)
+    drawLine(style, GLIDE_SOURCE, GLIDE_LAYER, lineGeoJson(layout.stretch(track)), palette)
+    drawDot(style, layout.dot, palette)
+}
+
+private fun drawSettledPath(style: Style, track: List<CoursePoint>, count: Int, palette: CoursePalette, drawn: DrawnPath) {
+    val present = style.getSource(TRACK_SOURCE) != null
+    if (present && drawn.style === style && drawn.track === track && drawn.count == count) return
+    val json = if (count >= 2) lineGeoJson(track.subList(0, count)) else EMPTY_COLLECTION
+    drawLine(style, TRACK_SOURCE, TRACK_LAYER, json, palette)
+    drawn.style = style
+    drawn.track = track
+    drawn.count = count
+}
+
+/** A runner line in the path's color, under the dot. A null [json] clears it, if it was ever drawn. */
+private fun drawLine(style: Style, sourceId: String, layerId: String, json: String?, palette: CoursePalette) {
+    val source = style.getSource(sourceId) as? GeoJsonSource
+    if (source != null) {
+        source.setGeoJson(json ?: EMPTY_COLLECTION)
+        return
+    }
+    if (json == null) return
+    style.addSource(GeoJsonSource(sourceId, json))
+    val layer = LineLayer(layerId, sourceId).withProperties(
+        PropertyFactory.lineColor(palette.track),
+        PropertyFactory.lineWidth(4f),
+        PropertyFactory.lineCap("round"),
+        PropertyFactory.lineJoin("round")
+    )
+    if (style.getLayer(RUNNER_LAYER) != null) style.addLayerBelow(layer, RUNNER_LAYER) else style.addLayer(layer)
+}
+
+private fun drawDot(style: Style, dot: CoursePoint?, palette: CoursePalette) {
+    val dotJson = if (dot == null) {
         EMPTY_COLLECTION
     } else {
         JSONObject()
             .put("type", "Feature")
             .put("properties", JSONObject().put("title", "Runner"))
-            .put("geometry", JSONObject().put("type", "Point").put("coordinates", JSONArray().put(last.longitude).put(last.latitude)))
+            .put("geometry", JSONObject().put("type", "Point").put("coordinates", JSONArray().put(dot.longitude).put(dot.latitude)))
             .toString()
     }
     val dotSource = style.getSource(RUNNER_SOURCE) as? GeoJsonSource

@@ -35,13 +35,16 @@ object DevRoutes {
         "dev/room-members" to "room-members",
         "dev/activity-import" to "activity-import",
         "dev/account-deletion" to "account-deletion",
+        "dev/race-delete" to "race-delete",
         "dev/app-shell" to "app-shell",
         "dev/loader" to "brand-loader",
         "dev/billing-purchase" to "billing-purchase",
         "dev/billing-upgrade" to "billing-upgrade",
         "dev/billing-redeem" to "billing-redeem",
         "dev/onboarding-runner-setup" to "onboarding-runner-setup",
-        "dev/onboarding-race-preview" to "onboarding-race-preview"
+        "dev/onboarding-race-preview" to "onboarding-race-preview",
+        "dev/race-rename" to "race-rename",
+        "dev/course-locked" to "course-locked"
     ) + (if (BuildConfig.STRAVA_ENABLED) mapOf("dev/strava" to "strava") else emptyMap())
 
     /** Feature for a link from outside the app. Release builds open no fixture routes from links. */
