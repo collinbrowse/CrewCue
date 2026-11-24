@@ -15,6 +15,7 @@ import {
 import { NIGHT_PACE_FACTOR, NIGHT_SUN_ELEVATION_DEGREES } from "../../projectionTuning.js";
 import type { CourseMicroSegment } from "./courseMesh.js";
 import type { RunnerProfile } from "./runnerProfile.js";
+import { terrainFactorAt } from "./personalTerrain.js";
 import { sunElevationDegrees } from "./sun.js";
 
 /**
@@ -114,7 +115,9 @@ function segmentComponents(input: {
   state: SimulationState;
 }): { baseDuration: number; fatigue: number; workAdd: number; descentAdd: number } {
   const { segment, profile, knobs, state } = input;
-  const mGrade = gradeCostMultiplier(segment.grade, profile.terrainEfficiency, profile.gradeCostBlend);
+  const mGrade =
+    gradeCostMultiplier(segment.grade, profile.terrainEfficiency, profile.gradeCostBlend) *
+    terrainFactorAt(segment.grade, profile.personalTerrain);
   const fAltRaw = altitudeFactor(segment.altitudeMeters, knobs.altitudePenaltyMultiplier);
   const fAlt = 1 + (fAltRaw - 1) * profile.gradeCostBlend;
   const c = Math.max(1, segment.surfaceComplexity);

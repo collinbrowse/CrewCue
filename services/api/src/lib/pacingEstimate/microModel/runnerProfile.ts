@@ -23,6 +23,7 @@ import {
   SLOWDOWN_SLOPE_DEFAULT
 } from "../../projectionTuning.js";
 import { personalSlowdownSlope, type SlowdownObservation } from "../../slowdownShrinkage.js";
+import { isPersonalTerrainEnabled, personalTerrainFrom, type PersonalTerrain } from "./personalTerrain.js";
 
 export type PlanBranch = keyof typeof PLAN_LOG_SIGMA;
 
@@ -60,6 +61,11 @@ export type RunnerProfile = {
   planLogSigma: number;
   /** Which branch built the profile; finished races are scored against it. */
   planBranch: PlanBranch;
+  /**
+   * The runner's own climbing and descent on top of the shared curve (PERSONAL_TERRAIN_FACTORS on
+   * and at least one imported run with a grade profile).
+   */
+  personalTerrain?: PersonalTerrain;
 };
 
 function usableHistory(history: ActivityHistoryRef[]): ActivityHistoryRef[] {
@@ -208,6 +214,10 @@ export function buildRunnerProfile(input: {
   if (tuned && personal.basedOn > 0) {
     explanation += ` Late-race slowdown learned from ${personal.basedOn} race${personal.basedOn === 1 ? "" : "s"} you finished or uploaded.`;
   }
+  const terrain = isPersonalTerrainEnabled() ? personalTerrainFrom(input.history) : null;
+  if (terrain) {
+    explanation += ` Climbing and descending learned from ${terrain.basedOnRuns} of your runs.`;
+  }
   const vBaseMps = 1 / gapSecondsPerMeter;
   return {
     gapSecondsPerMeter,
@@ -222,6 +232,7 @@ export function buildRunnerProfile(input: {
     explanation,
     slowdownSlope: tuned ? (personal.basedOn > 0 ? personal.slope : SLOWDOWN_SLOPE_DEFAULT) : 0,
     planLogSigma,
-    planBranch
+    planBranch,
+    ...(terrain ? { personalTerrain: terrain } : {})
   };
 }
