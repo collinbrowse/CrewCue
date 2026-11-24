@@ -115,6 +115,47 @@ OpenSplitTime permission was granted Nov 5, with attribution. For each finisher,
 
 This test only partly checks the model. Sections are 5–15 km long and mix runnable and hiking grades, and split times include aid stops, night and fatigue, which the model already handles separately. It can show whether climbing and descent ability is personal and consistent. The switch grade and the runnable-versus-hiking split will mostly have to be proven on CrewCue runners' own files, by predicting a held-out run of theirs, so the flag stays off until enough of those exist.
 
+### Backtest result (Nov 24 2026)
+
+Run with `npm run projection:backtest -- --analysis personal-terrain` (services/api). Data, not committed: OpenSplitTime Hardrock 2023 and 2025 (counter-clockwise), Hardrock 2024 (clockwise, on the counter-clockwise GPX reversed; 2026 used a different checkpoint layout), and Bear 2026 (the new course). That's 585 finishers on 3 courses. The other picked races weren't usable: Bighorn has only 2014 results on OpenSplitTime, and Wasatch, Cascade Crest and Run Rabbit Run aren't there.
+
+- **Predicting the second half: no gain.** Held out one course at a time, second-half error stayed at 91 min for both the shared and the personal model, and the shrinkage picked was the strongest. A method check shows why this says little: with planted personal traits (σ 15%), the gain was also only about 0.1 min. OpenSplitTime sections are 5–15 km of mixed terrain, so section totals can't separate climbing from descending ability well enough to move a half-race prediction.
+- **Is it a personal trait? Weakly.** Correlation between a runner's first-half and second-half terrain factors, against finishers of similar finish time, with a per-half fade control. Noise alone stays within about ±0.13–0.18.
+
+  | Course | Runnable climb | Hiking-grade climb | Runnable descent | Steep descent |
+  |---|---|---|---|---|
+  | Bear 2026 | 0.05 | 0.09 | 0.08 | −0.07 |
+  | Hardrock CCW | −0.02 | **0.17** | **0.22** | 0.06 |
+  | Hardrock CW | 0.04 | 0.05 | 0.16 | 0.08 |
+
+  With planted traits, the same correlation reaches 0.35–0.59. Comparing the two puts the real spread between similar-speed runners at roughly 5–7% per terrain class, clearest for runnable descents and hiking-grade climbs on Hardrock. That's a modest, partly-detectable signal, not a strong one.
+- **What this does and doesn't say.** Most terrain skill moves with overall speed, which the model already captures from the runner's overall pace. The personal part left over is small. Race split data has too little resolution to show whether a runner's own 5 m GPS tracks with cadence could estimate it well. Those tracks are far richer, so this is "unproven", not "no".
+
+**Recommendation (owner's call):** don't turn the six-value model on from this evidence. Keep collecting grade tables (slice 1), build the share-sheet import (slices 4–7) because it pays off on its own, and re-test on runners' own files: fit on their training runs and predict a held-out run or a finished CrewCue race. Slice 3 waits for that test.
+
+### Own-runs test (Nov 24 2026, one runner)
+
+Run with `npm run own-runs:backtest -- <folder>` (services/api). Data: 14 of the owner's COROS runs from June to November 2026 (7 FIT, 3 TCX, 4 GPX), 7–37 km with 200–3,800 m of climbing. They stay local in the git-ignored `projection-backtest-data/my-runs`.
+
+The test leaves one run out and learns from the other 13. Each model's step times are scaled to the held-out run's actual moving time, so effort cancels and only *where the time goes* is scored: the share of moving time placed in the wrong kilometer.
+
+| Model | Moving time misplaced (mean of 14) |
+|---|---|
+| Shared curve | **5.3%** |
+| Six-value (switch grade + 5 class factors) | 5.8% (5.7% with each run weighted equally) |
+| Per-1%-grade factors | 5.8% |
+
+- **The personal versions did worse.** Each class has kilometers of data, so this isn't small samples. The runner's relation to grade, measured against their own level, changes from run to run more than it holds steady. That fits a mix of long hiking days (up to 9.6 h with 61% hiked) and short runs, where fatigue, stops and technical footing move time around.
+- **Learned values** (all 14 runs, relative to the runner's own level; above 1 means slower than the shared curve predicts):
+  - Switch grade: 11%.
+  - Hiking-grade climbs: 0.93–0.96, faster than predicted.
+  - Steep descents: 0.89–0.94, faster.
+  - Runnable climbs and descents: 1.03–1.12, slower.
+  - These directions fit the owner's sense of being strong on climbs. But on these runs, knowing them didn't place time better.
+- **Limits.** This is one runner and 14 runs, mostly training, with no races. The metric removes total-time differences on purpose, so it can't test whether personal values predict a race's *total* better from training. That needs race files, which the bulk export (due about Nov 29) should include.
+
+**Combined with the OpenSplitTime result:** neither test supports turning on personal grade factors. Keep slice 3 parked, keep collecting grade tables, and re-run both tests with the bulk export and the first CrewCue races.
+
 ### Limits
 
 - Runs imported before this change have no grade table. The API keeps only metrics, not the file, so runners would need to re-import. The estimate still works without bands.
