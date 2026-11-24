@@ -105,7 +105,13 @@ const EVIDENCE_COMMANDS = {
 };
 
 function stripComments(text) {
-  return text.replace(/<!--[\s\S]*?-->/g, "");
+  let previous;
+  let current = text;
+  do {
+    previous = current;
+    current = current.replace(/<!--[\s\S]*?-->/g, "");
+  } while (current !== previous);
+  return current;
 }
 
 /** A ticked `- [x]` line naming the platform's proof command, or a filled `Blocker:` line. */
