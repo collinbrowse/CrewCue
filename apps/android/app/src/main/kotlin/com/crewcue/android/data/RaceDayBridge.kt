@@ -324,6 +324,23 @@ class RaceDayBridge private constructor(
         put("contentBase64", contentBase64)
     }
 
+    /**
+     * run-share-import: a shared or opened run file (or .zip), base64. Answers the next state:
+     * `state` signedOut, failed (with message) or preview (title, confirmLabel, canImport, runs[], unreadable).
+     */
+    fun previewActivityUpload(fileName: String, contentBase64: String, signedIn: Boolean): RuntimeResult =
+        call("previewActivityUpload") {
+            put("fileName", fileName)
+            put("contentBase64", contentBase64)
+            put("signedIn", signedIn)
+        }
+
+    /** run-share-import: the runner confirmed. Answers `state` done or failed, with message. */
+    fun importActivityUpload(fileName: String, contentBase64: String): RuntimeResult = call("importActivityUpload") {
+        put("fileName", fileName)
+        put("contentBase64", contentBase64)
+    }
+
     /** Pacing history for display: items[].summary, newest first. */
     fun activityHistoryItems(): RuntimeResult = call("activityHistoryItems")
 

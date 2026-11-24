@@ -7,6 +7,7 @@
  */
 import { rescaleLevel, type BacktestData, type Effort } from "./data.js";
 import { fitWindowTable } from "./windows.js";
+import { personalTerrain } from "./personalTerrain.js";
 import {
   FIXED_PLAN_TRUST,
   LIVE_BIAS_DEFAULT,
@@ -721,7 +722,8 @@ export const ANALYSES = {
   "fresh-look-2": freshLook2,
   "fresh-look-3": freshLook3,
   "history-size": historySize,
-  windows
+  windows,
+  "personal-terrain": personalTerrain
 } as const satisfies Record<string, (data: BacktestData) => void>;
 
 export type AnalysisName = keyof typeof ANALYSES;

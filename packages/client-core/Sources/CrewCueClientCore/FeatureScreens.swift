@@ -156,6 +156,8 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.room-members", title: "Room members", body: membersBody(state))
         case "activity-import":
             return FeatureCopy(accessibilityIdentifier: "crewcue.activity-import", title: "Past runs", body: activityImportBody(state))
+        case "run-share-import":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.run-share-import", title: "Import runs", body: runShareImportBody(state))
         case "strava":
             return FeatureCopy(accessibilityIdentifier: "crewcue.strava", title: "Strava", body: stravaBody(state))
         case "account-deletion":
@@ -462,6 +464,15 @@ private func activityImportBody(_ state: FeatureState) -> String {
     case .success: ActivityImport.successMessage
     case .empty: ActivityImport.emptyMessage
     case .error: ActivityImport.errorMessage
+    case .offline: ActivityImport.offlineMessage
+    }
+}
+
+private func runShareImportBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: SharedRunImport.doneOne
+    case .empty: SharedRunImport.tip
+    case .error: SharedRunImport.unreadableMessage
     case .offline: ActivityImport.offlineMessage
     }
 }

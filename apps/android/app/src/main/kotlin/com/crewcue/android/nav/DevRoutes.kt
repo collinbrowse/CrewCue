@@ -34,6 +34,7 @@ object DevRoutes {
         "dev/profile" to "profile",
         "dev/room-members" to "room-members",
         "dev/activity-import" to "activity-import",
+        "dev/run-share-import" to "run-share-import",
         "dev/account-deletion" to "account-deletion",
         "dev/race-delete" to "race-delete",
         "dev/app-shell" to "app-shell",

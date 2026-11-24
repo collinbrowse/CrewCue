@@ -5,6 +5,11 @@ export type GpxTrackPoint = {
   longitude: number;
   elevationMeters: number | null;
   timestampMs: number | null;
+  /**
+   * Step cadence as the file records it. FIT, TCX and Garmin GPX store strides per minute (one
+   * foot), so running reads about 80–95; the grade profile normalizes it. Absent when not recorded.
+   */
+  cadence?: number | null;
 };
 
 export type ParsedGpxTrack = {
@@ -430,12 +435,14 @@ function extractTrackPoints(gpxXml: string, mode: GpxPointTagMode = "all"): GpxT
     const longitude = extractCoordinate(attributes, "lon");
     const elevationMeters = extractOptionalNumericTag(body, "ele");
     const timestampMs = extractOptionalTimestamp(body);
+    // Garmin writes `<gpxtpx:cad>`; COROS writes `<gpxdata:cadence>` (cluetrust GPXDATA).
+    const cadence = extractOptionalNumericTag(body, "cad") ?? extractOptionalNumericTag(body, "cadence");
 
     if (latitude === null || longitude === null) {
       continue;
     }
 
-    points.push({ latitude, longitude, elevationMeters, timestampMs });
+    points.push({ latitude, longitude, elevationMeters, timestampMs, ...(cadence !== null ? { cadence } : {}) });
   }
 
   return points;
@@ -487,7 +494,7 @@ async function extractTrackPointsProgressive(
 }
 
 function extractKmlTrackPoints(kml: string): GpxTrackPoint[] {
-  const coordinatePattern = /<coordinates>\s*([^<]+)\s*<\/coordinates>/gi;
+  const coordinatePattern = /<coordinates>([^<]+)<\/coordinates>/gi;
   const points: GpxTrackPoint[] = [];
   for (const match of kml.matchAll(coordinatePattern)) {
     const payload = (match[1] ?? "").trim();
@@ -718,11 +725,11 @@ export function slugToTitle(slug: string): string {
 }
 
 function extractWaypointDescription(body: string): string | undefined {
-  const desc = body.match(/<(?:[\w-]+:)?desc>\s*([^<]*)\s*<\/(?:[\w-]+:)?desc>/i);
+  const desc = body.match(/<(?:[\w-]+:)?desc>([^<]*)<\/(?:[\w-]+:)?desc>/i);
   if (desc?.[1]?.trim()) {
     return desc[1].trim();
   }
-  const description = body.match(/<(?:[\w-]+:)?description>\s*([^<]*)\s*<\/(?:[\w-]+:)?description>/i);
+  const description = body.match(/<(?:[\w-]+:)?description>([^<]*)<\/(?:[\w-]+:)?description>/i);
   if (description?.[1]?.trim()) {
     return description[1].trim();
   }
@@ -741,7 +748,7 @@ function extractWaypointsFromXml(gpxXml: string): GpxWaypoint[] {
     if (latitude === null || longitude === null) {
       continue;
     }
-    const nameMatch = body.match(/<(?:[\w-]+:)?name>\s*([^<]+)\s*<\/(?:[\w-]+:)?name>/i);
+    const nameMatch = body.match(/<(?:[\w-]+:)?name>([^<]+)<\/(?:[\w-]+:)?name>/i);
     const description = extractWaypointDescription(body);
     waypoints.push({
       latitude,
@@ -754,14 +761,32 @@ function extractWaypointsFromXml(gpxXml: string): GpxWaypoint[] {
   return waypoints;
 }
 
+/**
+ * Placemarks with a name and a Point. Scans with indexOf-style regexes (no lazy `[\s\S]*?`
+ * chains), so a file with many unclosed `<Placemark` tags stays linear.
+ */
 function extractKmlWaypoints(kml: string): GpxWaypoint[] {
-  const waypointPattern =
-    /<Placemark[\s\S]*?<name>\s*([^<]+)\s*<\/name>[\s\S]*?<Point>[\s\S]*?<coordinates>\s*([^<]+)\s*<\/coordinates>[\s\S]*?<\/Point>[\s\S]*?<\/Placemark>/gi;
   const waypoints: GpxWaypoint[] = [];
-  for (const match of kml.matchAll(waypointPattern)) {
-    const block = match[0] ?? "";
-    const name = (match[1] ?? "").trim();
-    const [lonRaw, latRaw] = (match[2] ?? "").trim().split(",");
+  const openTag = /<Placemark/gi;
+  const closeTag = /<\/Placemark>/gi;
+  for (;;) {
+    const open = openTag.exec(kml);
+    if (!open) break;
+    closeTag.lastIndex = open.index;
+    const close = closeTag.exec(kml);
+    if (!close) break;
+    const block = kml.slice(open.index, close.index + close[0].length);
+    openTag.lastIndex = close.index + close[0].length;
+
+    const nameMatch = /<name>([^<]+)<\/name>/i.exec(block);
+    if (!nameMatch) continue;
+    const afterName = block.slice(nameMatch.index + nameMatch[0].length);
+    const pointMatch = /<Point>([^]*)<\/Point>/i.exec(afterName);
+    const coordinatesMatch = pointMatch ? /<coordinates>([^<]+)<\/coordinates>/i.exec(pointMatch[1] ?? "") : null;
+    if (!coordinatesMatch) continue;
+
+    const name = (nameMatch[1] ?? "").trim();
+    const [lonRaw, latRaw] = (coordinatesMatch[1] ?? "").trim().split(",");
     const latitude = Number.parseFloat(latRaw ?? "");
     const longitude = Number.parseFloat(lonRaw ?? "");
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
@@ -1314,12 +1339,12 @@ function extractOptionalNumericTag(body: string, tagName: string): number | null
 }
 
 function extractOptionalTimestamp(body: string): number | null {
-  const match = body.match(/<(?:[\w-]+:)?time>\s*([^<]+)\s*<\/(?:[\w-]+:)?time>/i);
+  const match = body.match(/<(?:[\w-]+:)?time>([^<]+)<\/(?:[\w-]+:)?time>/i);
   if (!match) {
     return null;
   }
 
-  const timestampMs = Date.parse(match[1]);
+  const timestampMs = Date.parse(match[1].trim());
   return Number.isFinite(timestampMs) ? timestampMs : null;
 }
 

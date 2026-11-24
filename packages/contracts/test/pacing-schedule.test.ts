@@ -274,3 +274,38 @@ test("W4-1: cutoffStatus + cutoffMarginSeconds are additive and parsed together"
     /finite number of seconds/
   );
 });
+
+test("activity history ref keeps a valid grade profile and rejects a bad one", () => {
+  const base = {
+    id: "h1",
+    source: "fit_upload",
+    externalId: "abc",
+    recordedAt: "2026-05-17T14:00:00.000Z",
+    ingestedAt: "2026-05-18T00:00:00.000Z"
+  };
+  const gradeProfile = {
+    version: 1,
+    quality: "high",
+    smoothingMeters: 15,
+    elevationNoiseMeters: 0.02,
+    medianPointSpacingMeters: 3,
+    labelSource: "cadence",
+    movingMeters: 1800,
+    movingSeconds: 1133,
+    bins: [
+      { gradePercent: 0, runMeters: 1000, runSeconds: 333, hikeMeters: 0, hikeSeconds: 0 },
+      { gradePercent: 14, runMeters: 0, runSeconds: 0, hikeMeters: 800, hikeSeconds: 800 }
+    ]
+  };
+  const ref = parseActivityHistoryRef({ ...base, gradeProfile });
+  assert.deepEqual(ref.gradeProfile, gradeProfile);
+  assert.throws(
+    () =>
+      parseActivityHistoryRef({
+        ...base,
+        gradeProfile: { ...gradeProfile, bins: [...gradeProfile.bins].reverse() }
+      }),
+    /ascending/
+  );
+  assert.throws(() => parseActivityHistoryRef({ ...base, gradeProfile: { ...gradeProfile, quality: "great" } }), /quality/);
+});

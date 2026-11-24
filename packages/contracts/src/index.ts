@@ -629,6 +629,13 @@ export interface RaceRoomPingTrackResponse {
   points: AthleteTrackPoint[];
   /** Pass as `after` to read the next page; absent on the last page. */
   nextCursor?: string;
+  /**
+   * The race start the page's `preStart` marks were judged against (the room's `raceStartAt` at
+   * read time); absent on a room with no start. Moving the start re-marks every stored point, so a
+   * client holding points read under another start should drop them and its cursor, and read the
+   * track again from the beginning: every phone then draws the same line.
+   */
+  raceStartAt?: string;
 }
 
 export interface AthletePingRejectedResponse {
@@ -919,6 +926,10 @@ export {
 } from "./designSystems.js";
 
 export {
+  ACTIVITY_GRADE_PROFILE_LABEL_SOURCES,
+  ACTIVITY_GRADE_PROFILE_MAX_PERCENT,
+  ACTIVITY_GRADE_PROFILE_QUALITIES,
+  ACTIVITY_GRADE_PROFILE_VERSION,
   ACTIVITY_HISTORY_SOURCES,
   CUTOFF_WARN_MARGIN_SECONDS,
   CUTOFF_WARNING_STATUSES,
@@ -936,6 +947,10 @@ export {
   parsePacingEstimate,
   parseScheduleStop,
   parseWaypointTags,
+  type ActivityGradeProfile,
+  type ActivityGradeProfileBin,
+  type ActivityGradeProfileLabelSource,
+  type ActivityGradeProfileQuality,
   type ActivityHistoryRef,
   type ActivityHistorySource,
   type CrewScheduleSheet,

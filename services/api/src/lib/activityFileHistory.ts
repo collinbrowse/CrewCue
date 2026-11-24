@@ -4,11 +4,19 @@
  */
 import { createHash } from "node:crypto";
 import type { ActivityHistorySource } from "@crewcue/contracts";
-import { parseActivityFile, type ActivityFileFormat } from "@crewcue/map-core";
+import {
+  ActivityFileError,
+  buildActivityGradeProfile,
+  isFootActivity,
+  parseActivityFile,
+  type ActivityFileFormat
+} from "@crewcue/map-core";
 import type { ParsedGpxActivityMetrics } from "./gpxActivityHistory.js";
 import { slowdownFromTimedTrack } from "./runnerSlowdown.js";
 
 export { ActivityFileError, MAX_ACTIVITY_FILE_BYTES } from "@crewcue/map-core";
+
+const SPORT_NAMES: Record<string, string> = { cycling: "a ride", other: "not a run or hike" };
 
 export const ACTIVITY_FILE_SOURCES: Record<ActivityFileFormat, ActivityHistorySource> = {
   gpx: "gpx_upload",
@@ -26,6 +34,11 @@ export function fingerprintActivityFile(bytes: Uint8Array): string {
 /** @throws {ActivityFileError} */
 export function parseActivityFileMetrics(bytes: Uint8Array, fileName?: string): ParsedActivityFileMetrics {
   const parsed = parseActivityFile(bytes, fileName);
+  // Pacing history is runs and hikes. A bulk export also holds rides, swims and gym sessions.
+  if (!isFootActivity(parsed.sport)) {
+    const what = SPORT_NAMES[parsed.sport ?? "other"] ?? "not a run or hike";
+    throw new ActivityFileError("file_unsupported", `This activity is ${what}. Choose a run or hike.`);
+  }
   const metrics: ParsedActivityFileMetrics = {
     source: ACTIVITY_FILE_SOURCES[parsed.format],
     distanceMeters: parsed.distanceMeters
@@ -38,6 +51,10 @@ export function parseActivityFileMetrics(bytes: Uint8Array, fileName?: string): 
     const slope = parsed.points.length >= 2 ? slowdownFromTimedTrack(parsed.points) : null;
     if (slope !== null) {
       metrics.slowdownSlope = Number(slope.toFixed(4));
+    }
+    const gradeProfile = buildActivityGradeProfile(parsed.points);
+    if (gradeProfile) {
+      metrics.gradeProfile = gradeProfile;
     }
   }
   if (parsed.elevationGainMeters !== null) {

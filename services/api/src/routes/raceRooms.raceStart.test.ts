@@ -21,10 +21,15 @@ import {
 import { buildApp } from "../app.js";
 import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
-import { runInFreshProcess } from "../lib/testFreshProcess.js";
+import { runStepsInFreshProcess as inFreshProcess } from "../lib/testFreshProcess.js";
 import { plannedElapsedSecondsForDistance, withinCourseLength } from "../lib/raceProjection.js";
 import { load50kCourseWithAids, pointOn50kRouteBeforeEnd } from "../lib/testCourseRouteLayer.js";
-import { commitRaceRoomUpdate, refreshProjectionAfterPlanOfRecordChange } from "./raceRooms.js";
+import {
+  commitRaceRoomUpdate,
+  getProjectionViewForRoom,
+  refreshProjectionAfterPlanOfRecordChange,
+  setWs2SnapshotSaveFailureForTests
+} from "./raceRooms.js";
 
 type App = ReturnType<typeof buildApp>;
 type Checkpoints = ReturnType<typeof load50kCourseWithAids>["checkpoints"];
@@ -417,13 +422,24 @@ test("a paid course with no finish waypoint reads its finish at the end of the r
     // No checkpoint is the finish line (aid-3 is 15 km short of the route's end), so every planned
     // stop, aid-3's too, is on the way there.
     withinASecond(sinceStart(projection.etaFinishPlanIso, raceStartAt), noFinish.expectedFinishElapsedSeconds + 4 * 120, "projection");
-    // The schedule has no finish row. Its last row is aid-3, at the plan's own aid-3 ETA plus the
-    // three stops before it: crews meet the runner there, not at the finish time.
-    const aid3 = schedule.stops[schedule.stops.length - 1]!;
-    assert.equal(aid3.checkpointId, "aid-3");
+    // aid-3 keeps the plan's own aid-3 ETA plus the three stops before it: crews meet the runner
+    // there, not at the finish time.
+    const aid3 = schedule.stops.find((stop) => stop.checkpointId === "aid-3")!;
     assert.equal(aid3.movingElapsedSeconds, lastAid.elapsedSeconds);
     assert.equal(aid3.elapsedSeconds, lastAid.elapsedSeconds + 3 * 120);
     assert.equal(aid3.clockArrivalAt, iso(Date.parse(raceStartAt) + (lastAid.elapsedSeconds + 3 * 120) * 1000));
+    // After it, a finish row at the end of the route, the timeline's TARGET: the plan's finish
+    // plus every stop, aid-3's too, the projection's finish. It names no checkpoint of the course.
+    assert.deepEqual(
+      schedule.stops.map((stop) => stop.checkpointId),
+      ["start", "aid-1", "aid-2", "aid-3", "finish"]
+    );
+    const finishRow = schedule.stops.at(-1)!;
+    assert.equal(finishRow.id, "stop-finish");
+    assert.equal(finishRow.movingElapsedSeconds, noFinish.expectedFinishElapsedSeconds);
+    assert.equal(finishRow.elapsedSeconds, noFinish.expectedFinishElapsedSeconds + 4 * 120);
+    assert.equal(finishRow.plannedStoppageSeconds, 0);
+    withinASecond(scheduleFinishSeconds(schedule, raceStartAt), sinceStart(projection.etaFinishPlanIso, raceStartAt), "one finish");
     // Pace plans aid-3 where the schedule does.
     const aid3Split = projection.checkpointSplits.find((row) => row.checkpointId === "aid-3")!;
     withinASecond(aid3Split.plannedElapsedSecondsAtCross, lastAid.elapsedSeconds, "Pace's aid-3 split");
@@ -1007,33 +1023,271 @@ test("a stored projection that pings now pre-start drove (stored before they wer
   });
 });
 
-/**
- * Runs `steps` against a fresh API process (nothing of the room in memory, so it all comes back
- * from Postgres) and returns each step's status and body.
- */
-function inFreshProcess(steps: Array<{ method: string; url: string; user: string; payload?: unknown }>) {
-  const script = `
-    const { buildApp } = await import(process.argv[1]);
-    const steps = JSON.parse(process.argv[2]);
-    const app = buildApp();
-    await app.ready();
-    const out = [];
-    for (const step of steps) {
-      const token = app.jwt.sign({ sub: step.user, teamIds: ["team-1"], roomRoles: {} });
-      const res = await app.inject({
-        method: step.method,
-        url: step.url,
-        payload: step.payload,
-        headers: { authorization: "Bearer " + token }
+test("a stored projection that pings now pre-start drove (stored before they were ignored) is re-seeded on read: it equals a clean room's, crew check-ins kept", async (t) => {
+  const realNow = wholeSecond(Date.now());
+  t.mock.timers.enable({ apis: ["Date"], now: realNow });
+  await withApp(async (app) => {
+    const runner = "runner-race-start-stale-read";
+    const crew = "crew-race-start-stale-read";
+    const oldStartMs = realNow - 20 * MINUTE;
+    const raceStartMs = realNow + HOUR;
+    const checkIn = async (roomId: string) => {
+      const room = ((await get(app, `/race-rooms/${roomId}`, runner)).json() as { room: RaceRoom }).room;
+      const joined = await app.inject({
+        method: "POST",
+        url: "/race-rooms/join-by-code",
+        payload: { roomCode: room.joinCode },
+        headers: auth(app, crew)
       });
-      out.push({ status: res.statusCode, body: res.json() });
+      assert.equal(joined.statusCode, 200, joined.body);
+      const checkedIn = await app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/checkpoints/aid-1/manual-stop`,
+        payload: { arrivalAt: iso(realNow - 10 * MINUTE), departureAt: iso(realNow - 3 * MINUTE) },
+        headers: auth(app, crew)
+      });
+      assert.equal(checkedIn.statusCode, 200, checkedIn.body);
+    };
+
+    // A runner's pings fold into the projection: a closed auto visit at the start, and a 30 s
+    // upload interval. The crew checks in at aid-1.
+    const roomId = await paidRace(app, runner, iso(oldStartMs));
+    const uploaded = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings/batch`,
+      payload: {
+        points: [
+          { ...upRoute(400), recordedAt: iso(oldStartMs + 1 * MINUTE) },
+          { ...START, recordedAt: iso(oldStartMs + 3 * MINUTE) },
+          { ...START, recordedAt: iso(oldStartMs + 5 * MINUTE) },
+          { ...upRoute(400), recordedAt: iso(oldStartMs + 7 * MINUTE) }
+        ],
+        uploadIntervalSeconds: 30
+      },
+      headers: auth(app, runner)
+    });
+    assert.equal(uploaded.statusCode, 200, uploaded.body);
+    await checkIn(roomId);
+    const tested = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
+    assert.equal(tested.checkpointSplits[0]!.visits.length, 1, "a closed auto visit at the start");
+    assert.notEqual(tested.asOfPingId, "bootstrap");
+
+    // The start moves later than every ping with no recompute, as in a race stored before
+    // pre-start pings were ignored: the stored projection is the test pings'.
+    await commitRaceRoomUpdate(roomId, (latest) => ({ ...latest, raceStartAt: iso(raceStartMs), activatedAt: iso(raceStartMs) }));
+
+    // The clean room: that start from the outset, the same check-in, no ping.
+    const clean = await paidRace(app, runner, iso(raceStartMs));
+    await checkIn(clean);
+    const shown = async (id: string) => {
+      const { projection, schedule } = await raceReads(app, id, runner);
+      const { roomId: _roomId, asOfRecordedAt: _asOf, ...rest } = projection;
+      return { projection: rest, stops: schedule.stops };
+    };
+    const expected = await shown(clean);
+    // The first read re-seeds it: nothing the test pings did is left.
+    const actual = await shown(roomId);
+    assert.equal(actual.projection.asOfPingId, "bootstrap");
+    assert.deepEqual(actual.projection.checkpointSplits[0]!.visits, [], "no visit from the test pings");
+    assert.deepEqual(actual.projection, expected.projection, "projection");
+    assert.deepEqual(actual.stops, expected.stops, "schedule");
+    const aid1 = actual.projection.checkpointSplits.find((row) => row.checkpointId === "aid-1")!.visits;
+    assert.equal(aid1.length, 1, "the crew's check-in stays");
+    assert.equal(aid1[0]!.activeActualStopSeconds, 420);
+    assert.equal(
+      (await latest(app, roomId, crew)).stalenessThresholdSeconds,
+      (await latest(app, clean, crew)).stalenessThresholdSeconds,
+      "no upload interval from a test ping"
+    );
+    // A second read finds nothing more to re-seed.
+    assert.deepEqual((await shown(roomId)).projection, actual.projection);
+  });
+});
+
+test("re-seeding a stale pre-start projection on read: a finished or expired race is left alone, a failed bootstrap keeps what was stored, a failed save still serves the re-seed", async (t) => {
+  const realNow = wholeSecond(Date.now());
+  t.mock.timers.enable({ apis: ["Date"], now: realNow });
+  await withApp(async (app) => {
+    const runner = "runner-race-start-stale-guards";
+    const crew = "crew-race-start-stale-guards";
+    const oldStartMs = realNow - 20 * MINUTE;
+    /** A room whose stored projection its test pings drove, with a crew check-in at aid-1. */
+    const staleRoom = async () => {
+      const roomId = await paidRace(app, runner, iso(oldStartMs));
+      const room = ((await get(app, `/race-rooms/${roomId}`, runner)).json() as { room: RaceRoom }).room;
+      assert.equal((await app.inject({ method: "POST", url: "/race-rooms/join-by-code", payload: { roomCode: room.joinCode }, headers: auth(app, crew) })).statusCode, 200);
+      const uploaded = await app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/pings/batch`,
+        payload: {
+          points: [
+            { ...upRoute(400), recordedAt: iso(oldStartMs + 1 * MINUTE) },
+            { ...START, recordedAt: iso(oldStartMs + 3 * MINUTE) },
+            { ...START, recordedAt: iso(oldStartMs + 5 * MINUTE) },
+            { ...upRoute(400), recordedAt: iso(oldStartMs + 7 * MINUTE) }
+          ]
+        },
+        headers: auth(app, runner)
+      });
+      assert.equal(uploaded.statusCode, 200, uploaded.body);
+      const checkedIn = await app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/checkpoints/aid-1/manual-stop`,
+        payload: { arrivalAt: iso(realNow - 10 * MINUTE), departureAt: iso(realNow - 3 * MINUTE) },
+        headers: auth(app, crew)
+      });
+      assert.equal(checkedIn.statusCode, 200, checkedIn.body);
+      const pinged = (await getProjectionViewForRoom(roomId))!;
+      assert.notEqual(pinged.asOfPingId, "bootstrap");
+      const laterStart = iso(realNow + HOUR);
+      await commitRaceRoomUpdate(roomId, (latest) => ({ ...latest, raceStartAt: laterStart, activatedAt: laterStart }));
+      return { roomId, pinged };
+    };
+
+    // A finished race and an expired one: their reads are history, left as stored.
+    for (const [label, edit] of [
+      ["completed", (latest: RaceRoom): RaceRoom => ({ ...latest, status: "completed" })],
+      ["expired", (latest: RaceRoom): RaceRoom => ({ ...latest, entitlement: { ...latest.entitlement, status: "expired" } })]
+    ] as const) {
+      const { roomId, pinged } = await staleRoom();
+      await commitRaceRoomUpdate(roomId, edit);
+      assert.equal((await getProjectionViewForRoom(roomId))?.asOfPingId, pinged.asOfPingId, `${label}: not re-seeded`);
     }
-    process.stdout.write("\\nRESULT:" + JSON.stringify(out) + "\\n");
-    await app.close();
-    process.exit(0);
-  `;
-  return runInFreshProcess<Array<{ status: number; body: unknown }>>(script, [JSON.stringify(steps)]);
-}
+
+    // No bootstrap can be seeded (the route went away): the stored projection stays, check-in and all.
+    {
+      const { roomId, pinged } = await staleRoom();
+      await commitRaceRoomUpdate(roomId, (latest) => {
+        const { mapWorkspace: _route, ...room } = latest;
+        return room;
+      });
+      const kept = (await getProjectionViewForRoom(roomId))!;
+      assert.equal(kept.asOfPingId, pinged.asOfPingId, "kept as stored");
+      assert.deepEqual(kept.checkpointSplits, pinged.checkpointSplits, "the check-in and the visits stay");
+    }
+
+    // The snapshot save fails: the read still answers, with the re-seeded projection.
+    {
+      const { roomId } = await staleRoom();
+      setWs2SnapshotSaveFailureForTests(new Error("simulated snapshot save failure"));
+      try {
+        const read = await get(app, `/race-rooms/${roomId}/projection`, runner);
+        assert.equal(read.statusCode, 200, read.body);
+        const reseeded = read.json() as RaceRoomProjection;
+        assert.equal(reseeded.asOfPingId, "bootstrap");
+        assert.equal(reseeded.checkpointSplits.find((row) => row.checkpointId === "aid-1")!.visits.length, 1, "check-in kept");
+      } finally {
+        setWs2SnapshotSaveFailureForTests(undefined);
+      }
+    }
+  });
+});
+
+test("a crew check-in keeps its visit index when the auto visit before it goes: a cached index never names another visit", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-race-start-visit-index";
+    const crew = "crew-race-start-visit-index";
+    const now = wholeSecond(Date.now());
+    const raceStartMs = now - 30 * MINUTE;
+    const roomId = await paidRace(app, runner, iso(raceStartMs));
+    const room = ((await get(app, `/race-rooms/${roomId}`, runner)).json() as { room: RaceRoom }).room;
+    const joined = await app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: auth(app, crew)
+    });
+    assert.equal(joined.statusCode, 200, joined.body);
+    const upload = async (points: Array<{ latitude: number; longitude: number; recordedAt: string }>) => {
+      const uploaded = await app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/pings/batch`,
+        payload: { points },
+        headers: auth(app, runner)
+      });
+      assert.equal(uploaded.statusCode, 200, uploaded.body);
+    };
+    // The runner reaches the start line: an auto visit there (visit 1), with no stop timed yet.
+    await upload([
+      { ...upRoute(400), recordedAt: iso(raceStartMs + 1 * MINUTE) },
+      { ...START, recordedAt: iso(raceStartMs + 3 * MINUTE) }
+    ]);
+    // The crew's check-in at the start, for a stop before the runner's pings got there: visit 2.
+    const checkedIn = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/checkpoints/start/manual-stop`,
+      payload: { arrivalAt: iso(raceStartMs + 10_000), departureAt: iso(raceStartMs + 40_000) },
+      headers: auth(app, crew)
+    });
+    assert.equal(checkedIn.statusCode, 200, checkedIn.body);
+    // Then up the route.
+    await upload([
+      { ...upRoute(400), recordedAt: iso(raceStartMs + 7 * MINUTE) },
+      { ...upRoute(1_000), recordedAt: iso(raceStartMs + 12 * MINUTE) },
+      { ...upRoute(1_600), recordedAt: iso(raceStartMs + 17 * MINUTE) }
+    ]);
+    const startVisits = async () =>
+      ((await get(app, `/race-rooms/${roomId}/projection`, crew)).json() as RaceRoomProjection).checkpointSplits[0]!.visits;
+    const before = await startVisits();
+    assert.deepEqual(
+      before.map((visit) => [visit.visitIndex, visit.resolvedSource]),
+      [
+        [1, "auto"],
+        [2, "manual_crew"]
+      ]
+    );
+    const resolve = (visitIndex: number, resolvedSource: "auto" | "manual_crew") =>
+      app.inject({
+        method: "PATCH",
+        url: `/race-rooms/${roomId}/checkpoints/start/visits/${visitIndex}/resolved-source`,
+        payload: { resolvedSource },
+        headers: auth(app, crew)
+      });
+
+    for (const [label, moveTo] of [
+      // Later than the auto visit, earlier than the last race pings: they still drive the projection.
+      ["start moved past the auto visit", raceStartMs + 10 * MINUTE],
+      // Later than every ping: the projection is re-seeded with the crew's check-ins only.
+      ["start moved past every ping", now + HOUR]
+    ] as const) {
+      assert.equal((await patchStart(app, roomId, runner, iso(moveTo))).statusCode, 200, label);
+      const after = await startVisits();
+      assert.deepEqual(
+        after.map((visit) => [visit.visitIndex, visit.resolvedSource]),
+        [[2, "manual_crew"]],
+        `${label}: the check-in is still visit 2`
+      );
+      // A crew phone's cached index 1 named the auto visit: it is gone, not the check-in.
+      assert.equal((await resolve(1, "manual_crew")).statusCode, 404, `${label}: visit 1 is gone`);
+      assert.equal((await resolve(2, "manual_crew")).statusCode, 200, `${label}: visit 2 is the check-in`);
+    }
+  });
+});
+
+test("pings/track names the start its preStart marks were judged against, so a phone can tell when to read it again", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-race-start-track-start";
+    const now = wholeSecond(Date.now());
+    const raceStartAt = iso(now - 20 * MINUTE);
+    const roomId = await paidRace(app, runner, raceStartAt);
+    assert.equal((await ping(app, roomId, runner, upRoute(500), now - 30_000)).statusCode, 201);
+    const read = async () => {
+      const response = await get(app, `/race-rooms/${roomId}/pings/track`, runner);
+      assert.equal(response.statusCode, 200, response.body);
+      return response.json() as RaceRoomPingTrackResponse;
+    };
+    const first = await read();
+    assert.equal(first.raceStartAt, raceStartAt);
+    assert.equal(first.points[0]!.preStart, undefined);
+
+    // The gun is delayed past the ping: the page re-marks it, under the new start it names.
+    const delayedAt = iso(now + HOUR);
+    assert.equal((await patchStart(app, roomId, runner, delayedAt)).statusCode, 200);
+    const moved = await read();
+    assert.equal(moved.raceStartAt, delayedAt);
+    assert.equal(moved.points[0]!.preStart, true);
+  });
+});
 
 test(
   "a start delayed past the runner's pings still holds after an API restart: crew see a test ping at mile 0, and moving the start back re-counts it",

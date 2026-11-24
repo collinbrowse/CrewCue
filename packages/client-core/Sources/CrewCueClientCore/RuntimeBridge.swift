@@ -22,6 +22,7 @@ import Dispatch
 /// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, onboardingCopy, onboardingHistoryComparison, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
+/// previewActivityUpload, importActivityUpload,
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
 /// readPendingJoin, clearPendingJoin, giveUpInvite, resolvePendingJoin, inviteShare, inviteCopy,
 /// pastedInviteCode, confirmedInviteForSignIn, inviteJoinLine (`RuntimeOnboarding.swift`),
@@ -251,6 +252,10 @@ enum RuntimeCall {
             return try await activityHistoryItems(object)
         case "importActivityFile":
             return try await importActivityFile(object)
+        case "previewActivityUpload":
+            return await previewActivityUpload(object)
+        case "importActivityUpload":
+            return await importActivityUpload(object)
         case "stravaStart":
             return try await stravaStart(object)
         case "stravaConnection":
@@ -1514,6 +1519,65 @@ enum RuntimeCall {
                 return ["status": "invalid", "message": ActivityImport.message(for: error)]
             }
             throw error
+        }
+    }
+
+    /// Share-sheet import (run-share-import): `signedIn`, `fileName`, `contentBase64`. Returns the
+    /// next state: `state` signedOut, failed (with `message`) or preview (with title, confirm label,
+    /// canImport, unreadable line and runs[] with summary, alreadyImported and track).
+    private static func previewActivityUpload(_ object: [String: Any]) async -> Any {
+        let fileName = text(object, "fileName") ?? "activity"
+        let data = Data(base64Encoded: object["contentBase64"] as? String ?? "") ?? Data()
+        let signedIn = object["signedIn"] as? Bool ?? true
+        let start = SharedRunImport.start(signedIn: signedIn, fileName: fileName, byteCount: data.count)
+        guard case .reading = start else { return sharedRunImportJSON(start) }
+        let result: Result<ActivityUploadPreview, any Error>
+        do {
+            result = .success(try await RaceDayAPI.previewActivityUpload(graph: try graph(object), fileName: fileName, data: data))
+        } catch {
+            result = .failure(error)
+        }
+        return sharedRunImportJSON(SharedRunImport.afterPreview(result))
+    }
+
+    /// The runner confirmed: import every run in the file. Returns `state` done or failed with `message`.
+    private static func importActivityUpload(_ object: [String: Any]) async -> Any {
+        let fileName = text(object, "fileName") ?? "activity"
+        let data = Data(base64Encoded: object["contentBase64"] as? String ?? "") ?? Data()
+        let result: Result<ActivityUploadResult, any Error>
+        do {
+            result = .success(try await RaceDayAPI.importActivityUpload(graph: try graph(object), fileName: fileName, data: data))
+        } catch {
+            result = .failure(error)
+        }
+        return sharedRunImportJSON(SharedRunImport.afterImport(result))
+    }
+
+    private static func sharedRunImportJSON(_ state: SharedRunImportState) -> [String: Any] {
+        switch state {
+        case .signedOut:
+            return ["state": "signedOut", "message": SharedRunImport.signedOutMessage]
+        case .reading:
+            return ["state": "reading", "message": SharedRunImport.readingMessage]
+        case .importing:
+            return ["state": "importing", "message": SharedRunImport.importingMessage]
+        case .done(let message):
+            return ["state": "done", "message": message]
+        case .failed(let message):
+            return ["state": "failed", "message": message]
+        case .preview(let preview):
+            var json: [String: Any] = [
+                "state": "preview",
+                "title": preview.title,
+                "confirmLabel": preview.confirmLabel,
+                "canImport": preview.canImport,
+                "runs": preview.runs.map { run -> [String: Any] in
+                    ["fileName": run.fileName, "summary": run.summary, "alreadyImported": run.alreadyImported, "track": run.track]
+                }
+            ]
+            if let line = preview.unreadableLine { json["unreadableLine"] = line }
+            json["unreadable"] = preview.unreadable.map { ["fileName": $0.fileName, "error": $0.error] }
+            return json
         }
     }
 
