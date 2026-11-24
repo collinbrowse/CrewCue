@@ -134,7 +134,7 @@ fun PaceContent(
 ) {
     LaunchedEffect(roomId) { model.load() }
     val readOnly = model.readOnly
-    var showsTools by remember { mutableStateOf(false) }
+    var showsTools by rememberSaveable { mutableStateOf(false) }
     val liveRows = race?.timeline.orEmpty()
     val passedIds = liveRows.filter { it.state == "done" }.map { it.checkpointId }.toSet()
     LaunchedEffect(focus, model.scheduleStops) {
