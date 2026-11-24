@@ -20,7 +20,7 @@ export type FitTestRecord = {
 export type FitTestActivity = {
   fileType?: number;
   records: FitTestRecord[];
-  session?: { startMs: number; elapsedSeconds: number; distanceMeters: number; ascentMeters?: number };
+  session?: { startMs: number; elapsedSeconds: number; distanceMeters: number; ascentMeters?: number; sport?: number; subSport?: number };
   /** Write records after the first with compressed-timestamp headers (needs ≤31 s gaps). */
   compressedTimestamps?: boolean;
 };
@@ -88,17 +88,24 @@ export function encodeFitActivity(activity: FitTestActivity): Uint8Array {
   });
 
   if (activity.session) {
-    body.define(3, 18, [
+    const sessionFields: Array<[number, number, number]> = [
       [2, 4, 0x86],
       [7, 4, 0x86],
       [9, 4, 0x86],
       [22, 2, 0x84]
-    ]);
+    ];
+    const withSport = activity.session.sport !== undefined;
+    if (withSport) sessionFields.push([5, 1, 0x00], [6, 1, 0x00]);
+    body.define(3, 18, sessionFields);
     body.u8(3);
     body.u32(fitSeconds(activity.session.startMs));
     body.u32(Math.round(activity.session.elapsedSeconds * 1000));
     body.u32(Math.round(activity.session.distanceMeters * 100));
     body.u16(activity.session.ascentMeters === undefined ? 0xffff : Math.round(activity.session.ascentMeters));
+    if (withSport) {
+      body.u8(activity.session.sport!);
+      body.u8(activity.session.subSport ?? 0xff);
+    }
   }
 
   const header = new Writer();

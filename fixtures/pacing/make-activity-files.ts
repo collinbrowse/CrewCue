@@ -28,6 +28,19 @@ const fit = encodeFitActivity({
 });
 writeFileSync(join(PACING_FIXTURES_DIR, "activity-short-road.fit"), fit);
 
+// Ride: the short-road track recorded as cycling (FIT sport 2). Bulk exports hold these.
+const ride = encodeFitActivity({
+  records: points.map((point, index) => ({
+    timestampMs: point.timestampMs!,
+    latitude: point.latitude,
+    longitude: point.longitude,
+    elevationMeters: point.elevationMeters ?? undefined,
+    distanceMeters: cumulative[index]
+  })),
+  session: { startMs, elapsedSeconds: (endMs - startMs) / 1000, distanceMeters: totalMeters, ascentMeters: ascent, sport: 2 }
+});
+writeFileSync(join(PACING_FIXTURES_DIR, "activity-ride.fit"), ride);
+
 // Treadmill: distance from the foot pod, no GPS.
 const treadmill = encodeFitActivity({
   records: Array.from({ length: 31 }, (_, index) => ({

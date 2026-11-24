@@ -166,3 +166,21 @@ test("zip reader refuses password-protected archives and caps entries", () => {
     (err: unknown) => err instanceof ZipArchiveError && /more than 2/.test(err.message)
   );
 });
+
+test("rides in a .zip are listed as not runs and never imported", async () => {
+  await withApp(async (app, token) => {
+    const upload = zip([
+      { name: "run.fit", bytes: fixture("activity-short-road.fit") },
+      { name: "ride.fit", bytes: fixture("activity-ride.fit") }
+    ]);
+    const preview = await post(app, token, "/activity-history/preview", "export.zip", upload);
+    assert.deepEqual(
+      preview.json().runs.map((run: { fileName: string }) => run.fileName),
+      ["run.fit"]
+    );
+    assert.deepEqual(preview.json().unreadable, [{ fileName: "ride.fit", error: "This activity is a ride. Choose a run or hike." }]);
+    const imported = await post(app, token, "/activity-history/archive", "export.zip", upload);
+    assert.equal(imported.json().saved, 1);
+    assert.equal(await countActivityHistoryRows(), 1);
+  });
+});

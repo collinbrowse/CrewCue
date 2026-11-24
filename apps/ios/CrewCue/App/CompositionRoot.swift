@@ -40,6 +40,9 @@ struct CompositionRoot {
             model.adopt(restored)
             model.resumeRaceTrackingAtLaunch()
         }
+        if let link = launch.runShareDevLink {
+            model.openRunShareDevLink(link)
+        }
         return model
     }
 
