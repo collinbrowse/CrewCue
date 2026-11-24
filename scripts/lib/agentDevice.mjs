@@ -159,3 +159,24 @@ export function releaseAndroid(repoRoot, env = process.env) {
   fs.rmSync(androidLockDir(env), { recursive: true, force: true });
   return true;
 }
+
+/** Every simulator this checkout may own: its own and its iPhone Duo twin. */
+export function iosSimulatorNames(repoRoot) {
+  const own = iosSimulatorName(repoRoot);
+  return [own, `${own} Duo`];
+}
+
+/*
+ * Swift packages are cloned once per machine, not once per worktree (about 3.7 GB each).
+ * CI keeps xcodebuild's default. CREWCUE_SPM_CACHE overrides the folder.
+ */
+export function sharedSourcePackagesDir(env = process.env) {
+  if (env.CI) return undefined;
+  return env.CREWCUE_SPM_CACHE || path.join(os.homedir(), "Library", "Caches", "CrewCue", "SourcePackages");
+}
+
+/** xcodebuild arguments that point package checkouts at the shared folder (none in CI). */
+export function sharedSourcePackagesArgs(env = process.env) {
+  const dir = sharedSourcePackagesDir(env);
+  return dir ? ["-clonedSourcePackagesDirPath", dir] : [];
+}

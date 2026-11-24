@@ -11,9 +11,11 @@ import {
   cumulativeDistanceAtCheckpoints,
   finishCheckpointIndex,
   isMarkedFinish,
+  nextVisitIndex,
   type FinishCandidate,
   polylineCourseLengthAndProgress,
-  recomputeRaceProjection
+  recomputeRaceProjection,
+  routeEndFinishRowId
 } from "./raceProjection.js";
 
 function withProjectedCheckpoints(course: RaceCourse): { course: RaceCourse; routeMetricPoints: CourseMetricPoint[] } {
@@ -859,4 +861,29 @@ test("an aid station passed between two pings no longer adds its planned stop to
       }
     }
   }
+});
+
+test("a course with no finish checkpoint gets a route-end finish row id that names none of its checkpoints", () => {
+  assert.equal(routeEndFinishRowId(atDistances([0, 10_000, 30_000]), 40_000), "finish", "a last aid short of the route's end");
+  assert.equal(routeEndFinishRowId(atDistances([0, 10_000, 40_000]), 40_000), undefined, "a checkpoint at the end is the finish");
+  assert.equal(routeEndFinishRowId(atDistances([0, 10_000, undefined]), 40_000), undefined, "a distance unknown");
+  assert.equal(routeEndFinishRowId(atDistances([0]), 40_000), undefined, "the start alone");
+  // An earlier `finish` (a loop's first pass) that is not the farthest: the row takes another id.
+  const loop: FinishCandidate[] = [
+    { id: "start", distanceMetersFromStart: 0 },
+    { id: "finish", distanceMetersFromStart: 10_000 },
+    { id: "aid-2", distanceMetersFromStart: 30_000 }
+  ];
+  assert.equal(routeEndFinishRowId(loop, 40_000), "route-finish");
+  assert.equal(routeEndFinishRowId([...loop, { id: "route-finish", distanceMetersFromStart: 20_000 }], 40_000), "route-finish-2");
+  // In any case, as the finish rule reads ids.
+  const upper = loop.map((checkpoint) => (checkpoint.id === "finish" ? { ...checkpoint, id: "Finish" } : checkpoint));
+  assert.equal(routeEndFinishRowId(upper, 40_000), "route-finish");
+  assert.equal(routeEndFinishRowId([...upper, { id: " ROUTE-FINISH ", distanceMetersFromStart: 20_000 }], 40_000), "route-finish-2");
+});
+
+test("a checkpoint's next visit index is one past its highest, gaps kept", () => {
+  assert.equal(nextVisitIndex([]), 1);
+  assert.equal(nextVisitIndex([{ visitIndex: 1 }, { visitIndex: 2 }]), 3);
+  assert.equal(nextVisitIndex([{ visitIndex: 2 }]), 3, "visit 1 dropped: 2 is not reused");
 });
