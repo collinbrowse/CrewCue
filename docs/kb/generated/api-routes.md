@@ -3,7 +3,7 @@
 
 Every Fastify route in `services/api/src/routes`, with the auth guard the generator found in the handler. Guards are detected by pattern, so `none detected` means *look*, not *open*: health checks and join previews are public on purpose.
 
-**98 routes** in 17 files. Guards: course-editor (via upsertStopPlan) 2, course-editor 5, identity + membership 53, identity + owner 1, identity 21, none detected 8, room-member 8.
+**100 routes** in 17 files. Guards: course-editor (via upsertStopPlan) 2, course-editor 5, identity + membership 53, identity + owner 1, identity 23, none detected 8, room-member 8.
 
 Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth.ts`); `room-member` / `course-editor` call `requireRoomMember` / `requireCourseEditor`; `+ membership` / `+ owner` means the handler also checks the room's memberships or athlete inline; `shared-secret` compares a header against an env secret; `automation` uses the automation guard.
 
@@ -18,10 +18,12 @@ Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| POST | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:84](../../../services/api/src/routes/activityHistory.ts#L84) |
-| POST | `/activity-history/gpx` | identity | [services/api/src/routes/activityHistory.ts:121](../../../services/api/src/routes/activityHistory.ts#L121) |
-| POST | `/activity-history/file` | identity | [services/api/src/routes/activityHistory.ts:170](../../../services/api/src/routes/activityHistory.ts#L170) |
-| GET | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:222](../../../services/api/src/routes/activityHistory.ts#L222) |
+| POST | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:167](../../../services/api/src/routes/activityHistory.ts#L167) |
+| POST | `/activity-history/gpx` | identity | [services/api/src/routes/activityHistory.ts:204](../../../services/api/src/routes/activityHistory.ts#L204) |
+| POST | `/activity-history/file` | identity | [services/api/src/routes/activityHistory.ts:253](../../../services/api/src/routes/activityHistory.ts#L253) |
+| POST | `/activity-history/preview` | identity | [services/api/src/routes/activityHistory.ts:289](../../../services/api/src/routes/activityHistory.ts#L289) |
+| POST | `/activity-history/archive` | identity | [services/api/src/routes/activityHistory.ts:339](../../../services/api/src/routes/activityHistory.ts#L339) |
+| GET | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:378](../../../services/api/src/routes/activityHistory.ts#L378) |
 
 ## analyticsRoutes
 

@@ -21,7 +21,7 @@ Which `lib/` modules each route file imports directly.
 | Route file | Imports |
 | --- | --- |
 | [services/api/src/routes/accountRoutes.ts](../../../services/api/src/routes/accountRoutes.ts) | `accountDeletion.ts`, `activityHistoryStore.ts`, `pacingEstimateStore.ts`, `raceTeaser.ts`, `stravaConnectionStore.ts` |
-| [services/api/src/routes/activityHistory.ts](../../../services/api/src/routes/activityHistory.ts) | `activityFileHistory.ts`, `activityHistoryStore.ts`, `gpxActivityHistory.ts`, `gpxLimits.ts` |
+| [services/api/src/routes/activityHistory.ts](../../../services/api/src/routes/activityHistory.ts) | `activityFileHistory.ts`, `activityHistoryStore.ts`, `gpxActivityHistory.ts`, `gpxLimits.ts`, `zipArchive.ts` |
 | [services/api/src/routes/analyticsRoutes.ts](../../../services/api/src/routes/analyticsRoutes.ts) | — |
 | [services/api/src/routes/billingRoutes.ts](../../../services/api/src/routes/billingRoutes.ts) | `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts` |
 | [services/api/src/routes/chatRoutes.ts](../../../services/api/src/routes/chatRoutes.ts) | `billingEntitlement.ts`, `chatLive.ts`, `chatMessageStore.ts`, `chatPersistence.ts`, `chatPhotoStore.ts`, `chatPushDispatch.ts` |
