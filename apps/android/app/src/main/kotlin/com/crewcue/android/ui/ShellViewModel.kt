@@ -16,6 +16,14 @@ import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.optText
 import com.crewcue.android.di.AppContainer
 import com.crewcue.android.nav.DevRoutes
+import com.crewcue.android.nav.InboundLink
+import com.crewcue.android.ui.join.FAKE_REFERRER_EXTRA
+import com.crewcue.android.ui.join.JOIN_CREW_FEATURE
+import com.crewcue.android.ui.join.JoinResult
+import com.crewcue.android.ui.join.JoinTone
+import com.crewcue.android.ui.join.PendingInvite
+import com.crewcue.android.ui.join.joiningLine
+import com.crewcue.android.ui.invite.InviteText
 import com.crewcue.android.session.DevSession
 import com.crewcue.android.session.StoredSession
 import com.crewcue.android.session.applyingJoin
@@ -115,6 +123,20 @@ class ShellViewModel(
         private set
     var joinPreviewName by mutableStateOf<String?>(null)
         private set
+    /** client-core's "You're joining Ana's race: …" for the code on show, once its preview answers. */
+    var joinPreviewLine by mutableStateOf<String?>(null)
+        private set
+    /** client-core's "Western States 100, 1 member, active" under it (`InviteCopy.previewLine`). */
+    var joinPreviewDetail by mutableStateOf<String?>(null)
+        private set
+    /**
+     * The join screen shows a saved invite (a link, the Play referrer, or a code kept through
+     * sign-in), so it offers Not now, which forgets it.
+     */
+    var joinHasInvite by mutableStateOf(false)
+        private set
+    /** The saved invite on show; a code typed over it saves as `typed`. */
+    private var shownInvite: PendingInvite? = null
     var joinMembership by mutableStateOf<String?>(null)
         private set
     var joinBusy by mutableStateOf(false)
@@ -204,6 +226,15 @@ class ShellViewModel(
     private var racesTicket = 0
 
     /** Shared onboarding strings, read once from client-core. */
+    /** Shared invite strings (`InviteCopy`), read once from client-core. */
+    val inviteText: InviteText by lazy {
+        InviteText.from((container.raceDay.inviteCopy() as? RuntimeResult.Success)?.result?.optJSONObject("copy"))
+    }
+
+    /** The last join answered 409 `crew_limit_reached`: the line under the code is the race-full one. */
+    var joinRaceFull by mutableStateOf(false)
+        private set
+
     val onboardingText: OnboardingText by lazy {
         val copy = (container.raceDay.onboardingCopy() as? RuntimeResult.Success)?.result
         OnboardingText.from(
@@ -220,7 +251,6 @@ class ShellViewModel(
     }
 
     private var opened = false
-    private var pendingJoin = false
     private var previewJob: Job? = null
 
     init {
@@ -233,6 +263,33 @@ class ShellViewModel(
         session?.let { adoptStorage(it.userId) }
         open(launchIntent)
         if (racesJob == null) loadRaces()
+        checkInstallReferrer(launchIntent?.getStringExtra(FAKE_REFERRER_EXTRA))
+    }
+
+    /**
+     * First launch after an install from the join page's Play link: the referrer carries the
+     * invite (`crewcue_join=<code>`). It becomes the pending join, unless one is saved already (a
+     * link the person opened wins), and shows on the join screen when onboarding owns the screen.
+     */
+    private fun checkInstallReferrer(fakeReferrer: String?) {
+        val check = container.installReferrerCheck(fakeReferrer)
+        viewModelScope.launch {
+            val code = withContext(Dispatchers.IO) {
+                val referrer = check.firstReferrer() ?: return@withContext null
+                val code = container.raceDay.inviteCode(referrer) ?: return@withContext null
+                if (PendingInvite.from(container.raceDay.readPendingJoin()) != null) return@withContext null
+                PendingInvite.from(container.raceDay.savePendingJoin(code, PendingInvite.SOURCE_REFERRER))?.code
+            } ?: return@launch
+            val owns = OnboardingRouting.ownsScreen(
+                showAppShell,
+                stateOverlay,
+                uiState.screen.featureId,
+                joinOpenedByOnboarding = joinFromOnboarding,
+                setupOpenedByLink = setupFromLink,
+                racePreviewOpenedByLink = racePreviewFromLink
+            )
+            if (owns && !joinHasInvite) showJoinInvite(PendingInvite(code, PendingInvite.SOURCE_REFERRER))
+        }
     }
 
     override fun onCleared() {
@@ -449,9 +506,15 @@ class ShellViewModel(
         when (destination) {
             OnboardingDestination.SignedOut -> showSignedOut()
             OnboardingDestination.Onboarding -> showOnboarding()
-            OnboardingDestination.JoinCrew -> if (uiState.screen.featureId != "join-crew" || showAppShell) {
-                showFixture("crewcue://dev/join-crew")
-                joinFromOnboarding = true
+            OnboardingDestination.JoinCrew -> if (uiState.screen.featureId != JOIN_CREW_FEATURE || showAppShell) {
+                // A saved invite (a link, the referrer, a code kept through sign-in) shows filled in.
+                val saved = PendingInvite.from(container.raceDay.readPendingJoin())
+                if (saved != null) {
+                    showJoinInvite(saved)
+                } else {
+                    showFixture("crewcue://dev/join-crew")
+                    joinFromOnboarding = true
+                }
             }
             OnboardingDestination.RacePreview -> showRacePreview()
             OnboardingDestination.Shell -> showShellIfHidden()
@@ -557,7 +620,7 @@ class ShellViewModel(
     }
 
     fun open(intent: Intent?) {
-        captureDevSession(intent)
+        val devSignIn = captureDevSession(intent)
         captureWebhookDelay(intent)
         val url = intent?.dataString
         if (BuildConfig.STRAVA_ENABLED && isStravaReturn(url)) {
@@ -567,7 +630,23 @@ class ShellViewModel(
         }
         if (opened && isOAuthCallback(url)) return
         opened = true
-        val feature = DevRoutes.inboundFeatureId(url)
+        // Invite links open in every build; fixture routes only in debug builds.
+        val link = DevRoutes.inbound(
+            url,
+            inviteCode = container.raceDay::inviteCode,
+            isJoinLink = container.raceDay::isJoinLink
+        )
+        if (link is InboundLink.Join) {
+            openInviteLink(link.code)
+            return
+        }
+        if (link == InboundLink.JoinWithoutCode) {
+            openJoinWithoutCode()
+            return
+        }
+        val feature = (link as? InboundLink.Feature)?.id
+        // A debug dev session with no route stands in for a sign-in: a confirmed invite joins, as after Auth0.
+        if (devSignIn && feature == null && joinPendingInvite()) return
         val state = if (url == null) "success" else queryState(url)
         when {
             feature == "app-shell" && state == "success" ->
@@ -616,8 +695,66 @@ class ShellViewModel(
         profilePane = "incidents"
     }
 
+    /** Room members → Invite crew (the runner's invite link and code). */
+    fun openInviteShare() {
+        if (session?.roomId.isNullOrBlank()) return
+        profilePane = "invite"
+    }
+
+    /** A join link whose code didn't read: the join screen, offering Paste or typing the code. */
+    private fun openJoinWithoutCode() {
+        showFixture("crewcue://dev/join-crew")
+        joinFromOnboarding = true
+        replaceBody(inviteText.linkWithoutCode, kind = "empty")
+    }
+
+    /** Paste invite code: a join link, the share text or the bare code, read by client-core. */
+    fun pasteInvite(text: String?) {
+        if (joining) return
+        val code = text?.let { container.raceDay.pastedInviteCode(it) }
+        if (code == null) {
+            replaceBody(inviteText.pasteNoCode, kind = "error")
+            return
+        }
+        updateInviteCode(code)
+    }
+
     fun openJoinCrew() {
         showFixture("crewcue://dev/join-crew")
+    }
+
+    /**
+     * An invite link (the join page or `crewcue://join/<code>`): its code becomes the device's
+     * pending join, kept through sign-up, and the join screen shows it with the race's preview.
+     * Signed in, Join (or Not now) is the person's; signed out, sign-in joins it.
+     */
+    private fun openInviteLink(code: String) {
+        val saved = PendingInvite.from(container.raceDay.savePendingJoin(code, PendingInvite.SOURCE_LINK))
+        showJoinInvite(saved ?: PendingInvite(code, PendingInvite.SOURCE_LINK))
+    }
+
+    /** The join screen, filled in with [invite] and owned by onboarding so a join moves on from it. */
+    private fun showJoinInvite(invite: PendingInvite) {
+        if (showAppShell || stateOverlay || uiState.screen.featureId != JOIN_CREW_FEATURE) {
+            showFixture("crewcue://dev/join-crew")
+        }
+        joinFromOnboarding = true
+        joinHasInvite = true
+        shownInvite = invite
+        if (inviteCode != invite.code || joinPreviewName == null) updateInviteCode(invite.code)
+    }
+
+    /**
+     * The join screen's Back (signed out) or Not now (a saved invite, signed in): the person gave
+     * up on this invite, so it is forgotten and the app's own launch shows.
+     */
+    fun leaveJoin() {
+        if (joining) return
+        // The code and its confirmation: the same link later shows the preview again.
+        container.raceDay.giveUpInvite()
+        joinHasInvite = false
+        shownInvite = null
+        if (session == null) showSignedOut() else routeEntry()
     }
 
     fun openSignedOut() {
@@ -753,7 +890,6 @@ class ShellViewModel(
         paywallOpen = false
         billing = RaceBilling()
         accessCache = null
-        pendingJoin = false
         // Progress stays in client-core's onboarding store; this phone's half-typed setup goes.
         viewModelScope.launch(Dispatchers.IO) { container.runnerSetupDrafts.clear() }
         // The room saved for an offline replay lives outside the user's storage root: it goes too.
@@ -769,15 +905,18 @@ class ShellViewModel(
     fun updateInviteCode(raw: String) {
         if (uiState.screen.featureId != "join-crew") return
         val next = raw.filter { it.isDigit() }.take(6)
+        if (joining) return
+        joinRaceFull = false
         inviteCode = next
         joinPreviewName = null
+        joinPreviewLine = null
+        joinPreviewDetail = null
         joinMembership = null
         previewJob?.cancel()
         if (next.length < 6) {
             joinBusy = false
-            joining = false
             if (next.isEmpty()) {
-                replaceBody("Enter an invite code.", kind = "empty")
+                replaceBody(inviteText.joinEmpty, kind = "empty")
             }
             return
         }
@@ -785,40 +924,65 @@ class ShellViewModel(
         previewJob = viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { container.raceDay.previewJoin(next) }
             if (inviteCode != next) return@launch
-            joinBusy = false
-            joining = false
             when (result) {
                 is RuntimeResult.Success -> {
                     val name = result.result.optString("roomName").trim()
                     joinPreviewName = name.ifBlank { null }
-                    joinMembership = null
-                    replaceBody("Invite code ready for preview.", kind = "success")
+                    joinPreviewLine = joiningLine(result.result)
+                    joinPreviewDetail = result.result.optText("previewLine").trim().ifBlank { null }
                 }
                 is RuntimeResult.Failure -> {
                     joinPreviewName = null
-                    joinMembership = null
-                    if (result.offline) {
-                        replaceBody("Offline. Invite preview needs the network.", kind = "offline")
-                    } else {
-                        replaceBody("That invite code was not found.", kind = "error")
-                    }
+                    joinPreviewLine = null
+                    joinPreviewDetail = null
                 }
+            }
+            // A join started meanwhile owns the busy state and the line under the code.
+            if (joining) return@launch
+            joinBusy = false
+            joinMembership = null
+            when {
+                result is RuntimeResult.Success -> replaceBody(inviteText.joinReady, kind = "success")
+                (result as RuntimeResult.Failure).offline ->
+                    replaceBody(inviteText.joinPreviewOffline, kind = "offline")
+                else -> replaceBody(inviteText.joinNotFound, kind = "error")
             }
         }
     }
 
+    /**
+     * Join: the code becomes the device's pending join (`PendingJoin`), then client-core joins it.
+     * Signed out, sign-in comes first and keeps the code through sign-up; the join runs as soon as
+     * the new session exists ([applyAuthResult]).
+     */
     fun join(activity: Activity?) {
-        if (inviteCode.length != 6) return
-        if (session == null) {
-            pendingJoin = true
-            signIn(activity)
+        val code = inviteCode
+        if (code.length != 6 || joining) return
+        val source = shownInvite?.takeIf { it.code == code }?.source ?: PendingInvite.SOURCE_TYPED
+        val saved = PendingInvite.from(container.raceDay.savePendingJoin(code, source))
+        if (saved == null) {
+            replaceBody(JoinResult.FAILED, kind = "error")
             return
         }
-        performJoin()
+        shownInvite = saved
+        joinHasInvite = true
+        if (session == null) {
+            // Sign up to join: confirmed, so the sign-in right after it joins this code.
+            container.raceDay.confirmInvite(code)
+            signIn(activity, signUp = true)
+            return
+        }
+        resolveInvite()
     }
 
-    private fun captureDevSession(intent: Intent?) {
-        val request = DevSession.parse(intent) ?: return
+    /**
+     * True when the intent signed a new user in (debug builds) right after Sign up to join: the
+     * guest's confirmed invite joins, as after an Auth0 sign-in.
+     */
+    private fun captureDevSession(intent: Intent?): Boolean {
+        val request = DevSession.parse(intent) ?: return false
+        val newUser = session?.userId != request.userId
+        val confirmed = newUser && session == null && confirmedInviteForSignIn()
         val stored = StoredSession(
             userId = request.userId,
             role = request.role.ifBlank { "crew_member" },
@@ -834,12 +998,33 @@ class ShellViewModel(
         session = stored
         adoptStorage(stored.userId)
         loadRaces()
+        return confirmed
+    }
+
+    /**
+     * The guest's pending code was confirmed (Sign up to join) within client-core's lifetime. A link
+     * opened and left, or a confirmation from long ago, never joins whoever signs in next.
+     */
+    private fun confirmedInviteForSignIn(): Boolean =
+        PendingInvite.from(container.raceDay.confirmedInviteForSignIn()) != null
+
+    /**
+     * After a sign-in: a code saved signed out (a link, the referrer, or Sign in to join) is this
+     * user's now, and joins without another tap. False when nothing is pending.
+     */
+    private fun joinPendingInvite(): Boolean {
+        val invite = PendingInvite.from(container.raceDay.readPendingJoin()) ?: return false
+        showJoinInvite(invite)
+        resolveInvite()
+        return true
     }
 
     private fun applyAuthResult(result: AuthResult) {
         signInConnection = null
         when (result) {
             is AuthResult.Success -> {
+                // Read signed out, before this account's first onboarding read adopts the guest's.
+                val confirmed = confirmedInviteForSignIn()
                 val stored = StoredSession(
                     userId = result.userId,
                     role = session?.role?.ifBlank { "crew_member" } ?: "crew_member",
@@ -854,11 +1039,9 @@ class ShellViewModel(
                 session = stored
                 adoptStorage(stored.userId)
                 loadRaces()
-                when (OnboardingRouting.afterSignIn(pendingJoin, onJoinScreen = !showAppShell && uiState.screen.featureId == "join-crew")) {
-                    SignInNext.Join -> {
-                        pendingJoin = false
-                        performJoin()
-                    }
+                val onJoinScreen = !showAppShell && uiState.screen.featureId == JOIN_CREW_FEATURE
+                when (OnboardingRouting.afterSignIn(confirmed, onJoinScreen = onJoinScreen)) {
+                    SignInNext.Join -> joinPendingInvite()
                     SignInNext.StayOnJoin -> return
                     SignInNext.OnboardingLoader -> {
                         // Onboarding decides once the races load: setup, the chooser, or the shell.
@@ -874,8 +1057,8 @@ class ShellViewModel(
 
     private fun applyAuthFailure(result: AuthResult.Failure) {
         signInConnection = null
-        pendingJoin = false
-        if (!showAppShell && uiState.screen.featureId == "join-crew") {
+        // A failed sign-in keeps the pending code: the join screen still shows it to try again.
+        if (!showAppShell && uiState.screen.featureId == JOIN_CREW_FEATURE) {
             replaceBody(result.message, kind = if (result.offline) "offline" else "error")
             return
         }
@@ -892,39 +1075,61 @@ class ShellViewModel(
         showSignedOut(bodyOverride = body, failure = !result.offline, offline = result.offline)
     }
 
-    private fun performJoin() {
+    /**
+     * Joins the signed-in user's pending code through client-core (`resolvePendingJoin`): it tells
+     * a new seat from one the user already had, and keeps the code for a retry when the race is
+     * full or locked, or the network is down. A join moves the session to that race; onboarding
+     * then moves on from the join screen.
+     */
+    private fun resolveInvite() {
+        val user = session?.userId ?: return
         val code = inviteCode
-        if (code.length != 6) return
+        val race = joinPreviewName
         joinBusy = true
         joining = true
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { container.raceDay.join(code) }
-            if (inviteCode != code) return@launch
+            val outcome = JoinResult.from(withContext(Dispatchers.IO) { container.raceDay.resolvePendingJoin() })
             joinBusy = false
             joining = false
-            when (result) {
-                is RuntimeResult.Success -> {
-                    val roomId = result.result.optJSONObject("room")?.optString("id").orEmpty()
-                    val assignedRole = result.result.optString("assignedRole")
-                    if (roomId.isNotBlank()) {
-                        container.sessionStore.update { it.applyingJoin(roomId, assignedRole) }
-                        session = container.sessionStore.current()
-                        loadRaces()
-                    }
-                    val roomName = result.result.optJSONObject("room")?.optString("name").orEmpty().trim()
-                    val name = joinPreviewName ?: roomName.takeIf { it.isNotEmpty() }
-                    joinPreviewName = name
-                    joinMembership = if (name.isNullOrBlank()) "Joined." else "Joined $name."
-                    replaceBody("Invite code ready for preview.", kind = "success")
+            joinRaceFull = outcome.outcome == "raceFull"
+            if (session?.userId != user) return@launch
+            val roomId = outcome.roomId
+            if (roomId != null) {
+                container.sessionStore.update { it.applyingJoin(roomId, outcome.role) }
+                session = container.sessionStore.current()
+                // A newer link opened while this join was out stays pending: its screen comes next.
+                val next = outcome.next
+                if (next == null) {
+                    joinHasInvite = false
+                    shownInvite = null
+                } else if (next.code != inviteCode && uiState.screen.featureId == JOIN_CREW_FEATURE) {
+                    showJoinInvite(next)
                 }
-                is RuntimeResult.Failure -> {
-                    when {
-                        result.offline -> replaceBody("Offline. Invite preview needs the network.", kind = "offline")
-                        // 409 crew_limit_reached: the room's Race Pass seat is taken.
-                        result.crewLimit -> replaceBody(checklistCopy("billing-upgrade", "error"), kind = "error")
-                        else -> replaceBody("That invite code was not found.", kind = "error")
-                    }
+                loadRaces()
+            }
+            if (uiState.screen.featureId != JOIN_CREW_FEATURE) return@launch
+            if (inviteCode != code) {
+                // Another code is on show (a link arrived mid-join): say what the earlier one did.
+                joinMembership = if (roomId != null) {
+                    container.raceDay.inviteJoinLine(race, null, null)
+                } else {
+                    container.raceDay.inviteJoinLine(null, code, outcome.message ?: JoinResult.FAILED)
                 }
+                return@launch
+            }
+            if (roomId != null) {
+                // A new seat, or client-core's "You're already in this race."
+                val name = joinPreviewName
+                joinMembership = outcome.message ?: if (name.isNullOrBlank()) "Joined." else "Joined $name."
+                replaceBody(inviteText.joinReady, kind = "success")
+                return@launch
+            }
+            joinMembership = null
+            val line = outcome.message ?: JoinResult.FAILED
+            when (outcome.tone) {
+                JoinTone.Success -> replaceBody(line, kind = "success")
+                JoinTone.Offline -> replaceBody(line, kind = "offline")
+                JoinTone.Error -> replaceBody(line, kind = "error")
             }
         }
     }
@@ -1007,6 +1212,11 @@ class ShellViewModel(
         racePreviewFromLink = false
         inviteCode = ""
         joinPreviewName = null
+        joinPreviewLine = null
+        joinPreviewDetail = null
+        joinRaceFull = false
+        joinHasInvite = false
+        shownInvite = null
         joinMembership = null
         joinBusy = false
         joining = false
@@ -1020,7 +1230,7 @@ class ShellViewModel(
         routeId = "${screen.featureId}?state=$state"
         // The fixture body is the preview copy; nothing has been typed yet.
         if (screen.featureId == "join-crew" && !stateOverlay) {
-            replaceBody("Enter an invite code.", kind = "empty")
+            replaceBody(inviteText.joinEmpty, kind = "empty")
         }
     }
 
@@ -1106,6 +1316,7 @@ class ShellViewModel(
 
     private fun profilePaneFor(featureId: String): String = when (featureId) {
         "room-members", "billing-upgrade" -> "members"
+        "invite-share" -> "invite"
         "readouts-incidents" -> "incidents"
         else -> "profile"
     }

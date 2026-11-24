@@ -10,6 +10,10 @@ import com.crewcue.android.billing.FakeStorePurchaser
 import com.crewcue.android.billing.RevenueCatPurchaser
 import com.crewcue.android.billing.StorePurchaser
 import com.crewcue.android.data.RaceDayBridge
+import com.crewcue.android.invite.FakeInstallReferrer
+import com.crewcue.android.invite.InstallReferrerCheck
+import com.crewcue.android.invite.PlayInstallReferrer
+import com.crewcue.android.invite.PrefsReferrerOnce
 import com.crewcue.android.logging.AndroidLogger
 import com.crewcue.android.session.SessionStore
 import com.crewcue.android.ui.onboarding.FileReplayRoomStore
@@ -49,6 +53,15 @@ class AppContainer(context: Context) {
         if (!demoCleanupDone.compareAndSet(false, true)) return
         raceDay.demoRaceCleanup(appContext.cacheDir.absolutePath)
     }
+
+    /**
+     * The Play install referrer, read once per install. A debug launch may fake it for a proof
+     * ([fakeReferrer], the `crewcueFakeReferrer` launch extra); release builds always ask Play.
+     */
+    fun installReferrerCheck(fakeReferrer: String?): InstallReferrerCheck = InstallReferrerCheck(
+        if (BuildConfig.DEBUG && fakeReferrer != null) FakeInstallReferrer(fakeReferrer) else PlayInstallReferrer(appContext),
+        PrefsReferrerOnce(appContext)
+    )
 
     /** Debug builds with no RevenueCat key buy through the API's fake purchaser; everything else uses RevenueCat. */
     val storePurchaser: StorePurchaser =

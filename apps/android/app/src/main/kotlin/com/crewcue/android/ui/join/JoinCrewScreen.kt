@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -48,15 +49,25 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 24.dp)
     ) {
-        if (viewModel.session == null) {
+        // Signed out: Back. Signed in over a saved invite: Not now. Both forget the invite.
+        val leave = when {
+            viewModel.session == null -> "Back"
+            viewModel.joinHasInvite -> "Not now"
+            else -> null
+        }
+        if (leave != null) {
             TextButton(
-                onClick = viewModel::openSignedOut,
-                modifier = Modifier.semantics { contentDescription = "Back" }
+                onClick = viewModel::leaveJoin,
+                enabled = !viewModel.joining,
+                modifier = Modifier
+                    .testTag("crewcue.join-crew.leave")
+                    .semantics { contentDescription = leave }
             ) {
-                Text("Back", style = MaterialTheme.typography.labelLarge)
+                Text(leave, style = MaterialTheme.typography.labelLarge)
             }
         }
-        ProductTitle("Join your crew", "Enter the 6-digit code from your crew.")
+        val text = viewModel.inviteText
+        ProductTitle(text.joinTitle, text.joinPrompt)
         OutlinedTextField(
             value = code,
             onValueChange = viewModel::updateInviteCode,
@@ -74,10 +85,34 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
                 .fillMaxWidth()
                 .semantics { contentDescription = "Invite code" }
         )
-        val preview = viewModel.joinPreviewName
-        if (!preview.isNullOrBlank()) {
-            ProductCard(Modifier.padding(top = 16.dp)) {
-                Text(preview, style = MaterialTheme.typography.titleMedium)
+        // A link, the share text or the bare code from the clipboard, read by client-core.
+        val clipboard = LocalClipboardManager.current
+        val paste = viewModel.inviteText.pasteLabel
+        TextButton(
+            onClick = { viewModel.pasteInvite(clipboard.getText()?.text) },
+            enabled = !viewModel.joining,
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .testTag("crewcue.join-crew.paste")
+                .semantics { contentDescription = paste }
+        ) {
+            Text(paste, style = MaterialTheme.typography.labelLarge)
+        }
+        // "You're joining Sam's race" before sign-up (client-core), with the race's name.
+        val line = viewModel.joinPreviewLine
+        val race = viewModel.joinPreviewDetail ?: viewModel.joinPreviewName
+        if (!line.isNullOrBlank() || !race.isNullOrBlank()) {
+            val spoken = listOfNotNull(line, race).joinToString(". ")
+            ProductCard(
+                Modifier
+                    .padding(top = 12.dp)
+                    .testTag("crewcue.join-crew.preview")
+                    .semantics(mergeDescendants = true) { contentDescription = spoken }
+            ) {
+                if (!line.isNullOrBlank()) Text(line, style = MaterialTheme.typography.titleMedium)
+                if (!race.isNullOrBlank()) {
+                    Text(race, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+                }
             }
         }
         val membership = viewModel.joinMembership
@@ -92,14 +127,26 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
         if (status.isNotBlank()) {
             Text(
                 status,
-                modifier = Modifier.padding(top = 16.dp).semantics { contentDescription = status },
+                modifier = Modifier
+                    .padding(top = 16.dp)
+                    .then(if (viewModel.joinRaceFull) Modifier.testTag("crewcue.join-crew.race-full") else Modifier)
+                    .semantics { contentDescription = status },
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        // Signed out, the button keeps the code and opens sign-up; the join runs once signed in.
+        if (viewModel.session == null) {
+            Text(
+                viewModel.inviteText.signUpToJoinDetail,
+                modifier = Modifier.padding(top = 16.dp),
                 color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium
             )
         }
         Spacer(Modifier.height(18.dp))
         PrimaryButton(
-            if (viewModel.session == null) "Sign in to join" else "Join",
+            if (viewModel.session == null) text.signUpToJoin else text.joinButton,
             onClick = { viewModel.join(activity) },
             enabled = code.length == 6 && !viewModel.joinBusy,
             spoken = "Join",

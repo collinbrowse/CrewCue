@@ -1,0 +1,19 @@
+{
+  "id": "join-link",
+  "platform": "android",
+  "entry": "crewcue://dev/join-link",
+  "device": "crewcue_api_35 emulator (API 35, Play Store image) and crewcue_fold_api_35 foldable (folded and unfolded), emulator-5608, debug APK",
+  "date": "2026-11-24",
+  "commit": "claude/onboarding-7c-android-invite-links, rebased on 7b 26805c2f",
+  "session": "Local memory API (dev JWTs) seeded with Ana's Leadville 100 (paid, unlimited crew), Western States 100 (paid, one crew seat taken) and Hardrock 100 (unpaid). Signed out after pm clear; sign-up stood in for by a debug dev session for a new user (crew-cara) after a force-stop.",
+  "action": "adb shell am start -a android.intent.action.VIEW -d 'https://collinbrowse.github.io/crewcue/join/?code=017077' signed out; force-stop, then a new dev session; crewcue://join/<code> signed in for the full, unpaid, unknown and offline cases; a faked Play referrer (--es crewcueFakeReferrer 'utm_source=google-play&utm_medium=organic&crewcue_join%3D017077') on the first launch after pm clear.",
+  "checked": {
+    "Action": "pm get-app-links: collinbrowse.github.io verified (debug fingerprint). The https link opened the app, saved @pending-join.json (source link, no owner) and showed the code with 'You're joining Ana's race: Leadville 100.' A new session joined without a tap (POST join-by-code 200), cleared the file and landed on the race. The faked referrer showed the same join screen (source referrer); a second launch with another referrer was ignored. Unfolding mid-flow kept the code and preview.",
+    "Success": "Joined Leadville 100 after sign-up; session room and role crew_member stored. Rejoining Leadville signed in answered alreadyMember and moved to the race.",
+    "Empty": "crewcue://join/<5 digits> before the rebase: nothing saved. After the rebase it opens the join screen with \"That link didn't include an invite code. Paste it or type the 6 digits.\" (InviteLinksTest.aJoinLinkWithoutACodeStillOpensTheJoinScreen, Swift joinLinksAreKnownWithOrWithoutACode); not re-seen on the device. Not now and Back forgot the saved invite.",
+    "Error": "Unknown code 999999: 'That invite code was not found.' (code cleared). Western States: 'This race is full. Ask the runner to upgrade their pass.' (409, code kept). Hardrock: 'The runner hasn't unlocked this race yet.' (402, code kept).",
+    "Offline": "Wi-Fi and data off: 'Offline. Invite preview needs the network.', then Join: 'Offline. Joining a race needs the network.' with the code kept; back online, Join resolved.",
+    "Accessibility labels": "crewcue.join-link (dev route, agent:android:ready ok after the rebase), crewcue.join-crew, crewcue.join-crew.preview, crewcue.join-crew.leave. crewcue.join-crew.paste and crewcue.join-crew.race-full were added in the rebase and are covered by JVM and Swift tests only: the emulator re-run stalled under host load."
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

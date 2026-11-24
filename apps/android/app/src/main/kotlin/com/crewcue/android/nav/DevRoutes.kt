@@ -44,16 +44,54 @@ object DevRoutes {
         "dev/onboarding-runner-setup" to "onboarding-runner-setup",
         "dev/onboarding-race-preview" to "onboarding-race-preview",
         "dev/race-rename" to "race-rename",
-        "dev/course-locked" to "course-locked"
+        "dev/course-locked" to "course-locked",
+        "dev/invite-share" to "invite-share",
+        "dev/join-link" to "join-link"
     ) + (if (BuildConfig.STRAVA_ENABLED) mapOf("dev/strava" to "strava") else emptyMap())
 
     /** Feature for a link from outside the app. Release builds open no fixture routes from links. */
     fun inboundFeatureId(url: String?, enabled: Boolean = BuildConfig.DEBUG): String? =
         if (enabled) featureId(url) else null
 
+    /**
+     * What a link from outside the app opens. Crew invite links (the join page's https link and
+     * `crewcue://join/<code>`) open in every build; fixture routes only when [enabled] (debug).
+     * [inviteCode] is client-core's `InviteLink` parser, so Kotlin never reads a link itself.
+     */
+    fun inbound(
+        url: String?,
+        enabled: Boolean = BuildConfig.DEBUG,
+        inviteCode: (String) -> String?,
+        isJoinLink: (String) -> Boolean = { false }
+    ): InboundLink? {
+        if (url.isNullOrBlank()) return null
+        if (mayBeInvite(url)) {
+            inviteCode(url)?.let { return InboundLink.Join(it) }
+            // A join link that lost its code still opens the join screen, to paste or type it.
+            if (isJoinLink(url)) return InboundLink.JoinWithoutCode
+        }
+        return inboundFeatureId(url, enabled)?.let { InboundLink.Feature(it) }
+    }
+
+    /** Only https links and `crewcue://join` go to the parser: a fixture route never is an invite. */
+    private fun mayBeInvite(url: String): Boolean {
+        val lower = url.trim().lowercase()
+        return lower.startsWith("https://") || lower.startsWith("crewcue://join")
+    }
+
     fun featureId(url: String?): String? {
         if (url.isNullOrBlank() || !url.startsWith("crewcue://")) return null
         val path = url.substringBefore('?').removePrefix("crewcue://").trim('/')
         return featureByPath[path]
     }
+}
+
+/** A link from outside the app ([DevRoutes.inbound]). */
+sealed interface InboundLink {
+    /** A crew invite: its 6-digit code goes to client-core's pending join. */
+    data class Join(val code: String) : InboundLink
+    /** The join page or `crewcue://join` with no code that reads: the join screen asks for it. */
+    data object JoinWithoutCode : InboundLink
+    /** A fixture route (debug builds). */
+    data class Feature(val id: String) : InboundLink
 }

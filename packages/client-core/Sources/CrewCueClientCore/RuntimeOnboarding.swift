@@ -47,6 +47,14 @@ import Foundation
 ///   session the server refuses fails with `sessionExpired: true`, as every op does on a 401; the
 ///   code stays for that user's next sign-in.
 ///
+/// - `inviteShare`: `roomId` → `state` (ready, empty, error, offline), `status` and `details`
+///   (`InviteCopy.shareDetails`: `raceName`, `code`, `link`, `shareText`, `locked`), with `copy`.
+/// - `confirmedInviteForSignIn`: `pendingJoin`, confirmed and current, read signed out before a
+///   sign-in. `inviteJoinLine`: `raceName`, or `code` + `message` → `line`.
+/// - `inviteCopy`: `copy`, every `InviteCopy` line by name. `pastedInviteCode`: `text` → `code`
+///   (`InviteCopy.pastedCode`) or null. `parseInviteLink` also answers `joinLink`: the text is a
+///   join link, read or not (`InviteLink.route`).
+///
 /// Progress and the pending invite live in `onboardingDir`, else `crewcue-onboarding` beside
 /// `storageDir`, which sign-out and `adoptUser` never touch. `deleteAccount` removes the user's file.
 extension RuntimeCall {
@@ -117,10 +125,18 @@ extension RuntimeCall {
     }
 
     static func parseInviteLink(_ object: [String: Any]) -> Any {
-        guard let match = InviteLink.match(object["link"] as? String ?? "") else {
-            return ["code": NSNull(), "source": NSNull()] as [String: Any]
+        switch InviteLink.route(object["link"] as? String ?? "") {
+        case .invite(let match):
+            return ["code": match.code, "source": match.source.rawValue, "joinLink": true] as [String: Any]
+        case .withoutCode:
+            return ["code": NSNull(), "source": NSNull(), "joinLink": true] as [String: Any]
+        case nil:
+            // A referrer string isn't a URL, so `route` never reads it.
+            guard let match = InviteLink.match(object["link"] as? String ?? "") else {
+                return ["code": NSNull(), "source": NSNull(), "joinLink": false] as [String: Any]
+            }
+            return ["code": match.code, "source": match.source.rawValue, "joinLink": false] as [String: Any]
         }
-        return ["code": match.code, "source": match.source.rawValue]
     }
 
     static func savePendingJoin(_ object: [String: Any]) throws -> Any {
@@ -178,6 +194,94 @@ extension RuntimeCall {
             "clearsCode": outcome.clearsCode,
             "pendingJoin": pendingJoinJSON(store.read(userId: userId, now: SystemClock().now()))
         ] as [String: Any]
+    }
+
+    /// The runner's invite for `roomId` (`GET /race-rooms/:roomId`, `InviteCopy.shareDetails`):
+    /// `state` ready, empty (no join code yet), error or offline, with `details` when ready.
+    static func inviteShare(_ object: [String: Any]) async throws -> Any {
+        let roomId = text(object, "roomId") ?? ""
+        let details: InviteShareDetails?
+        do {
+            let graph = try graph(object)
+            // Never cancelled on a dead connection: cancelling a URLSession task deadlocks on Android.
+            let room = try await Deadline.run(seconds: PendingJoinStore.deadlineSeconds) {
+                try await RaceDayAPI.loadRoom(graph: graph, roomId: roomId).room
+            }
+            details = InviteCopy.shareDetails(for: room)
+        } catch {
+            let offline = PendingJoinOutcome.outcome(for: error) == .offline
+            return [
+                "state": offline ? "offline" : "error",
+                "status": offline ? InviteCopy.shareOffline : InviteCopy.shareError,
+                "details": NSNull(),
+                "copy": inviteCopyJSON()
+            ] as [String: Any]
+        }
+        guard let details else {
+            return ["state": "empty", "status": InviteCopy.shareEmpty, "details": NSNull(), "copy": inviteCopyJSON()] as [String: Any]
+        }
+        return [
+            "state": "ready",
+            "status": details.status,
+            "details": [
+                "raceName": details.raceName,
+                "code": details.code,
+                "link": details.link.absoluteString,
+                "shareText": details.shareText,
+                "locked": details.locked
+            ] as [String: Any],
+            "copy": inviteCopyJSON()
+        ] as [String: Any]
+    }
+
+    /// Read before a sign-in's first onboarding read: the guest's pending code, confirmed (Sign up
+    /// to join) within `OnboardingProgress.confirmedInviteLifetime`, else null.
+    static func confirmedInviteForSignIn(_ object: [String: Any]) throws -> Any {
+        ["pendingJoin": pendingJoinJSON(try onboardingStore(object).confirmedInviteForSignIn(now: SystemClock().now()))]
+    }
+
+    /// A join that answered after the screen moved on to another code: `InviteCopy.joinedRace`
+    /// with `raceName`, or `InviteCopy.joinFailed` with `code` and `message`.
+    static func inviteJoinLine(_ object: [String: Any]) -> Any {
+        if let message = text(object, "message") {
+            return ["line": InviteCopy.joinFailed(code: text(object, "code") ?? "", message: message)]
+        }
+        return ["line": InviteCopy.joinedRace(object["raceName"] as? String ?? "")]
+    }
+
+    /// Every `InviteCopy` line Android shows, by name.
+    static func inviteCopyJSON() -> [String: String] {
+        [
+            "shareTitle": InviteCopy.shareTitle,
+            "shareDetail": InviteCopy.shareDetail,
+            "shareReady": InviteCopy.shareReady,
+            "shareEmpty": InviteCopy.shareEmpty,
+            "shareError": InviteCopy.shareError,
+            "shareOffline": InviteCopy.shareOffline,
+            "shareLocked": InviteCopy.shareLocked,
+            "shareButton": InviteCopy.shareButton,
+            "copyCode": InviteCopy.copyCode,
+            "codeCopied": InviteCopy.codeCopied,
+            "codeLabel": InviteCopy.codeLabel,
+            "linkLabel": InviteCopy.linkLabel,
+            "joinLinkTitle": InviteCopy.joinLinkTitle,
+            "linkWithoutCode": InviteCopy.linkWithoutCode,
+            "pasteLabel": InviteCopy.pasteLabel,
+            "pasteNoCode": InviteCopy.pasteNoCode,
+            "signUpToJoin": InviteCopy.signUpToJoin,
+            "signUpToJoinDetail": InviteCopy.signUpToJoinDetail,
+            "joining": InviteCopy.joining,
+            "joinTitle": InviteCopy.joinTitle,
+            "joinPrompt": InviteCopy.joinPrompt,
+            "joinEmpty": InviteCopy.joinEmpty,
+            "joinReady": InviteCopy.joinReady,
+            "joinPreviewOffline": InviteCopy.joinPreviewOffline,
+            "joinNotFound": InviteCopy.joinNotFound,
+            "joinButton": InviteCopy.joinButton,
+            "previewPlaceholder": InviteCopy.previewPlaceholder,
+            "inviteCrewButton": InviteCopy.inviteCrewButton,
+            "backToMembers": InviteCopy.backToMembers
+        ]
     }
 
     static func pendingJoinJSON(_ pending: PendingJoin?) -> Any {

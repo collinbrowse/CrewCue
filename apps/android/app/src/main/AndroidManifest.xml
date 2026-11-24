@@ -33,11 +33,23 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="crewcue" android:host="dev" />
             </intent-filter>
+            <!-- Crew invites (client-core InviteLink): crewcue://join/<code> lands on the bare scheme. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="crewcue" />
+            </intent-filter>
+            <!-- The self-hosted join page, verified by the site's .well-known/assetlinks.json
+                 (docs/runbooks/launch-owner-setup.md, Invite links). Only /crewcue/join; the rest
+                 of the site stays in the browser. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="collinbrowse.github.io" />
+                <data android:pathPrefix="/crewcue/join" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

@@ -440,6 +440,74 @@ class RaceDayBridge private constructor(
         if (choiceOnly) put("choiceOnly", true)
     }
 
+    /**
+     * client-core `InviteLink.match`: the join page's https link, `crewcue://join/<code>` or a Play
+     * install-referrer string. Answers `code` and `source` (link, referrer), both null otherwise.
+     */
+    fun parseInviteLink(link: String): RuntimeResult = call("parseInviteLink") { put("link", link) }
+
+    /** The invite code from [link], or null for anything that isn't one of ours. */
+    fun inviteCode(link: String): String? =
+        (parseInviteLink(link) as? RuntimeResult.Success)?.result?.optText("code")?.ifBlank { null }
+
+    /** A join link (the join page or `crewcue://join...`) whose code didn't read (`InviteLink.isJoinLink`). */
+    fun isJoinLink(link: String): Boolean =
+        (parseInviteLink(link) as? RuntimeResult.Success)?.result?.optBoolean("joinLink") == true
+
+    /** The invite code in pasted text (`InviteCopy.pastedCode`), or null. */
+    fun pastedInviteCode(text: String): String? =
+        (call("pastedInviteCode") { put("text", text) } as? RuntimeResult.Success)?.result?.optText("code")?.ifBlank { null }
+
+    /** Every `InviteCopy` line by name (`copy`). */
+    fun inviteCopy(): RuntimeResult = call("inviteCopy")
+
+    /** Saves the device's one pending invite as this session's user (signed out: nobody's yet). */
+    fun savePendingJoin(code: String, source: String): RuntimeResult = call("savePendingJoin") {
+        put("code", code)
+        put("source", source)
+    }
+
+    /** The pending invite for this session's user: `pendingJoin` is `{code, source, ...}` or null. */
+    fun readPendingJoin(): RuntimeResult = call("readPendingJoin")
+
+    /** Back or Not now: client-core `OnboardingStore.giveUpInvite` (the code and the confirmation). */
+    fun giveUpInvite(): RuntimeResult = call("giveUpInvite")
+
+    /**
+     * Sign up to join: confirms the pending code (`markOnboardingStep` `join`), so the sign-in right
+     * after it, within `OnboardingProgress.confirmedInviteLifetime`, joins it.
+     */
+    fun confirmInvite(code: String): RuntimeResult = call("markOnboardingStep") {
+        put("step", "join")
+        put("invite", code)
+    }
+
+    /**
+     * Read signed out, before a sign-in's first onboarding read: the guest's pending code when it
+     * was confirmed and is still current (`OnboardingStore.confirmedInviteForSignIn`), else null.
+     */
+    fun confirmedInviteForSignIn(): RuntimeResult = call("confirmedInviteForSignIn")
+
+    /** A join that answered after the screen moved on: `InviteCopy.joinedRace` / `joinFailed`. */
+    fun inviteJoinLine(raceName: String?, code: String?, message: String?): String? =
+        (call("inviteJoinLine") {
+            if (!raceName.isNullOrBlank()) put("raceName", raceName)
+            if (!code.isNullOrBlank()) put("code", code)
+            if (!message.isNullOrBlank()) put("message", message)
+        } as? RuntimeResult.Success)?.result?.optText("line")?.ifBlank { null }
+
+    /**
+     * Joins the saved code as the signed-in user (`PendingJoinStore.resolve`, each request under a
+     * `Deadline`, never cancelled). Answers `outcome`, `roomId`, `message` and `clearsCode`.
+     */
+    fun resolvePendingJoin(): RuntimeResult = call("resolvePendingJoin")
+
+    /**
+     * The runner's invite for [roomId] (`InviteCopy.shareDetails`): `state` (ready, empty, error,
+     * offline), `status` and `details` (`code`, `link`, `shareText`, `locked`).
+     */
+    fun inviteShare(roomId: String): RuntimeResult = call("inviteShare") { put("roomId", roomId) }
+
     /** Shared onboarding strings: chooser, step titles and explanations, errors and control `labels`. */
     fun onboardingCopy(): RuntimeResult = call("onboardingCopy")
 

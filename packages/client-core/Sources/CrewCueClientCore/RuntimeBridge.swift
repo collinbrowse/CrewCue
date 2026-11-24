@@ -23,7 +23,8 @@ import Dispatch
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
-/// readPendingJoin, clearPendingJoin, giveUpInvite, resolvePendingJoin (`RuntimeOnboarding.swift`),
+/// readPendingJoin, clearPendingJoin, giveUpInvite, resolvePendingJoin, inviteShare, inviteCopy,
+/// pastedInviteCode, confirmedInviteForSignIn, inviteJoinLine (`RuntimeOnboarding.swift`),
 /// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceSeek, demoRaceRunner, demoRaceCleanup
 /// (`RuntimeDemoRace.swift`),
 /// raceStartInput, gpxPreview, raceAccess, suggestedDisplayName, runnerSetupStep, updateRaceStart
@@ -186,7 +187,11 @@ enum RuntimeCall {
             let graph = try graph(object)
             let code = object["code"] as? String ?? ""
             let preview = try await RaceDayAPI.previewJoin(graph: graph, code: code)
-            return try jsonValue(preview)
+            // The crew's "You're joining Sam's race" line rides along (`InviteCopy.joiningRace`).
+            guard var body = try jsonValue(preview) as? [String: Any] else { return try jsonValue(preview) }
+            body["joiningLine"] = InviteCopy.joiningRace(runner: InviteCopy.runnerName(preview))
+            body["previewLine"] = InviteCopy.previewLine(preview)
+            return body
         case "createRoom":
             return try await createRoom(object)
         case "join":
@@ -312,6 +317,16 @@ enum RuntimeCall {
             return try giveUpInvite(object)
         case "resolvePendingJoin":
             return try await resolvePendingJoin(object)
+        case "inviteShare":
+            return try await inviteShare(object)
+        case "confirmedInviteForSignIn":
+            return try confirmedInviteForSignIn(object)
+        case "inviteJoinLine":
+            return inviteJoinLine(object)
+        case "inviteCopy":
+            return ["copy": inviteCopyJSON()]
+        case "pastedInviteCode":
+            return ["code": InviteCopy.pastedCode(object["text"] as? String ?? "") ?? NSNull()] as [String: Any]
         case "demoRaceCreate":
             return try await demoRaceCreate(object)
         case "demoRacePlay", "demoRacePause", "demoRaceTick", "demoRaceSkip":
