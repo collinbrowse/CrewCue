@@ -26,6 +26,7 @@ import {
 import { finishCheckpointIndex } from "../lib/raceProjection.js";
 import { deleteRaceRoomAndData } from "../lib/raceRoomDeletion.js";
 import { courseLengthOf, courseLengthsMatch } from "../lib/raceTeaser.js";
+import { planCurveFromEstimate } from "./raceRoomSchedule.js";
 import { load50kCourseWithAids, pointOn50kRouteBeforeEnd } from "../lib/testCourseRouteLayer.js";
 import {
   commitRaceRoomUpdate,
@@ -360,8 +361,14 @@ test("paying unlocks the same finish on a course with no finish waypoint, and on
     const fixture = taggedCourse().checkpoints;
     const courses = [
       // The route runs on 15 km past aid-3: no checkpoint is the finish line, every stop is on the
-      // way there, aid-3's too.
-      { course: "no finish waypoint", checkpoints: fixture.filter((checkpoint) => checkpoint.id !== "finish"), last: "aid-3" },
+      // way there, aid-3's too. The schedule's finish row is at the route's end (id `finish`, no
+      // checkpoint of the course), and aid-3 is mid-course.
+      {
+        course: "no finish waypoint",
+        checkpoints: fixture.filter((checkpoint) => checkpoint.id !== "finish"),
+        last: "finish",
+        finishCheckpoint: false
+      },
       // Past the 1% tolerance, still the finish by its name: its own stop is after the line.
       {
         course: "a finish waypoint 750 m short of the route's end",
@@ -370,10 +377,11 @@ test("paying unlocks the same finish on a course with no finish waypoint, and on
           const { distanceMetersFromStart: _projected, ...rest } = checkpoint;
           return { ...rest, ...pointOn50kRouteBeforeEnd(750) };
         }),
-        last: "finish"
+        last: "finish",
+        finishCheckpoint: true
       }
     ];
-    for (const { course, checkpoints, last } of courses) {
+    for (const { course, checkpoints, last, finishCheckpoint } of courses) {
       const midCourse = new Set(checkpoints.map((checkpoint) => checkpoint.id).filter((id) => id !== "start" && id !== last));
       for (const withPlan of [false, true]) {
         const label = `${course}, ${withPlan ? "plan attached" : "no plan"}`;
@@ -391,7 +399,7 @@ test("paying unlocks the same finish on a course with no finish waypoint, and on
         const teaserSchedule = parseCrewScheduleSheet((await get(app, `/race-rooms/${roomId}/schedule`, runner)).json());
         const stopSeconds = checkpoints.reduce((sum, checkpoint) => sum + (checkpoint.plannedStopSeconds ?? 0), 0);
         // Every planned stop but a finish checkpoint's own.
-        assert.equal(unpaid.plannedStops, last === "finish" ? stopSeconds - 120 : stopSeconds, `${label}: the stops before the finish`);
+        assert.equal(unpaid.plannedStops, finishCheckpoint ? stopSeconds - 120 : stopSeconds, `${label}: the stops before the finish`);
 
         await pay(app, roomId, runner);
         const paid = await teaserFinishes(app, roomId, runner, raceStartAt, `${label}, paid`, undefined, undefined, false);
@@ -399,14 +407,17 @@ test("paying unlocks the same finish on a course with no finish waypoint, and on
         withinASecond(unpaid.schedule, paid.projection, `${label}: the teaser's finish row is the paid finish`);
         const paidSchedule = parseCrewScheduleSheet((await get(app, `/race-rooms/${roomId}/schedule`, runner)).json());
         assert.deepEqual(paidSchedule.stops[0], teaserSchedule.stops[0], `${label}: the start row`);
-        if (last === "finish") {
-          // The paid finish row is the same finish.
-          withinASecond(paid.schedule, unpaid.schedule, `${label}: unpaid vs paid finish row`);
-        } else {
-          // No finish row once paid (aid-3 is an aid station again, at its own ETA): the finish is
-          // the projection's.
-          assert.equal(paid.stops.at(-1), "aid-3");
-          assert.ok(paid.schedule < paid.projection - 600, `${label}: aid-3 at its own ETA, ${paid.schedule} vs ${paid.projection}`);
+        // The paid finish row is the same finish, and the projection's.
+        assert.equal(paid.stops.at(-1), last);
+        withinASecond(paid.schedule, unpaid.schedule, `${label}: unpaid vs paid finish row`);
+        withinASecond(paid.schedule, paid.projection, `${label}: paid finish row vs projection`);
+        if (!finishCheckpoint) {
+          // aid-3 is an aid station again once paid, at its own ETA, well before the finish.
+          const aid3 = paidSchedule.stops.find((stop) => stop.checkpointId === "aid-3")!;
+          assert.ok(
+            sinceStart(aid3.clockArrivalAt, raceStartAt) < paid.projection - 600,
+            `${label}: aid-3 at its own ETA, ${aid3.clockArrivalAt} vs ${paid.projection}`
+          );
         }
       }
     }
@@ -1005,6 +1016,8 @@ async function readTeaser(app: App, roomId: string, runner: string, label: strin
     assertNoPaidPlan(response.json(), `${label}: GET ${name}`, "runner", midCourse);
   }
   const schedule = parseCrewScheduleSheet(reads.schedule.json());
+  // The projection and the schedule lock the same checkpoints, from the same course length.
+  assert.deepEqual((reads.projection.json() as RaceRoomProjection).locked?.checkpointIds, schedule.locked?.checkpointIds, `${label}: one locked set`);
   return {
     aidEtas: (reads.room.json() as { room: RaceRoom }).room.pacingEstimate?.aidEtas.map((eta) => eta.checkpointId),
     splits: (reads.projection.json() as RaceRoomProjection).checkpointSplits.map((row) => row.checkpointId),
@@ -1044,7 +1057,8 @@ test("unpaid race: re-tagging, deleting or moving checkpoints never reveals a mi
       { label: "aid-2 deleted", checkpoints: without("aid-2"), stops: ["start", "finish"] },
       { label: "aid-2 moved onto aid-3", checkpoints: onto("aid-2", "aid-3"), stops: ["start", "finish"] },
       { label: "start dropped", checkpoints: without("start"), stops: ["aid-1", "finish"] },
-      { label: "finish dropped", checkpoints: without("finish"), stops: ["start", "aid-3"] },
+      // No finish waypoint: the finish row is at the route's end, and aid-3 is mid-course.
+      { label: "finish dropped", checkpoints: without("finish"), stops: ["start", "finish"] },
       { label: "full course", checkpoints: fixture, stops: ["start", "finish"] }
     ];
     const computedIds = new Set<string>();
@@ -1108,11 +1122,13 @@ test("unpaid race: a course re-saved to start or end at a priced stop does not s
     assert.ok(Math.abs(first.elapsedSeconds - 21_000) < 60, `start row elapsed ${first.elapsedSeconds}`);
     assert.ok(Math.abs((first.movingElapsedSeconds ?? 0) - 21_000) < 60);
 
-    // aid-1 last: the stored plan prices it at 6 000 s. As the last row it carries the finish.
+    // aid-1 last: the stored plan prices it at 6 000 s. It is no finish waypoint, so the finish row
+    // is at the route's end, carrying the finish, and aid-1 is locked.
     const toAid1 = fixture.filter((checkpoint) => ["start", "aid-1"].includes(checkpoint.id));
     assert.equal((await resaveCourse(app, room.id, runner, toAid1)).statusCode, 200);
     const endsAtAid1 = parseCrewScheduleSheet((await get(app, `/race-rooms/${room.id}/schedule`, runner)).json());
-    assert.deepEqual(endsAtAid1.stops.map((stop) => stop.checkpointId), ["start", "aid-1"]);
+    assert.deepEqual(endsAtAid1.stops.map((stop) => stop.checkpointId), ["start", "finish"]);
+    assert.deepEqual(endsAtAid1.locked?.checkpointIds, ["aid-1"]);
     assert.equal(endsAtAid1.stops[1]!.movingElapsedSeconds, 30_000);
 
     const roomRead = (await get(app, `/race-rooms/${room.id}`, runner)).json() as { room: RaceRoom };
@@ -1609,6 +1625,10 @@ async function teaserFinishes(
     if (realValues) assertNoTimeIn(response.json(), realValues, `${label}: GET ${name}`);
   }
   const schedule = parseCrewScheduleSheet(reads.schedule.json());
+  if (teaser) {
+    // The projection and the schedule lock the same checkpoints, from the same course length.
+    assert.deepEqual((reads.projection.json() as RaceRoomProjection).locked?.checkpointIds, schedule.locked?.checkpointIds, `${label}: one locked set`);
+  }
   const last = schedule.stops[schedule.stops.length - 1]!;
   const room = (reads.room.json() as { room: RaceRoom }).room;
   const projection = reads.projection.json() as RaceRoomProjection;
@@ -1914,8 +1934,8 @@ test("unpaid race: checkpoints that end at an aid more than 1% short of the rout
     assert.deepEqual(twin.aidEtas.map((eta) => eta.checkpointId), MID_COURSE);
     const realValues = new Set<unknown>(twin.aidEtas.flatMap((eta) => [eta.elapsedSeconds, eta.clockArrivalAt]));
     const cutAt = (stop: string) => checkpoints.slice(0, checkpoints.findIndex((checkpoint) => checkpoint.id === stop) + 1);
-    const midCourseTo = (stop: string) =>
-      new Set(cutAt(stop).map((checkpoint) => checkpoint.id).filter((id) => id !== "start" && id !== stop));
+    // The last aid is mid-course too: the finish row is at the route's end.
+    const midCourseTo = (stop: string) => new Set(cutAt(stop).map((checkpoint) => checkpoint.id).filter((id) => id !== "start"));
     const computeAndAttach = async (roomId: string, label: string, midCourse: ReadonlySet<string>) => {
       const computed = await computeForRoom(app, roomId, runner);
       assert.equal(computed.statusCode, 200, `${label}: ${computed.body}`);
@@ -1941,11 +1961,11 @@ test("unpaid race: checkpoints that end at an aid more than 1% short of the rout
       assert.equal(courseLengthsMatch(stopMeters, lengthOf(room)), false, `${label}: more than 1% short`);
 
       const before = await teaserFinishes(app, roomId, runner, raceStartAt, `${label}, no plan`, midCourse, realValues);
-      assert.deepEqual(before.stops, ["start", stop]);
+      assert.deepEqual(before.stops, ["start", "finish"]);
       assertOneFinish(before, `${label}, no plan`);
       const plan = await computeAndAttach(roomId, label, midCourse);
       const after = await teaserFinishes(app, roomId, runner, raceStartAt, `${label}, plan`, midCourse, realValues);
-      assert.deepEqual(after.stops, ["start", stop]);
+      assert.deepEqual(after.stops, ["start", "finish"]);
       assertOneFinish(after, `${label}, plan`, plan.expectedFinishElapsedSeconds);
       // Done with it: deleted so the runner stays under the unpaid race limit for the next one.
       assert.equal(await deleteRaceRoomAndData(roomId), "deleted");
@@ -1967,7 +1987,7 @@ test("unpaid race: checkpoints that end at an aid more than 1% short of the rout
       // left out here: a save with no plan curve in it puts the route model's curve on the course
       // (paid races too) and the projection reads that curve, until the next attach.
       const resaved = await teaserFinishes(app, roomId, runner, raceStartAt, label, midCourse, realValues);
-      assert.deepEqual(resaved.stops, ["start", stop]);
+      assert.deepEqual(resaved.stops, ["start", "finish"]);
       assert.equal(resaved.room, attached.expectedFinishElapsedSeconds, `${label}: GET room finish`);
       assert.equal(resaved.scheduleMoving, attached.expectedFinishElapsedSeconds, `${label}: schedule finish row`);
       const again = await attachById(app, roomId, runner, attached.id);
@@ -2021,8 +2041,9 @@ test("unpaid legacy race with no stored course length: the finish is the route's
     let legacyRoomId = "";
     let legacyPlanId = "";
     for (const { label, checkpoints } of variants) {
-      const last = checkpoints[checkpoints.length - 1]!.id;
-      const midCourse = new Set(MID_COURSE.filter((id) => id !== last));
+      // With the finish dropped, the finish row is at the route's end (`finish`), and aid-3 is mid-course.
+      const last = "finish";
+      const midCourse = new Set(MID_COURSE);
       const roomId = await raceWithCourse(app, runner, label, { raceStartAt, checkpoints });
       const legacy = await asLegacyRoom(roomId);
       const route = resolveRouteMetricPointsFromRaceRoomExport(legacy);
@@ -2245,4 +2266,128 @@ test("unpaid race: a start change counts toward the course-save limit, with cour
     const paidMove = await patchRaceStart(app, paidRoom, runner, hoursAfter(RACE_START_AT, 3));
     assert.equal(paidMove.statusCode, 200, paidMove.body);
   });
+});
+
+test("a plan stored without a curve: the schedule's finish row and the projection read the plan's finish, unpaid and paid, on a short finish, a full course and one with no finish waypoint", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-curveless-plan";
+    const raceStartAt = futureStart();
+    const fixture = taggedCourse().checkpoints;
+    const courses = [
+      {
+        course: "a finish waypoint 750 m short of the route's end",
+        checkpoints: fixture.map((checkpoint) => {
+          if (checkpoint.id !== "finish") return checkpoint;
+          const { distanceMetersFromStart: _projected, ...rest } = checkpoint;
+          return { ...rest, ...pointOn50kRouteBeforeEnd(750) };
+        })
+      },
+      { course: "finish at the route's end", checkpoints: fixture },
+      { course: "no finish waypoint", checkpoints: fixture.filter((checkpoint) => checkpoint.id !== "finish") }
+    ];
+    for (const { course, checkpoints } of courses) {
+      const roomId = await raceWithCourse(app, runner, course, { raceStartAt, checkpoints });
+      // The course save put the route model's curve on the course; the plan (30 000 s) has none.
+      const routeCurve = (await getRaceRoom(roomId))!.course!.baselineTrack!;
+      assert.notEqual(Math.round(routeCurve.points.at(-1)!.referenceElapsedSeconds), 30_000, `${course}: the route model's own finish`);
+      const plan = await serverPlan(runner, roomId);
+      assert.equal((await getPacingEstimateById(plan.id))?.baselineTrack, undefined, `${course}: stored without a curve`);
+      assert.equal((await attachById(app, roomId, runner, plan.id)).statusCode, 200);
+
+      // The attach puts the plan's own curve on the course: its aid ETAs and its finish at the course end.
+      const room = (await getRaceRoom(roomId))!;
+      assert.deepEqual(room.course!.baselineTrack!.points.at(-1), {
+        distanceMetersFromStart: lengthOf(room),
+        referenceElapsedSeconds: plan.expectedFinishElapsedSeconds
+      });
+
+      const unpaid = await teaserFinishes(app, roomId, runner, raceStartAt, `${course}, unpaid`, new Set(MID_COURSE), LEAKED_VALUES);
+      assertOneFinish(unpaid, `${course}, unpaid`, plan.expectedFinishElapsedSeconds);
+      await pay(app, roomId, runner);
+      const paid = await teaserFinishes(app, roomId, runner, raceStartAt, `${course}, paid`, undefined, undefined, false);
+      assertOneFinish(paid, `${course}, paid`, plan.expectedFinishElapsedSeconds);
+      withinASecond(paid.projection, unpaid.projection, `${course}: paying shows the same finish`);
+      assert.equal(await deleteRaceRoomAndData(roomId), "deleted");
+    }
+  });
+});
+
+test("a curveless plan whose finish was read at the farthest checkpoint: the route-end finish row and the curve stay the route model's", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-farthest-plan";
+    const raceStartAt = futureStart();
+    const checkpoints = taggedCourse().checkpoints.filter((checkpoint) => checkpoint.id !== "finish");
+    const roomId = await raceWithCourse(app, runner, "Farthest-checkpoint plan", { raceStartAt, checkpoints });
+    await pay(app, roomId, runner);
+    const before = (await getRaceRoom(roomId))!;
+    const routeCurve = before.course!.baselineTrack!;
+    // Computed with its finish at aid-3, 15 km short of the route's end (a room-less compute).
+    const aid3Meters = before.course!.checkpoints.at(-1)!.distanceMetersFromStart!;
+    const plan = estimateFor(`farthest-plan-${roomId}`);
+    await savePacingEstimate(runner, plan, undefined, { roomId, courseLengthMeters: aid3Meters });
+    assert.equal((await attachById(app, roomId, runner, plan.id)).statusCode, 200);
+    const room = (await getRaceRoom(roomId))!;
+    assert.deepEqual(room.course!.baselineTrack, routeCurve, "the route model's curve stays");
+
+    const reads = await teaserFinishes(app, roomId, runner, raceStartAt, "farthest plan", undefined, undefined, false);
+    assert.equal(reads.stops.at(-1), "finish");
+    const routeFinish = Math.round(routeCurve.points.at(-1)!.referenceElapsedSeconds);
+    assert.equal(reads.scheduleMoving, routeFinish, "the route-end row reads the course's curve, not the plan's 30 000 s");
+    withinASecond(reads.schedule, reads.projection, "one finish");
+  });
+});
+
+test("a curveless plan never replaces a curve the runner saved with the course", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-own-curve";
+    const roomId = await raceWithCourse(app, runner, "Own curve");
+    const length = lengthOf((await getRaceRoom(roomId))!)!;
+    const own = {
+      points: [
+        { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+        { distanceMetersFromStart: length / 2, referenceElapsedSeconds: 9_000 },
+        { distanceMetersFromStart: length, referenceElapsedSeconds: 20_000 }
+      ]
+    };
+    const course = taggedCourse();
+    const saved = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        plannedPaceSecondsPerKm: course.plannedPaceSecondsPerKm,
+        course: { checkpoints: course.checkpoints, baselineTrack: own },
+        raceStartAt: RACE_START_AT
+      },
+      headers: auth(app, runner)
+    });
+    assert.equal(saved.statusCode, 200, saved.body);
+    assert.deepEqual((await getRaceRoom(roomId))!.course!.baselineTrack, own);
+    const plan = await serverPlan(runner, roomId);
+    assert.equal((await attachById(app, roomId, runner, plan.id)).statusCode, 200);
+    assert.deepEqual((await getRaceRoom(roomId))!.course!.baselineTrack, own, "the runner's own curve stays");
+  });
+});
+
+test("the curve built from a curveless plan leaves out an out-of-order ETA, not every one after it", () => {
+  const plan: PacingEstimate = {
+    ...estimateFor("outlier"),
+    aidEtas: [
+      // aid-1 at 29 000 s, later than aid-2 and aid-3: the outlier.
+      { checkpointId: "aid-1", clockArrivalAt: clock(29_000), elapsedSeconds: 29_000 },
+      { checkpointId: "aid-2", clockArrivalAt: clock(12_000), elapsedSeconds: 12_000 },
+      { checkpointId: "aid-3", clockArrivalAt: clock(24_000), elapsedSeconds: 24_000 }
+    ]
+  };
+  const course = taggedCourse();
+  const byId = new Map(course.checkpoints.map((checkpoint) => [checkpoint.id, checkpoint.distanceMetersFromStart!]));
+  const room = {
+    course: { checkpoints: course.checkpoints },
+    courseDistanceMeters: byId.get("finish")!
+  } as unknown as RaceRoom;
+  const curve = planCurveFromEstimate(plan, room)!;
+  assert.deepEqual(
+    curve.points.map((point) => point.referenceElapsedSeconds),
+    [0, 12_000, 24_000, 30_000]
+  );
+  assert.deepEqual(curve.points.slice(1, 3).map((point) => point.distanceMetersFromStart), [byId.get("aid-2"), byId.get("aid-3")]);
 });

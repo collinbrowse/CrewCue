@@ -68,6 +68,7 @@ final class ShellModel {
     private var racesGeneration = 0
     private var suppressTabRouteSync = false
     private var didRegisterSessionWipe = false
+    private let sessionVault: any SessionVault
 
     var isSignedIn: Bool { signedInUserId != nil }
 
@@ -81,9 +82,11 @@ final class ShellModel {
         route: Route,
         fixtureOverlay: Bool,
         authConfiguration: Auth0Configuration,
+        sessionVault: any SessionVault = InMemorySessionVault(),
         purchaser: StorePurchaser = UnavailablePurchaser()
     ) {
         self.client = client
+        self.sessionVault = sessionVault
         self.route = route
         self.fixtureOverlay = fixtureOverlay
         self.screen = client.graph.featureScreen(for: route)
@@ -476,7 +479,7 @@ final class ShellModel {
         }
     }
 
-    /// Sign-out and session expiry wipe every per-user store: the session file, every account's
+    /// Sign-out and session expiry wipe every per-user store: the Keychain session, every account's
     /// directory (outbox, ping order, room caches, drafts), and the offline athlete-setup draft.
     func prepareStores() {
         guard !didRegisterSessionWipe else { return }
@@ -484,7 +487,9 @@ final class ShellModel {
         guard let root = try? AppDirectories.root() else { return }
         let storage = UserStorage(root: root)
         let athleteDraft = try? AppDirectories.athleteDraftURL()
-        client.graph.session?.register(id: "session-file") {
+        let vault = sessionVault
+        client.graph.session?.register(id: "session-vault") {
+            try vault.wipe()
             try SessionFile.wipe(directory: root)
         }
         client.graph.session?.register(id: "user-storage") {
@@ -822,7 +827,10 @@ final class ShellModel {
     }
 
     private func persist(_ session: ClientSession) {
-        guard let root = try? AppDirectories.root() else { return }
-        try? SessionFile.save(session, directory: root)
+        do {
+            try sessionVault.save(session)
+        } catch {
+            client.graph.logger.log("session save failed")
+        }
     }
 }

@@ -266,11 +266,32 @@ test("schedule teaser keeps the start and finish stops only", () => {
       plannedStoppageSeconds: 0
     }))
   };
-  const shaped = teaserScheduleSheet(sheet, room(COURSE));
+  const shaped = teaserScheduleSheet(sheet, room(COURSE), 30_000);
   assert.deepEqual(shaped.stops.map((stop) => stop.checkpointId), ["start", "finish"]);
   assert.deepEqual(shaped.locked, { checkpointIds: MID_COURSE });
   assert.equal(shaped.pacingEstimateId, "est-1");
   assert.equal(sheet.stops.length, 5, "input is not mutated");
+});
+
+test("schedule teaser on a course with no finish waypoint: the route-end finish row is the finish, the last aid is locked", () => {
+  // The checkpoints stop at aid-b, 10 km short of the 30 km route's end.
+  const noFinish = COURSE.filter((checkpoint) => checkpoint.id !== "finish");
+  const rows = [...noFinish.map((checkpoint) => checkpoint.id), "finish"];
+  const sheet: CrewScheduleSheet = {
+    roomId: "room-1",
+    raceStartAt: "2026-08-15T13:00:00.000Z",
+    stops: rows.map((checkpointId, index) => ({
+      id: `stop-${checkpointId}`,
+      checkpointId,
+      clockArrivalAt: "2026-08-15T13:00:00.000Z",
+      elapsedSeconds: index * 1000,
+      plannedStoppageSeconds: 0
+    }))
+  };
+  const shaped = teaserScheduleSheet(sheet, room(noFinish), 30_000);
+  assert.deepEqual(shaped.stops.map((stop) => stop.checkpointId), ["start", "finish"]);
+  assert.deepEqual(shaped.locked, { checkpointIds: MID_COURSE });
+  assert.deepEqual(teaserCheckpointsOf(room(noFinish)).lockedCheckpointIds, ["water-1", "aid-a"], "without a length, the last row is the finish");
 });
 
 test("estimate teaser keeps the finish and bands and no aid ETA, without touching the input", () => {
@@ -533,10 +554,10 @@ test("schedule teaser room: the plan curve collapses to the start and the finish
   assert.deepEqual(teaserScheduleRoom(withPlan, 30_000).pacingEstimate?.aidEtas, []);
 });
 
-test("schedule teaser room: a course whose checkpoints stop short of its end puts its finish at the course end", () => {
-  // The route runs 30 km; the checkpoints stop at aid-b (20 km), so aid-b is the teaser's finish.
-  const cut = COURSE.slice(0, 4);
-  const original: RaceRoom = { ...room(cut), plannedPaceSecondsPerKm: 360 };
+test("schedule teaser room: a finish waypoint short of the course end moves there; a course with no finish waypoint keeps its last aid where it is", () => {
+  // The route runs 30 km; the finish waypoint is at 27 km (10% short), marked as the finish.
+  const shortFinish = [...COURSE.slice(0, 4), cp("finish", 27_000, ["aid"])];
+  const original: RaceRoom = { ...room(shortFinish), plannedPaceSecondsPerKm: 360 };
   const before = structuredClone(original);
   const shaped = teaserScheduleRoom(original, 30_000);
   assert.deepEqual(
@@ -545,7 +566,8 @@ test("schedule teaser room: a course whose checkpoints stop short of its end put
       ["start", 0],
       ["water-1", 5_000],
       ["aid-a", 10_000],
-      ["aid-b", 30_000]
+      ["aid-b", 20_000],
+      ["finish", 30_000]
     ]
   );
   // The curve still collapses to the finish at the course length, so the finish row reads 18 000 s.
@@ -554,7 +576,11 @@ test("schedule teaser room: a course whose checkpoints stop short of its end put
   // A finish at the course end, or past it, stays where it is.
   assert.deepEqual(teaserScheduleRoom(room(COURSE), 30_000).course?.checkpoints, COURSE);
   // Without a usable curve the finish still moves (planned pace over the whole course).
-  const noCurve = teaserScheduleRoom({ ...original, course: { checkpoints: cut } }, 30_000);
+  const noCurve = teaserScheduleRoom({ ...original, course: { checkpoints: shortFinish } }, 30_000);
   assert.equal(noCurve.course?.baselineTrack, undefined);
   assert.equal(noCurve.course?.checkpoints.at(-1)?.distanceMetersFromStart, 30_000);
+  // The checkpoints stop at aid-b (20 km), with no finish waypoint: aid-b is an aid station and
+  // stays at 20 km; the schedule's route-end finish row is the finish.
+  const cut = COURSE.slice(0, 4);
+  assert.deepEqual(teaserScheduleRoom({ ...original, course: { ...original.course!, checkpoints: cut } }, 30_000).course?.checkpoints, cut);
 });
