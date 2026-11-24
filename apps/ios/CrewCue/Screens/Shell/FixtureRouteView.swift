@@ -81,7 +81,7 @@ struct ProductRouteView: View {
     var body: some View {
         switch model.route.featureId {
         case "join-crew":
-            JoinCrewView(model: model.joinModel, onBack: model.isSignedIn ? { model.showProfile() } : {
+            JoinCrewView(model: model.joinModel, signedIn: model.isSignedIn, onBack: model.isSignedIn ? { model.showProfile() } : {
                 model.show(Route(featureId: "auth-sign-in", state: .success))
             })
         case "athlete-setup":
@@ -96,7 +96,7 @@ struct ProductRouteView: View {
             AuthOrShell(model: model)
         case "billing-purchase", "billing-redeem", "billing-upgrade":
             BillingRouteView(model: model)
-        case "app-shell", "map-track", "chat-thread", "chat-notification-prefs", "push-registration", "profile", "strava", "activity-import", "account-deletion", "room-members", "readouts-incidents", "race-rename", "race-delete":
+        case "app-shell", "map-track", "chat-thread", "chat-notification-prefs", "push-registration", "profile", "strava", "activity-import", "account-deletion", "room-members", "invite-share", "readouts-incidents", "race-rename", "race-delete":
             ShellOrSignedOut(model: model)
         default:
             if ShellTab.isPaceFeature(model.route.featureId) || ShellTab.isMapFeature(model.route.featureId) {
@@ -171,11 +171,14 @@ struct OnboardingGate: View {
                     OnboardingLoadingView()
                 }
             case .crewJoin:
-                JoinCrewView(model: model.joinModel, onBack: { back() })
+                JoinCrewView(model: model.joinModel, signedIn: model.isSignedIn, onBack: { model.leaveCrewJoin() })
             case .signIn:
-                AuthSignInView(model: model.authModel, onJoin: {
-                    model.show(Route(featureId: "join-crew", state: .success))
-                })
+                // Signed out after confirming an invite: sign-up joins it. Back gives the invite up.
+                AuthSignInView(
+                    model: model.authModel,
+                    onJoin: { model.show(Route(featureId: "join-crew", state: .success)) },
+                    onBack: { model.leaveCrewJoin() }
+                )
             case .loading:
                 OnboardingLoadingView()
             case .shell:
@@ -208,11 +211,6 @@ struct OnboardingGate: View {
 
     private func choose(_ choice: OnboardingChoice) {
         model.onboarding.choose(choice)
-        model.syncOnboarding()
-    }
-
-    private func back() {
-        model.onboarding.clearChoice()
         model.syncOnboarding()
     }
 }

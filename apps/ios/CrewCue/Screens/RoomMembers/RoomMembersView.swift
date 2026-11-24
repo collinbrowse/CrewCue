@@ -1,4 +1,5 @@
 import SwiftUI
+import CrewCueClientCore
 
 struct RoomMembersView: View {
     @Bindable var model: RoomMembersModel
@@ -7,12 +8,22 @@ struct RoomMembersView: View {
     var role: String?
     var upgradeModel: CrewUpgradeModel?
     var onProfile: () -> Void
+    /// Invites stay with the runner: only they see Invite crew.
+    var onInvite: (() -> Void)? = nil
     @Environment(\.crew) private var theme
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 ProductTitle(title: "Room members", subtitle: "Your crew for this race. Change your own name in Settings.")
+                if let onInvite, model.isRunner {
+                    Button(action: onInvite) {
+                        Label(InviteCopy.inviteCrewButton, systemImage: "person.badge.plus")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.crewPrimary)
+                    .accessibilityIdentifier("crewcue.room-members.invite")
+                }
                 if model.members.isEmpty == false {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(model.members) { member in

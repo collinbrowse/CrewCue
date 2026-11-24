@@ -103,7 +103,8 @@ public enum PendingJoinOutcome: Equatable, Sendable {
     /// Nothing saved, or the saved code expired.
     case nothingPending
 
-    public static let raceFullMessage = "This race is full. Ask the runner to upgrade their pass."
+    /// The same words a refused Join shows (`BillingErrors.crewLimitForCrew`), on both platforms.
+    public static let raceFullMessage = BillingErrors.crewLimitForCrew.message
     public static let invalidCodeMessage = "That invite code was not found."
     public static let offlineMessage = "Offline. Joining a race needs the network."
     public static let signedOutMessage = "Sign in to join this race."
@@ -263,7 +264,7 @@ public struct PendingJoinStore: Sendable {
     /// Clears only when the saved record is still `pending`: a code saved while a join was in
     /// flight is not the one that join answered for.
     @discardableResult
-    func clear(ifStill pending: PendingJoin) throws -> Bool {
+    public func clear(ifStill pending: PendingJoin) throws -> Bool {
         try OnboardingFileLock.pendingJoin.run {
             guard let data = try? Data(contentsOf: file),
                   let object = try? JSONSerialization.jsonObject(with: data),
@@ -319,6 +320,15 @@ public struct PendingJoinStore: Sendable {
             }
         }
         return outcome
+    }
+
+    /// The code to show after `resolve` answered `outcome` for `userId`: after a join that landed
+    /// (`joined`, `alreadyMember`), whatever is still pending is a newer link opened while the join
+    /// was out, and its join screen comes next. Nil when nothing newer is pending, or for any
+    /// other outcome (the same code stays on screen with the outcome's message).
+    public func nextCode(after outcome: PendingJoinOutcome, userId: String?, now: Date) -> PendingJoin? {
+        guard outcome.roomId != nil else { return nil }
+        return read(userId: userId, now: now)
     }
 
     private static func join(graph: ClientGraph, code: String, deadlineSeconds: Double) async throws -> PendingJoinOutcome {
