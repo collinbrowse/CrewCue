@@ -12,16 +12,21 @@ final class JoinCrewModel {
     private(set) var previewText = ""
     /// "You're joining Sam's race", once a preview answered for the code.
     private(set) var joiningHeadline = ""
-    private(set) var statusMessage = "Enter an invite code."
+    private(set) var statusMessage = InviteCopy.joinEmpty
     private(set) var isWorking = false
     /// A join request is in flight (typed here, or the pending invite after sign-in), as opposed
     /// to a code preview.
     private(set) var joining = false
     /// The last join answered that the race's crew is full.
     private(set) var raceFull = false
+    /// How a join the screen moved on from ended (a link arrived while it was out). The status
+    /// line follows the code on screen; this keeps the earlier join's answer in view.
+    private(set) var notice = ""
     private(set) var previewedCode: String?
     private let client: AppClient
-    var onJoined: @MainActor (String, String?) -> Void = { _, _ in }
+    /// A join landed: the room, the role the server gave, and the code it was for (which may no
+    /// longer be the code on screen, when a link arrived while it was out).
+    var onJoined: @MainActor (String, String?, String) -> Void = { _, _, _ in }
     /// Signed out, Join hands the code over: it is saved as the pending invite and sign-up joins it.
     var onNeedsAccount: @MainActor (String) -> Void = { _ in }
 
@@ -68,7 +73,7 @@ final class JoinCrewModel {
         guard !isWorking else { return }
         guard code.count == 6 else {
             clearPreview()
-            statusMessage = "Enter an invite code."
+            statusMessage = InviteCopy.joinEmpty
             return
         }
         let requested = code
@@ -86,7 +91,7 @@ final class JoinCrewModel {
     func join() {
         guard !isWorking else { return }
         guard canJoin else {
-            statusMessage = "Enter an invite code."
+            statusMessage = InviteCopy.joinEmpty
             return
         }
         guard isSignedIn else {
@@ -97,10 +102,15 @@ final class JoinCrewModel {
         isWorking = true
         joining = true
         raceFull = false
+        notice = ""
         Task {
             await runJoin(requested)
             isWorking = false
             joining = false
+            // A code that arrived while the join was out gets its preview now.
+            if code != requested, code.count == 6, previewedCode != code {
+                preview()
+            }
         }
     }
 
@@ -115,20 +125,18 @@ final class JoinCrewModel {
     func show(_ outcome: PendingJoinOutcome) {
         joining = false
         raceFull = outcome == .raceFull
-        if raceFull {
-            // The same words as a full race refusing Join on this screen.
-            statusMessage = BillingErrors.crewLimitForCrew.message
-        } else if let message = outcome.message {
+        if let message = outcome.message {
             statusMessage = message
         }
     }
 
     func clear() {
+        notice = ""
         code = ""
         clearPreview()
         raceFull = false
         joining = false
-        statusMessage = "Enter an invite code."
+        statusMessage = InviteCopy.joinEmpty
     }
 
     private func clearPreview() {
@@ -147,7 +155,7 @@ final class JoinCrewModel {
         clearPreview()
         raceFull = false
         if code.isEmpty {
-            statusMessage = "Enter an invite code."
+            statusMessage = InviteCopy.joinEmpty
         }
     }
 
@@ -156,10 +164,10 @@ final class JoinCrewModel {
             let preview = try await RaceDayAPI.previewJoin(graph: client.graph, code: requested)
             guard code == requested else { return }
             previewedCode = requested
-            previewText = Self.previewLine(preview)
+            previewText = InviteCopy.previewLine(preview)
             joiningHeadline = InviteCopy.joiningRace(runner: InviteCopy.runnerName(preview))
             if !joining {
-                statusMessage = isSignedIn ? "Invite code ready for preview." : InviteCopy.signUpToJoinDetail
+                statusMessage = isSignedIn ? InviteCopy.joinReady : InviteCopy.signUpToJoinDetail
             }
         } catch {
             guard code == requested else { return }
@@ -171,30 +179,27 @@ final class JoinCrewModel {
     private func runJoin(_ requested: String) async {
         do {
             let envelope = try await RaceDayAPI.join(graph: client.graph, code: requested)
-            guard code == requested else { return }
-            statusMessage = "Invite code ready for preview, then membership on join."
-            onJoined(envelope.room.id, envelope.assignedRole)
+            // The membership stands whatever the screen shows now: always hand it on.
+            if code == requested {
+                statusMessage = InviteCopy.joinDone
+            } else {
+                notice = InviteCopy.joinedRace(envelope.room.name)
+            }
+            onJoined(envelope.room.id, envelope.assignedRole, requested)
         } catch {
-            guard code == requested else { return }
-            raceFull = BillingErrors.isCrewLimit(error)
-            statusMessage = raceFull ? BillingErrors.crewLimitForCrew.message : Self.message(for: error)
+            let full = BillingErrors.isCrewLimit(error)
+            let message = full ? PendingJoinOutcome.raceFullMessage : Self.message(for: error)
+            guard code == requested else {
+                // Another code is on screen now: say which join this was.
+                notice = InviteCopy.joinFailed(code: requested, message: message)
+                return
+            }
+            raceFull = full
+            statusMessage = message
         }
     }
 
     private static func message(for error: Error) -> String {
-        if APIFailure.isTransport(error) {
-            return "Offline. Invite preview needs the network."
-        }
-        return "That invite code was not found."
-    }
-
-    private static func previewLine(_ preview: RaceRoomJoinPreview) -> String {
-        let count: String
-        if preview.memberCount.rounded() == preview.memberCount {
-            count = String(Int(preview.memberCount))
-        } else {
-            count = String(preview.memberCount)
-        }
-        return "\(preview.roomName), \(count) \(count == "1" ? "member" : "members"), \(preview.status)"
+        APIFailure.isTransport(error) ? InviteCopy.joinPreviewOffline : InviteCopy.joinNotFound
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import CrewCueClientCore
 
 struct RoomMembersView: View {
     @Bindable var model: RoomMembersModel
@@ -17,7 +18,7 @@ struct RoomMembersView: View {
                 ProductTitle(title: "Room members", subtitle: "Your crew for this race. Change your own name in Settings.")
                 if let onInvite, model.isRunner {
                     Button(action: onInvite) {
-                        Label("Invite crew", systemImage: "person.badge.plus")
+                        Label(InviteCopy.inviteCrewButton, systemImage: "person.badge.plus")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.crewPrimary)

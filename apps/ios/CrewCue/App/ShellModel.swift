@@ -116,11 +116,8 @@ final class ShellModel {
         self.authModel.bindSession { [weak self] session in
             self?.adopt(session)
         }
-        self.joinModel.onJoined = { [weak self] roomId, role in
-            // Joined by hand: a pending invite (this code, or an older one) is done with.
-            self?.onboarding.noteJoinedAwaitingRaces()
-            self?.onboarding.clearPendingJoin()
-            self?.noteJoined(roomId: roomId, role: role)
+        self.joinModel.onJoined = { [weak self] roomId, role, code in
+            self?.noteJoinedByHand(roomId: roomId, role: role, code: code)
         }
         self.joinModel.onNeedsAccount = { [weak self] code in
             self?.requestAccount(toJoin: code)
@@ -210,7 +207,7 @@ final class ShellModel {
     }
 
     /// Signed out, Join on a previewed code: keep the code as the pending invite, confirm it, and
-    /// open sign-up. Signing in then joins it (`adopt`).
+    /// open sign-up. Signing in within the confirmation's lifetime then joins it (`adopt`).
     func requestAccount(toJoin code: String) {
         guard !isSignedIn else { return }
         if onboarding.pendingJoin?.code != code {
@@ -223,12 +220,30 @@ final class ShellModel {
         syncOnboarding()
     }
 
-    /// Back from the join screen or the sign-in after it: the person gave up on the invite.
+    /// Back from the join screen or the sign-in after it: the person gave up on the invite. The
+    /// code and the confirmation both go, so the same link opened later shows the preview again
+    /// and signing in joins nothing.
     func leaveCrewJoin() {
-        onboarding.clearPendingJoin()
+        onboarding.giveUpInvite()
         onboarding.clearChoice()
         joinModel.clear()
         syncOnboarding()
+    }
+
+    /// Join tapped on the join screen answered with a membership for `code`. Only that code's
+    /// pending invite is cleared: one that arrived while the join was out stays, and its join
+    /// screen stays up. The loader covers the gap until the race list has the new race, but only
+    /// on the onboarding join (the gate's join screen with no race to fall back on), never over a
+    /// shell that already has races.
+    private func noteJoinedByHand(roomId: String, role: String?, code: String) {
+        // No race yet: the onboarding join (or the chooser behind the join route) would show until
+        // the list answers. With races, the shell stays as it is.
+        let onboardingJoin = [.crewJoin, .chooser].contains(onboarding.entry) && onboarding.races.isEmpty
+        let newer = onboarding.clearPendingJoin(ifCode: code)
+        if newer == nil, onboardingJoin {
+            onboarding.noteJoinedAwaitingRaces()
+        }
+        noteJoined(roomId: roomId, role: role)
     }
 
     /// Joins the pending invite right after sign-in. Joined: the race becomes active. Anything else
@@ -240,33 +255,18 @@ final class ShellModel {
         let outcome = await onboarding.resolvePendingJoin(graph: client.graph)
         guard signedInUserId == userId else { return }
         switch outcome {
-        case .joined(let roomId):
-            onboarding.noteJoinedAwaitingRaces()
-            joinModel.clear()
-            noteJoined(roomId: roomId, role: "crew_member")
-        case .alreadyMember(let roomId):
-            onboarding.noteJoinedAwaitingRaces()
-            joinModel.clear()
-            noteJoined(roomId: roomId, role: nil)
+        case .joined(let roomId), .alreadyMember(let roomId):
+            // `resolve` clears only the code it joined: a link opened meanwhile stays pending.
+            if let newer = onboarding.pendingJoin {
+                joinModel.adopt(code: newer.code)
+            } else {
+                if onboarding.races.isEmpty { onboarding.noteJoinedAwaitingRaces() }
+                joinModel.clear()
+            }
+            noteJoined(roomId: roomId, role: outcome == .joined(roomId: roomId) ? "crew_member" : nil)
         default:
             joinModel.show(outcome)
             syncOnboarding()
-        }
-    }
-
-    /// The join page's https link or `crewcue://join...`, whether or not its code reads.
-    static func isJoinLink(_ url: URL) -> Bool {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let scheme = components.scheme?.lowercased() else { return false }
-        let host = components.host?.lowercased() ?? ""
-        switch scheme {
-        case "https":
-            let path = components.path.hasSuffix("/") ? components.path : components.path + "/"
-            return host == InviteLink.host && path.lowercased().hasPrefix(InviteLink.path)
-        case InviteLink.appScheme:
-            return host == InviteLink.appHost
-        default:
-            return false
         }
     }
 
@@ -410,13 +410,15 @@ final class ShellModel {
 
     func open(_ url: URL) {
         // Join links open in every build, ahead of the Debug-only dev routes.
-        if let invite = InviteLink.match(url.absoluteString) {
+        switch InviteLink.route(url.absoluteString) {
+        case .invite(let invite):
             openInvite(code: invite.code, source: invite.source)
             return
-        }
-        if Self.isJoinLink(url) {
+        case .withoutCode:
             openJoinWithoutCode()
             return
+        case nil:
+            break
         }
         guard url.scheme?.caseInsensitiveCompare("crewcue") == .orderedSame else { return }
         // Strava is off in v1 (#652): its return link then opens the shell like any other link.
@@ -504,7 +506,9 @@ final class ShellModel {
 
     func adopt(_ session: ClientSession) {
         // Signed out, the person confirmed an invite before signing in: join it now.
-        let joinsInvite = !isSignedIn && onboarding.state.inviteConfirmed
+        // Read before this sign-in adopts the guest progress, and only within the confirmation's
+        // lifetime (`OnboardingStore.confirmedInviteForSignIn`).
+        let joinsInvite = !isSignedIn && onboarding.confirmedInviteForSignIn() != nil
         prepareStores()
         client.graph.session?.adopt(session)
         client.graph.tokenProvider = StaticTokenProvider(token: session.accessToken)

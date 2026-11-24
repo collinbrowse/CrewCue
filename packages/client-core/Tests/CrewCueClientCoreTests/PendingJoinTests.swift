@@ -241,7 +241,7 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
     var read = try onboarding.read(signedIn: false, userId: nil, now: t0)
     #expect(read.state.flow == .crew && read.state.step == .join)
     #expect(read.pendingJoin?.code == "123456")
-    try onboarding.mark(.join, invite: "123456", userId: nil)
+    try onboarding.mark(.join, invite: "123456", userId: nil, now: t0)
     read = try onboarding.read(signedIn: false, userId: nil, now: t0)
     #expect(read.state.step == .account)
     #expect(read.state.inviteConfirmed)
@@ -331,7 +331,7 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
 
     (outcome, kept, _) = try await resolve(join: .full)
     #expect(outcome == .raceFull && kept?.code == "123456")
-    #expect(outcome.message == "This race is full. Ask the runner to upgrade their pass.")
+    #expect(outcome.message == "This race is full. Ask the runner to add Full Crew so more crew can join.")
 
     (outcome, kept, _) = try await resolve(join: .unpaid)
     #expect(outcome == .raceLocked && kept?.code == "123456")
@@ -492,7 +492,7 @@ private actor Gate {
     #expect(read.pendingJoin?.code == "123456" && read.pendingJoin?.source == .referrer)
 
     // A named invite wins over the saved one: confirming the saved code doesn't confirm it.
-    try onboarding.mark(.join, invite: "123456", userId: nil)
+    try onboarding.mark(.join, invite: "123456", userId: nil, now: t0)
     read = try onboarding.read(signedIn: false, userId: nil, pendingInvite: "tok-b", now: t0)
     #expect(read.state.step == .join && !read.state.inviteConfirmed)
     #expect(try onboarding.read(signedIn: false, userId: nil, now: t0).state.inviteConfirmed)

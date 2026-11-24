@@ -2,23 +2,14 @@ import Foundation
 import Observation
 import CrewCueClientCore
 
-/// The runner's invite for the active race: its join link, its 6-digit code, and the text the
-/// share sheet sends (`InviteLink.shareText`, which carries the code too).
-struct InviteDetails: Equatable {
-    var raceName: String
-    var code: String
-    var link: URL
-    var shareText: String
-    /// Not unlocked yet: the server refuses joins until the runner pays.
-    var locked: Bool
-}
-
+/// The runner's invite for the active race: client-core's `InviteShareDetails` (the join link,
+/// the 6-digit code, the share text, the lock), loaded from the race room.
 @MainActor
 @Observable
 final class InviteShareModel {
     enum State: Equatable {
         case loading
-        case ready(InviteDetails)
+        case ready(InviteShareDetails)
         case empty
         case error
         case offline
@@ -29,6 +20,8 @@ final class InviteShareModel {
     private(set) var notice = ""
     private let client: AppClient
     private var generation = 0
+    /// The room the state belongs to: another room starts from the loader, never the old code.
+    private var loadedRoomId: String?
 
     init(client: AppClient) {
         self.client = client
@@ -37,7 +30,7 @@ final class InviteShareModel {
     var message: String {
         switch state {
         case .loading: ""
-        case .ready(let details): details.locked ? InviteCopy.shareLocked : InviteCopy.shareReady
+        case .ready(let details): details.status
         case .empty: InviteCopy.shareEmpty
         case .error: InviteCopy.shareError
         case .offline: InviteCopy.shareOffline
@@ -50,14 +43,17 @@ final class InviteShareModel {
         notice = ""
         let roomId = roomId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !roomId.isEmpty else {
+            loadedRoomId = nil
             state = .empty
             return
         }
-        if case .ready = state {} else { state = .loading }
+        // The same room keeps its code on screen while it refreshes; another room doesn't.
+        if case .ready = state, loadedRoomId == roomId {} else { state = .loading }
+        loadedRoomId = roomId
         do {
             let room = try await RaceDayAPI.loadRoom(graph: client.graph, roomId: roomId).room
             guard ticket == generation, !Task.isCancelled else { return }
-            state = Self.state(for: room)
+            state = InviteCopy.shareDetails(for: room).map(State.ready) ?? .empty
         } catch {
             guard ticket == generation, !Task.isCancelled else { return }
             state = APIFailure.isOffline(error) ? .offline : .error
@@ -72,18 +68,6 @@ final class InviteShareModel {
         generation += 1
         state = .loading
         notice = ""
-    }
-
-    static func state(for room: RaceRoom) -> State {
-        let code = room.joinCode?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard let link = InviteLink.build(code: code),
-              let text = InviteLink.shareText(raceName: room.name, code: code) else { return .empty }
-        return .ready(InviteDetails(
-            raceName: room.name,
-            code: code,
-            link: link,
-            shareText: text,
-            locked: room.entitlement.status == "unpaid"
-        ))
+        loadedRoomId = nil
     }
 }

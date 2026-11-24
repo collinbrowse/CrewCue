@@ -27,6 +27,47 @@ public enum InviteCopy {
     public static let signUpToJoinDetail = "Create an account and you'll join this race straight after."
     public static let joining = "Joining the race…"
 
+    public static let joinTitle = "Join your crew"
+    public static let joinPrompt = "Enter the 6-digit code from your crew."
+    public static let joinEmpty = "Enter an invite code."
+    public static let joinReady = "Invite code ready for preview."
+    public static let joinPreviewOffline = "Offline. Invite preview needs the network."
+    public static let joinNotFound = PendingJoinOutcome.invalidCodeMessage
+    public static let joinDone = "Invite code ready for preview, then membership on join."
+    public static let joinButton = "Join"
+    public static let previewPlaceholder = "The race appears here once the code is found."
+    public static let inviteCrewButton = "Invite crew"
+    public static let backToMembers = "Room members"
+
+    /// A join that answered after the screen moved on to another code (a link arrived meanwhile).
+    public static func joinedRace(_ raceName: String) -> String {
+        let name = raceName.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return name.isEmpty ? "Joined the race." : "Joined \(name)."
+    }
+
+    /// A join's failure, named by its code, after the screen moved on to another code.
+    public static func joinFailed(code: String, message: String) -> String {
+        "Code \(code): \(message)"
+    }
+
+    /// "Western States 100, 1 member, active".
+    public static func previewLine(_ preview: RaceRoomJoinPreview) -> String {
+        let whole = preview.memberCount.rounded() == preview.memberCount
+        let count = whole ? String(Int(preview.memberCount)) : String(preview.memberCount)
+        return "\(preview.roomName), \(count) \(count == "1" ? "member" : "members"), \(preview.status)"
+    }
+
+    /// The runner's invite for a race: nil when it has no join code yet.
+    public static func shareDetails(for room: RaceRoom) -> InviteShareDetails? {
+        let code = room.joinCode?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let link = InviteLink.build(code: code),
+              let text = InviteLink.shareText(raceName: room.name, code: code) else { return nil }
+        return InviteShareDetails(
+            raceName: room.name, code: code, link: link, shareText: text,
+            locked: room.entitlement.status == "unpaid"
+        )
+    }
+
     /// "You're joining Sam's race". A blank runner name reads "You're joining this race".
     public static func joiningRace(runner: String?) -> String {
         let name = (runner ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
@@ -62,4 +103,26 @@ public enum InviteCopy {
         }
         return found.count == 1 ? found.first : nil
     }
+}
+
+/// What the runner's invite screen shows (`InviteCopy.shareDetails`).
+public struct InviteShareDetails: Equatable, Sendable {
+    public var raceName: String
+    public var code: String
+    public var link: URL
+    /// `InviteLink.shareText`: the link and the code.
+    public var shareText: String
+    /// Not unlocked yet: the server refuses joins until the runner pays (`InviteCopy.shareLocked`).
+    public var locked: Bool
+
+    public init(raceName: String, code: String, link: URL, shareText: String, locked: Bool) {
+        self.raceName = raceName
+        self.code = code
+        self.link = link
+        self.shareText = shareText
+        self.locked = locked
+    }
+
+    /// The line under the actions: the locked note, else ready.
+    public var status: String { locked ? InviteCopy.shareLocked : InviteCopy.shareReady }
 }

@@ -15,7 +15,7 @@ struct InviteShareView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Button("Room members", action: onBack)
+                Button(InviteCopy.backToMembers, action: onBack)
                     .font(CrewFont.bodyLarge)
                     .foregroundStyle(theme.primary)
                     .accessibilityIdentifier("crewcue.invite-share.back")
@@ -60,7 +60,7 @@ struct InviteShareView: View {
         }
     }
 
-    private func codeCard(_ details: InviteDetails) -> some View {
+    private func codeCard(_ details: InviteShareDetails) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(InviteCopy.codeLabel)
                 .font(CrewFont.body)
@@ -82,7 +82,7 @@ struct InviteShareView: View {
         .crewCard()
     }
 
-    private func actions(_ details: InviteDetails) -> some View {
+    private func actions(_ details: InviteShareDetails) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(InviteCopy.linkLabel)

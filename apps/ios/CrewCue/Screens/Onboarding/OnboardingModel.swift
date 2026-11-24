@@ -137,22 +137,44 @@ final class OnboardingModel {
     func confirmInvite(_ code: String) {
         guard let store else { return }
         do {
-            try store.mark(.join, invite: code, userId: signedIn ? userId : nil)
+            try store.mark(.join, invite: code, userId: signedIn ? userId : nil, now: clock.now())
         } catch {
             logger.log("invite not confirmed")
         }
         read()
     }
 
-    /// Joined, or the person gave up on the invite (Back): forget it.
-    func clearPendingJoin() {
-        guard let store else { return }
-        do {
-            try store.pendingJoins.clear()
-        } catch {
-            logger.log("pending join not cleared")
+    /// A join for `code` landed: forgets the pending invite only while it is still that code.
+    /// Answers the invite still pending after that (one that arrived while the join was out).
+    @discardableResult
+    func clearPendingJoin(ifCode code: String) -> PendingJoin? {
+        guard let store else { return nil }
+        let reader = signedIn ? userId : nil
+        if let pending = store.pendingJoins.read(userId: reader, now: clock.now()), pending.code == code {
+            do {
+                try store.pendingJoins.clear(ifStill: pending)
+            } catch {
+                logger.log("pending join not cleared")
+            }
         }
         read()
+        return pendingJoin
+    }
+
+    /// The person gave up on the invite (Back): the code and the confirmation both go.
+    func giveUpInvite() {
+        guard let store else { return }
+        do {
+            try store.giveUpInvite(userId: signedIn ? userId : nil)
+        } catch {
+            logger.log("invite not given up")
+        }
+        read()
+    }
+
+    /// The signed-out invite a sign-in landing now should join (`OnboardingStore.confirmedInviteForSignIn`).
+    func confirmedInviteForSignIn() -> PendingJoin? {
+        store?.confirmedInviteForSignIn(now: clock.now())
     }
 
     /// Joins the pending invite as the signed-in user (`PendingJoinStore.resolve`), which clears it
@@ -177,8 +199,10 @@ final class OnboardingModel {
     }
 
     var entry: OnboardingEntry {
-        if awaitingJoinedRace, signedIn { return .loading }
-        return Self.entry(for: state, signedIn: signedIn, racesFailed: racesFailed)
+        let entry = Self.entry(for: state, signedIn: signedIn, racesFailed: racesFailed)
+        // Only in place of the onboarding screens a stale list would pick, never over the shell.
+        if awaitingJoinedRace, signedIn, [.chooser, .crewJoin, .loading].contains(entry) { return .loading }
+        return entry
     }
 
     static func entry(for state: OnboardingState, signedIn: Bool, racesFailed: Bool) -> OnboardingEntry {

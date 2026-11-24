@@ -22,7 +22,7 @@ struct JoinCrewView: View {
                         .foregroundStyle(theme.primary)
                         .accessibilityIdentifier("crewcue.join-crew.back")
                 }
-                Text("Join your crew")
+                Text(InviteCopy.joinTitle)
                     .font(CrewFont.display)
                     .foregroundStyle(theme.ink)
                     .fixedSize(horizontal: false, vertical: true)
@@ -39,13 +39,21 @@ struct JoinCrewView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                if model.notice.isEmpty == false {
+                    Text(verbatim: model.notice)
+                        .font(CrewFont.body)
+                        .foregroundStyle(theme.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("crewcue.join-crew.notice")
+                }
                 Text(verbatim: model.statusMessage)
                     .font(CrewFont.body)
                     .foregroundStyle(model.raceFull ? theme.danger : theme.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier(model.raceFull ? "crewcue.join-crew.race-full" : "crewcue.join-crew.status")
-                Button(signedIn ? "Join" : InviteCopy.signUpToJoin, action: model.join)
+                Button(signedIn ? InviteCopy.joinButton : InviteCopy.signUpToJoin, action: model.join)
                     .buttonStyle(.crewPrimary)
                     .disabled(!model.canJoin)
                     .crewBusy(model.joining)
@@ -62,7 +70,7 @@ struct JoinCrewView: View {
 
     private var entry: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Enter the 6-digit code from your crew.")
+            Text(InviteCopy.joinPrompt)
                 .font(CrewFont.button)
                 .foregroundStyle(theme.body)
                 .fixedSize(horizontal: false, vertical: true)
@@ -122,7 +130,7 @@ struct JoinCrewView: View {
     private var preview: some View {
         if model.joiningHeadline.isEmpty {
             // Regular width keeps the preview's column while no race is shown yet.
-            Text("The race appears here once the code is found.")
+            Text(InviteCopy.previewPlaceholder)
                 .font(CrewFont.body)
                 .foregroundStyle(theme.body)
                 .fixedSize(horizontal: false, vertical: true)
