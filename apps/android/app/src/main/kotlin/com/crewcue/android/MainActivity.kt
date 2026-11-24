@@ -36,8 +36,13 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { AppContainer(applicationContext) }
+    /**
+     * A fresh launch, not a restore after process death or a launch from Recents: only then is the
+     * launch intent's link (an invite, a dev route) opened. Set before [shellModel] is first read.
+     */
+    private var freshLaunch = true
     private val shellModel: ShellViewModel by viewModels {
-        ShellViewModelFactory(container, intent)
+        ShellViewModelFactory(container, intent.takeIf { freshLaunch })
     }
     private val sharedRunImport: SharedRunImportViewModel by viewModels {
         SharedRunImportViewModelFactory(container.raceDay)
@@ -46,6 +51,8 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        freshLaunch = savedInstanceState == null &&
+            ((intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
         CrashReporting.start(applicationContext)
         container.authConfig.problem?.let { problem ->
             setContent { CrewCueTheme { ConfigurationErrorScreen(problem) } }

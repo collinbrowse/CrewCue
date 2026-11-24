@@ -400,7 +400,7 @@
       "sdk": "none",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "join-link",
@@ -409,7 +409,7 @@
       "sdk": "none",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     }
   ]
 }
