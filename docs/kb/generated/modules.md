@@ -194,6 +194,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift) | `ScheduleFormat` |
 | [packages/client-core/Sources/CrewCueClientCore/Session.swift](../../../packages/client-core/Sources/CrewCueClientCore/Session.swift) | `ClientSession`, `UserDataStore`, `SessionController`, `SessionFile` |
 | [packages/client-core/Sources/CrewCueClientCore/SessionVault.swift](../../../packages/client-core/Sources/CrewCueClientCore/SessionVault.swift) | `SessionVault`, `SessionVaultUnavailable`, `InMemorySessionVault`, `SessionVaultLaunch` |
+| [packages/client-core/Sources/CrewCueClientCore/SharedRunImport.swift](../../../packages/client-core/Sources/CrewCueClientCore/SharedRunImport.swift) | `ActivityPreviewRun`, `ActivityUnreadableFile`, `ActivityUploadPreview`, `ActivityUploadResult`, `SharedRunImportState`, `SharedRunImport` |
 | [packages/client-core/Sources/CrewCueClientCore/StopPlanDraft.swift](../../../packages/client-core/Sources/CrewCueClientCore/StopPlanDraft.swift) | `PlannedStopEdit`, `StopPlanCopy`, `StopMinutesInput`, `StopPlanDraft` |
 | [packages/client-core/Sources/CrewCueClientCore/SuggestedDisplayName.swift](../../../packages/client-core/Sources/CrewCueClientCore/SuggestedDisplayName.swift) | `SuggestedDisplayName` |
 | [packages/client-core/Sources/CrewCueClientCore/UserFacingError.swift](../../../packages/client-core/Sources/CrewCueClientCore/UserFacingError.swift) | `UserFacingError` |
@@ -203,25 +204,25 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-114 files under `packages/client-core/Sources/`.
+115 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 64 | 13924 |
+| `CrewCueClientCore` | 65 | 14207 |
 | `CrewCueClientCore/Generated` | 50 | 984 |
 
 ### iOS app (SwiftUI)
 
-78 files under `apps/ios/CrewCue/`.
+80 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 15 | 1747 |
+| `App` | 15 | 1805 |
 | `Brand` | 1 | 184 |
 | `Design` | 7 | 1869 |
 | `Logging` | 2 | 18 |
-| `Screens/ActivityImport` | 2 | 155 |
+| `Screens/ActivityImport` | 4 | 412 |
 | `Screens/AthleteSetup` | 2 | 146 |
 | `Screens/Auth` | 2 | 222 |
 | `Screens/Billing` | 2 | 457 |
@@ -241,22 +242,22 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-121 files under `apps/android/app/src/main/`.
+122 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `kotlin/com/crewcue/android` | 2 | 118 |
+| `kotlin/com/crewcue/android` | 2 | 162 |
 | `kotlin/com/crewcue/android/auth` | 3 | 199 |
 | `kotlin/com/crewcue/android/billing` | 3 | 252 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 709 |
+| `kotlin/com/crewcue/android/data` | 3 | 726 |
 | `kotlin/com/crewcue/android/di` | 1 | 94 |
 | `kotlin/com/crewcue/android/generated` | 50 | 517 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
-| `kotlin/com/crewcue/android/nav` | 2 | 106 |
+| `kotlin/com/crewcue/android/nav` | 2 | 107 |
 | `kotlin/com/crewcue/android/session` | 4 | 284 |
-| `kotlin/com/crewcue/android/ui` | 5 | 1691 |
-| `kotlin/com/crewcue/android/ui/activity` | 1 | 194 |
+| `kotlin/com/crewcue/android/ui` | 5 | 1693 |
+| `kotlin/com/crewcue/android/ui/activity` | 2 | 525 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 230 |
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 511 |
