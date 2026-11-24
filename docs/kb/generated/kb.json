@@ -19,28 +19,42 @@
       "path": "/activity-history",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 84
+      "line": 167
     },
     {
       "method": "POST",
       "path": "/activity-history/gpx",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 121
+      "line": 204
     },
     {
       "method": "POST",
       "path": "/activity-history/file",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 170
+      "line": 253
+    },
+    {
+      "method": "POST",
+      "path": "/activity-history/preview",
+      "guard": "identity",
+      "file": "services/api/src/routes/activityHistory.ts",
+      "line": 289
+    },
+    {
+      "method": "POST",
+      "path": "/activity-history/archive",
+      "guard": "identity",
+      "file": "services/api/src/routes/activityHistory.ts",
+      "line": 339
     },
     {
       "method": "GET",
       "path": "/activity-history",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 222
+      "line": 378
     },
     {
       "method": "POST",
@@ -1102,7 +1116,7 @@
     "roomScopedIdentityOnly": 0,
     "large": 18,
     "timers": 4,
-    "untestedLib": 44,
+    "untestedLib": 45,
     "parityGaps": 16
   }
 }
