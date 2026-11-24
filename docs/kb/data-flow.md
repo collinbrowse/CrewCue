@@ -74,7 +74,7 @@ The API holds first-party chat ([ADR 0011](../adr/0011-first-party-crew-chat.md)
 
 ## 6. Auth
 
-Auth0 web sign-in on the phone → access token → `Authorization: Bearer` on every client-core request → API verifies against Auth0 JWKS → `request.identity` = {sub, email, teamIds, roomRoles} ([authIdentity.ts](../../services/api/src/lib/authIdentity.ts)). No refresh token on the clients today; a 401 expires the session and wipes per-user stores.
+Auth0 web sign-in on the phone → access token → `Authorization: Bearer` on every client-core request → API verifies against Auth0 JWKS → `request.identity` = {sub, email, teamIds, roomRoles} ([authIdentity.ts](../../services/api/src/lib/authIdentity.ts)). No refresh token on the clients today; a 401 expires the session and wipes per-user stores. At launch `SessionVaultLaunch.restore` wipes the vault on a fresh install, moves a legacy plaintext `session.json` into the vault and deletes it, and keeps the session when the vault is only temporarily unavailable ([SessionVault.swift](../../packages/client-core/Sources/CrewCueClientCore/SessionVault.swift:58)).
 
 ## 7. Account deletion
 
