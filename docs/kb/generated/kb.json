@@ -19,28 +19,28 @@
       "path": "/activity-history",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 75
+      "line": 84
     },
     {
       "method": "POST",
       "path": "/activity-history/gpx",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 112
+      "line": 121
     },
     {
       "method": "POST",
       "path": "/activity-history/file",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 160
+      "line": 170
     },
     {
       "method": "GET",
       "path": "/activity-history",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 211
+      "line": 222
     },
     {
       "method": "POST",

@@ -44,8 +44,8 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2033 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RunnerSetupViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RunnerSetupViewModel.kt) | 1485 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1464 |
-| [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
-| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1266 |
+| [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1416 |
+| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1274 |
 | [apps/ios/CrewCue/Screens/Map/MapView.swift](../../../apps/ios/CrewCue/Screens/Map/MapView.swift) | 1228 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1158 |
 | [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift) | 1143 |
