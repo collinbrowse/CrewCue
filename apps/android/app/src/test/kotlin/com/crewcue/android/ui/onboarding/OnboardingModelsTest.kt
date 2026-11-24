@@ -2,6 +2,7 @@ package com.crewcue.android.ui.onboarding
 
 import com.crewcue.android.ui.map.TimelineRow
 import java.io.File
+import java.util.Locale
 import kotlin.io.path.createTempDirectory
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -11,6 +12,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OnboardingModelsTest {
+    @Test
+    fun theRacesZoneIsNamedOnlyWhenItIsntThePhones() {
+        assertEquals("Pacific Time", raceZoneLabel("America/Los_Angeles", "America/Denver", Locale.US))
+        assertNull(raceZoneLabel("America/Denver", "America/Denver", Locale.US))
+        // An id the platform can't name stays as it is.
+        assertEquals("Nowhere/Land", raceZoneLabel("Nowhere/Land", "America/Denver", Locale.US))
+    }
+
+    @Test
+    fun aCoursePreviewCarriesClientCoresSummary() {
+        val with = CoursePreview.from(JSONObject("""{"line":[],"checkpoints":[],"summary":"31.1 mi · 4 checkpoints"}"""))
+        assertEquals("31.1 mi · 4 checkpoints", with.summary)
+        assertNull(CoursePreview.from(JSONObject("""{"line":[],"checkpoints":[],"summary":""}""")).summary)
+        assertNull(CoursePreview.from(JSONObject("""{"line":[],"checkpoints":[]}""")).summary)
+    }
+
     @Test
     fun onboardingStateParsesTheFlowsTheShellRoutesBy() {
         val loading = OnboardingFlow.from(JSONObject("""{"flow":"loading","role":null,"roomId":null,"phase":null,"step":null,"showsTabBar":false}"""))!!
@@ -89,9 +106,11 @@ class OnboardingModelsTest {
         val draft = RunnerSetupDraft(
             roomId = "r1", displayName = "Ada", courseFileName = "route.gpx", courseConfirmed = true,
             plannedPaceSecondsPerKm = 420.0, start = RaceStartFields(2026, 8, 15, 6, 30, "America/Denver"),
-            uploadedStartAt = "2026-08-15T12:30:00.000Z", historyLine = "Finish 9:42 AM instead of 10:15 AM", historyAttached = true
+            savedRaceStartAt = "2026-08-15T12:30:00.000Z", historyLine = "Finish 9:42 AM instead of 10:15 AM", historyAttached = true
         )
         assertEquals(draft, RunnerSetupDraft.from(draft.toJson()))
+        // A draft from a build that kept the start the course last uploaded with still reads.
+        assertEquals(draft, RunnerSetupDraft.from(JSONObject(draft.toJson()).put("uploadedStartAt", "2026-08-15T12:30:00.000Z").toString()))
         assertEquals(RunnerSetupDraft(), RunnerSetupDraft.from(RunnerSetupDraft().toJson()))
         assertNull(RunnerSetupDraft.from("not json"))
         assertNull(RunnerSetupDraft.from(null))

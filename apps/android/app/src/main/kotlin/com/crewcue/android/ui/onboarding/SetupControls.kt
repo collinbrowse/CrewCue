@@ -42,13 +42,16 @@ import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -56,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -148,9 +152,19 @@ fun StepHeader(title: String, explanation: String) {
     }
 }
 
-/** A failure or offline line under the step, with Try again when the step can retry. */
+/**
+ * A failure or offline line under the step, with Try again when the step can retry
+ * ([retryEnabled]: the course step's waits for the race's name). [onCancel]: after a file picked
+ * after Back couldn't be read, Cancel keeps the course from before.
+ */
 @Composable
-fun StatusLine(status: SetupStatus, text: OnboardingText, onRetry: (() -> Unit)?) {
+fun StatusLine(
+    status: SetupStatus,
+    text: OnboardingText,
+    onRetry: (() -> Unit)?,
+    retryEnabled: Boolean = true,
+    onCancel: (() -> Unit)? = null
+) {
     val failure = when (status) {
         is SetupStatus.Failed -> status.failure
         is SetupStatus.Offline -> status.failure
@@ -167,7 +181,37 @@ fun StatusLine(status: SetupStatus, text: OnboardingText, onRetry: (() -> Unit)?
             color = if (status is SetupStatus.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
         )
         if (failure.retryable && onRetry != null) {
-            SetupSecondaryButton(text.label("tryAgain"), setupTag("retry"), onRetry)
+            SetupSecondaryButton(text.label("tryAgain"), setupTag("retry"), onRetry, enabled = retryEnabled)
+        }
+        if (onCancel != null) {
+            SetupSecondaryButton(text.label("cancel"), CANCEL_COURSE_TAG, onCancel)
+        }
+    }
+}
+
+/**
+ * The Cairn loader where the course preview goes, while a file is read and previewed and until
+ * its map is ready. [caption] ("Reading your course…") only while a picked file is read; without
+ * one it is spoken [loading]. Animations off: the finished stack, no movement ([CairnLoader]).
+ */
+@Composable
+fun CourseLoader(caption: String?, loading: String, modifier: Modifier = Modifier) {
+    val spoken = caption ?: loading
+    Column(
+        modifier
+            .testTag(COURSE_LOADING_TAG)
+            .clearAndSetSemantics { contentDescription = spoken },
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        com.crewcue.android.ui.brand.CairnLoader(modifier = Modifier.size(64.dp), onLight = !LocalCrewExtras.current.dark)
+        if (caption != null) {
+            Text(
+                caption,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
@@ -308,24 +352,81 @@ fun RaceZoneDialog(
 }
 
 /**
- * The course on the map (MapLibre when this build has it, else a line sketch), with its elevation
- * profile from the route. Nothing here comes from this phone's location.
+ * Where the course preview goes: the map, its summary and its elevation profile, under the Cairn
+ * loader while a file is read and previewed and until the map has drawn its first full frame
+ * ([loading]). The map draws under the loader, hidden from sight and from TalkBack, so its first
+ * frame can end the wait ([onRendered], with the course that frame drew). The summary and the
+ * profile keep their place but draw nothing meanwhile, so nothing shows past the loader's corners.
  */
 @Composable
-fun CourseMapPreview(course: CoursePreview, text: OnboardingText, modifier: Modifier = Modifier) {
+fun CoursePreviewSlot(
+    course: CoursePreview?,
+    loading: Boolean,
+    caption: String?,
+    text: OnboardingText,
+    onRendered: (CoursePreview) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val drawn = course?.takeIf { !it.isEmpty }
+    Box(modifier.fillMaxWidth().heightIn(min = PREVIEW_MAP_HEIGHT)) {
+        if (drawn != null) {
+            CourseMapPreview(
+                drawn,
+                text,
+                if (loading) Modifier.clearAndSetSemantics {} else Modifier,
+                concealed = loading,
+                onRendered = onRendered
+            )
+        }
+        if (loading) {
+            Surface(
+                modifier = Modifier.matchParentSize(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainer
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    CourseLoader(caption, text.loading, Modifier.padding(16.dp))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The course on the map (MapLibre when this build has it, else a line sketch), client-core's
+ * summary under it ("31.1 mi · 4 checkpoints"), then its elevation profile from the route.
+ * Nothing here comes from this phone's location. [onRendered]: a full frame of the map that drew
+ * [course] (the sketch draws at once). A frame that still shows the course before it, because the
+ * map hasn't applied the new one yet, doesn't count. [concealed]: under the loader, the summary
+ * and profile draw nothing (the map keeps drawing, for its first frame).
+ */
+@Composable
+fun CourseMapPreview(
+    course: CoursePreview,
+    text: OnboardingText,
+    modifier: Modifier = Modifier,
+    concealed: Boolean = false,
+    onRendered: (CoursePreview) -> Unit = {}
+) {
     val renderer = CourseMaps.renderer
     var mapFailed by remember(course) { mutableStateOf(false) }
+    val sketch = !(BuildConfig.MAP_LIBRE && renderer != null && !mapFailed)
+    val rendered by rememberUpdatedState(onRendered)
+    val shown by rememberUpdatedState(course)
+    LaunchedEffect(course, sketch) {
+        if (sketch) rendered(course)
+    }
     Column(modifier.testTag(setupTag("preview.course")), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(240.dp)
+                .height(PREVIEW_MAP_HEIGHT)
                 .testTag(setupTag("preview.map"))
                 .semantics { contentDescription = text.label("coursePreview") },
             shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceContainer
         ) {
-            if (BuildConfig.MAP_LIBRE && renderer != null && !mapFailed) {
+            if (!sketch && renderer != null) {
                 renderer.Render(
                     course.checkpoints,
                     course.line,
@@ -339,14 +440,27 @@ fun CourseMapPreview(course: CoursePreview, text: OnboardingText, modifier: Modi
                     // The whole course and its checkpoints, fitted again after every resize.
                     CourseFraming.Preview,
                     trackTimes = emptyList(),
-                    glide = null
+                    glide = null,
+                    onRendered = { line, points ->
+                        val current = shown
+                        if (line == current.line && points == current.checkpoints) rendered(current)
+                    }
                 )
             } else {
                 RouteSketch(course.line, Modifier.fillMaxSize().padding(16.dp))
             }
         }
+        val hidden = Modifier.alpha(if (concealed) 0f else 1f)
+        course.summary?.let { summary ->
+            Text(
+                summary,
+                modifier = hidden.testTag(setupTag("preview.summary")).semantics { contentDescription = summary },
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         if (course.elevation.size >= 2) {
-            ElevationProfile(course.elevation, text.label("elevation"))
+            ElevationProfile(course.elevation, text.label("elevation"), hidden)
         }
     }
 }
@@ -374,10 +488,10 @@ private fun RouteSketch(line: List<CoursePoint>, modifier: Modifier) {
 
 /** The elevation along the course, from the route geometry (an unpaid race has no plan curve). */
 @Composable
-fun ElevationProfile(samples: List<Pair<Double, Double>>, label: String) {
+fun ElevationProfile(samples: List<Pair<Double, Double>>, label: String, modifier: Modifier = Modifier) {
     val ink = MaterialTheme.colorScheme.primary
     val fill = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-    Column(Modifier.fillMaxWidth().testTag(setupTag("preview.elevation")).semantics { contentDescription = label }) {
+    Column(modifier.fillMaxWidth().testTag(setupTag("preview.elevation")).semantics { contentDescription = label }) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Canvas(Modifier.fillMaxWidth().height(88.dp).padding(top = 8.dp)) {
             val maxDistance = samples.last().first.takeIf { it > 0 } ?: return@Canvas
@@ -502,6 +616,9 @@ private fun displayName(context: Context, uri: Uri, fallback: String): String {
     }
     return uri.lastPathSegment ?: fallback
 }
+
+/** The course preview's map height, which the loader keeps while the preview loads. */
+private val PREVIEW_MAP_HEIGHT = 240.dp
 
 /** From here up the date opens as a typed field: the calendar grid would clip. */
 private const val LARGE_FONT_SCALE = 1.5f

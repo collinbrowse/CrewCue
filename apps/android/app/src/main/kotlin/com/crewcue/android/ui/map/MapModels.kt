@@ -181,7 +181,14 @@ interface CourseMapRenderer {
          * and the trail up to it ([GlideLayout]). A null frame draws [track] whole with the dot on its
          * last point, as the race Map always does (it passes no [glide]).
          */
-        glide: (() -> RunnerGlideFrame?)?
+        glide: (() -> RunnerGlideFrame?)?,
+        /**
+         * The map finished rendering with everything loaded (MapLibre's did-finish-rendering-map,
+         * fully rendered), with the course line and checkpoints it had drawn by then: a frame of
+         * the course before a new one is applied names that course, not the new one. It can come
+         * more than once; a map that never gets there never calls it.
+         */
+        onRendered: (line: List<CoursePoint>, points: List<MapCheckpoint>) -> Unit
     )
 }
 
