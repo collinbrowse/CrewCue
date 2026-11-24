@@ -235,7 +235,8 @@ export function finishCheckpointIndex(checkpoints: readonly FinishCandidate[], c
 
 /**
  * The `checkpointId` of the schedule's route-end finish row (`routeEndFinishRowId`): `finish`, or,
- * when a checkpoint already has that id, `route-finish` (then numbered) so the row never names one.
+ * when a checkpoint already has that id in any case, `route-finish` (then numbered) so the row
+ * never names one.
  */
 const ROUTE_END_FINISH_ROW_IDS = ["finish", "route-finish"];
 
@@ -254,7 +255,8 @@ export function routeEndFinishRowId(checkpoints: readonly FinishCandidate[], cou
   if (!checkpoints.every((checkpoint) => typeof checkpoint.distanceMetersFromStart === "number" && Number.isFinite(checkpoint.distanceMetersFromStart))) {
     return undefined;
   }
-  const taken = new Set(checkpoints.map((checkpoint) => checkpoint.id));
+  // Compared as the finish rule reads ids (`isMarkedFinish`): trimmed, in any case.
+  const taken = new Set(checkpoints.map((checkpoint) => checkpoint.id.trim().toLowerCase()));
   for (const id of ROUTE_END_FINISH_ROW_IDS) {
     if (!taken.has(id)) return id;
   }

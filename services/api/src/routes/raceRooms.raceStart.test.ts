@@ -24,7 +24,12 @@ import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { runInFreshProcess } from "../lib/testFreshProcess.js";
 import { plannedElapsedSecondsForDistance, withinCourseLength } from "../lib/raceProjection.js";
 import { load50kCourseWithAids, pointOn50kRouteBeforeEnd } from "../lib/testCourseRouteLayer.js";
-import { commitRaceRoomUpdate, refreshProjectionAfterPlanOfRecordChange } from "./raceRooms.js";
+import {
+  commitRaceRoomUpdate,
+  getProjectionViewForRoom,
+  refreshProjectionAfterPlanOfRecordChange,
+  setWs2SnapshotSaveFailureForTests
+} from "./raceRooms.js";
 
 type App = ReturnType<typeof buildApp>;
 type Checkpoints = ReturnType<typeof load50kCourseWithAids>["checkpoints"];
@@ -1096,6 +1101,85 @@ test("a stored projection that pings now pre-start drove (stored before they wer
     );
     // A second read finds nothing more to re-seed.
     assert.deepEqual((await shown(roomId)).projection, actual.projection);
+  });
+});
+
+test("re-seeding a stale pre-start projection on read: a finished or expired race is left alone, a failed bootstrap keeps what was stored, a failed save still serves the re-seed", async (t) => {
+  const realNow = wholeSecond(Date.now());
+  t.mock.timers.enable({ apis: ["Date"], now: realNow });
+  await withApp(async (app) => {
+    const runner = "runner-race-start-stale-guards";
+    const crew = "crew-race-start-stale-guards";
+    const oldStartMs = realNow - 20 * MINUTE;
+    /** A room whose stored projection its test pings drove, with a crew check-in at aid-1. */
+    const staleRoom = async () => {
+      const roomId = await paidRace(app, runner, iso(oldStartMs));
+      const room = ((await get(app, `/race-rooms/${roomId}`, runner)).json() as { room: RaceRoom }).room;
+      assert.equal((await app.inject({ method: "POST", url: "/race-rooms/join-by-code", payload: { roomCode: room.joinCode }, headers: auth(app, crew) })).statusCode, 200);
+      const uploaded = await app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/pings/batch`,
+        payload: {
+          points: [
+            { ...upRoute(400), recordedAt: iso(oldStartMs + 1 * MINUTE) },
+            { ...START, recordedAt: iso(oldStartMs + 3 * MINUTE) },
+            { ...START, recordedAt: iso(oldStartMs + 5 * MINUTE) },
+            { ...upRoute(400), recordedAt: iso(oldStartMs + 7 * MINUTE) }
+          ]
+        },
+        headers: auth(app, runner)
+      });
+      assert.equal(uploaded.statusCode, 200, uploaded.body);
+      const checkedIn = await app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/checkpoints/aid-1/manual-stop`,
+        payload: { arrivalAt: iso(realNow - 10 * MINUTE), departureAt: iso(realNow - 3 * MINUTE) },
+        headers: auth(app, crew)
+      });
+      assert.equal(checkedIn.statusCode, 200, checkedIn.body);
+      const pinged = (await getProjectionViewForRoom(roomId))!;
+      assert.notEqual(pinged.asOfPingId, "bootstrap");
+      const laterStart = iso(realNow + HOUR);
+      await commitRaceRoomUpdate(roomId, (latest) => ({ ...latest, raceStartAt: laterStart, activatedAt: laterStart }));
+      return { roomId, pinged };
+    };
+
+    // A finished race and an expired one: their reads are history, left as stored.
+    for (const [label, edit] of [
+      ["completed", (latest: RaceRoom): RaceRoom => ({ ...latest, status: "completed" })],
+      ["expired", (latest: RaceRoom): RaceRoom => ({ ...latest, entitlement: { ...latest.entitlement, status: "expired" } })]
+    ] as const) {
+      const { roomId, pinged } = await staleRoom();
+      await commitRaceRoomUpdate(roomId, edit);
+      assert.equal((await getProjectionViewForRoom(roomId))?.asOfPingId, pinged.asOfPingId, `${label}: not re-seeded`);
+    }
+
+    // No bootstrap can be seeded (the route went away): the stored projection stays, check-in and all.
+    {
+      const { roomId, pinged } = await staleRoom();
+      await commitRaceRoomUpdate(roomId, (latest) => {
+        const { mapWorkspace: _route, ...room } = latest;
+        return room;
+      });
+      const kept = (await getProjectionViewForRoom(roomId))!;
+      assert.equal(kept.asOfPingId, pinged.asOfPingId, "kept as stored");
+      assert.deepEqual(kept.checkpointSplits, pinged.checkpointSplits, "the check-in and the visits stay");
+    }
+
+    // The snapshot save fails: the read still answers, with the re-seeded projection.
+    {
+      const { roomId } = await staleRoom();
+      setWs2SnapshotSaveFailureForTests(new Error("simulated snapshot save failure"));
+      try {
+        const read = await get(app, `/race-rooms/${roomId}/projection`, runner);
+        assert.equal(read.statusCode, 200, read.body);
+        const reseeded = read.json() as RaceRoomProjection;
+        assert.equal(reseeded.asOfPingId, "bootstrap");
+        assert.equal(reseeded.checkpointSplits.find((row) => row.checkpointId === "aid-1")!.visits.length, 1, "check-in kept");
+      } finally {
+        setWs2SnapshotSaveFailureForTests(undefined);
+      }
+    }
   });
 });
 

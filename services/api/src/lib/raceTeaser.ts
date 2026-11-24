@@ -113,12 +113,18 @@ export function finishOnlyEstimate(estimate: PacingEstimate): PacingEstimate {
  * runner picks both, by editing the course or by where they ping from, and the finish from a
  * mid-course point is the finish minus that point's ETA. The window is centred on the same origin.
  */
-export function teaserProjection(projection: RaceRoomProjection, room: RaceRoom): RaceRoomProjection {
+export function teaserProjection(
+  projection: RaceRoomProjection,
+  room: RaceRoom,
+  scheduleCourseLengthMeters: number = projection.courseLengthMeters
+): RaceRoomProjection {
   const shaped: RaceRoomProjection = {
     ...projection,
     checkpointSplits: [],
     ...(projection.remainingCheckpointEtas ? { remainingCheckpointEtas: [] } : {}),
-    locked: { checkpointIds: teaserCheckpointsOf(room, projection.courseLengthMeters).lockedCheckpointIds },
+    // Locked as the teaser schedule locks them: from the schedule's course length
+    // (`scheduleCourseLengthOf`), so both name the same checkpoints.
+    locked: { checkpointIds: teaserCheckpointsOf(room, scheduleCourseLengthMeters).lockedCheckpointIds },
     etaFinishPlanIso: startLineFinishIso(projection, room)
   };
   delete shaped.etaFinishWindow;
@@ -131,8 +137,12 @@ export function teaserProjection(projection: RaceRoomProjection, room: RaceRoom)
  * race (402 today) could never carry more than the teaser if that gate opened: its finish does not
  * move with the ping's position.
  */
-export function projectionForRoom(projection: RaceRoomProjection, room: RaceRoom): RaceRoomProjection {
-  return isTeaserRoom(room) ? teaserProjection(projection, room) : projection;
+export function projectionForRoom(
+  projection: RaceRoomProjection,
+  room: RaceRoom,
+  scheduleCourseLengthMeters?: number
+): RaceRoomProjection {
+  return isTeaserRoom(room) ? teaserProjection(projection, room, scheduleCourseLengthMeters) : projection;
 }
 
 /**
@@ -318,6 +328,21 @@ export function courseLengthOf(
   if (isPositive(room.courseDistanceMeters)) return room.courseDistanceMeters;
   const routeLength = route && route.length >= 2 ? geodesicPolylineLength([...route]) : undefined;
   return isPositive(routeLength) ? routeLength : undefined;
+}
+
+/**
+ * The course length (m) a schedule reads its finish at, paid or unpaid, and the teaser locks its
+ * checkpoints by (projection and schedule alike): `courseLengthOf(room, route)`, else the course's
+ * stored canonical distance or the room's, else the farthest checkpoint's distance.
+ */
+export function scheduleCourseLengthOf(room: RaceRoom, route: readonly CourseMetricPoint[] | null | undefined): number {
+  const length = courseLengthOf(room, route);
+  if (length !== undefined) return length;
+  const canonical = room.course?.derivedMetrics?.canonicalDistanceMeters;
+  if (typeof canonical === "number" && Number.isFinite(canonical) && canonical >= 0) return canonical;
+  if (typeof room.courseDistanceMeters === "number" && Number.isFinite(room.courseDistanceMeters)) return room.courseDistanceMeters;
+  const distances = (room.course?.checkpoints ?? []).map(finiteDistance).filter((d): d is number => d !== undefined && d >= 0);
+  return Math.max(...distances, 0);
 }
 
 /**

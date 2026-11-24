@@ -26,6 +26,7 @@ import {
 import { finishCheckpointIndex } from "../lib/raceProjection.js";
 import { deleteRaceRoomAndData } from "../lib/raceRoomDeletion.js";
 import { courseLengthOf, courseLengthsMatch } from "../lib/raceTeaser.js";
+import { planCurveFromEstimate } from "./raceRoomSchedule.js";
 import { load50kCourseWithAids, pointOn50kRouteBeforeEnd } from "../lib/testCourseRouteLayer.js";
 import {
   commitRaceRoomUpdate,
@@ -1015,6 +1016,8 @@ async function readTeaser(app: App, roomId: string, runner: string, label: strin
     assertNoPaidPlan(response.json(), `${label}: GET ${name}`, "runner", midCourse);
   }
   const schedule = parseCrewScheduleSheet(reads.schedule.json());
+  // The projection and the schedule lock the same checkpoints, from the same course length.
+  assert.deepEqual((reads.projection.json() as RaceRoomProjection).locked?.checkpointIds, schedule.locked?.checkpointIds, `${label}: one locked set`);
   return {
     aidEtas: (reads.room.json() as { room: RaceRoom }).room.pacingEstimate?.aidEtas.map((eta) => eta.checkpointId),
     splits: (reads.projection.json() as RaceRoomProjection).checkpointSplits.map((row) => row.checkpointId),
@@ -1622,6 +1625,10 @@ async function teaserFinishes(
     if (realValues) assertNoTimeIn(response.json(), realValues, `${label}: GET ${name}`);
   }
   const schedule = parseCrewScheduleSheet(reads.schedule.json());
+  if (teaser) {
+    // The projection and the schedule lock the same checkpoints, from the same course length.
+    assert.deepEqual((reads.projection.json() as RaceRoomProjection).locked?.checkpointIds, schedule.locked?.checkpointIds, `${label}: one locked set`);
+  }
   const last = schedule.stops[schedule.stops.length - 1]!;
   const room = (reads.room.json() as { room: RaceRoom }).room;
   const projection = reads.projection.json() as RaceRoomProjection;
@@ -2303,4 +2310,84 @@ test("a plan stored without a curve: the schedule's finish row and the projectio
       assert.equal(await deleteRaceRoomAndData(roomId), "deleted");
     }
   });
+});
+
+test("a curveless plan whose finish was read at the farthest checkpoint: the route-end finish row and the curve stay the route model's", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-farthest-plan";
+    const raceStartAt = futureStart();
+    const checkpoints = taggedCourse().checkpoints.filter((checkpoint) => checkpoint.id !== "finish");
+    const roomId = await raceWithCourse(app, runner, "Farthest-checkpoint plan", { raceStartAt, checkpoints });
+    await pay(app, roomId, runner);
+    const before = (await getRaceRoom(roomId))!;
+    const routeCurve = before.course!.baselineTrack!;
+    // Computed with its finish at aid-3, 15 km short of the route's end (a room-less compute).
+    const aid3Meters = before.course!.checkpoints.at(-1)!.distanceMetersFromStart!;
+    const plan = estimateFor(`farthest-plan-${roomId}`);
+    await savePacingEstimate(runner, plan, undefined, { roomId, courseLengthMeters: aid3Meters });
+    assert.equal((await attachById(app, roomId, runner, plan.id)).statusCode, 200);
+    const room = (await getRaceRoom(roomId))!;
+    assert.deepEqual(room.course!.baselineTrack, routeCurve, "the route model's curve stays");
+
+    const reads = await teaserFinishes(app, roomId, runner, raceStartAt, "farthest plan", undefined, undefined, false);
+    assert.equal(reads.stops.at(-1), "finish");
+    const routeFinish = Math.round(routeCurve.points.at(-1)!.referenceElapsedSeconds);
+    assert.equal(reads.scheduleMoving, routeFinish, "the route-end row reads the course's curve, not the plan's 30 000 s");
+    withinASecond(reads.schedule, reads.projection, "one finish");
+  });
+});
+
+test("a curveless plan never replaces a curve the runner saved with the course", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-own-curve";
+    const roomId = await raceWithCourse(app, runner, "Own curve");
+    const length = lengthOf((await getRaceRoom(roomId))!)!;
+    const own = {
+      points: [
+        { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+        { distanceMetersFromStart: length / 2, referenceElapsedSeconds: 9_000 },
+        { distanceMetersFromStart: length, referenceElapsedSeconds: 20_000 }
+      ]
+    };
+    const course = taggedCourse();
+    const saved = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        plannedPaceSecondsPerKm: course.plannedPaceSecondsPerKm,
+        course: { checkpoints: course.checkpoints, baselineTrack: own },
+        raceStartAt: RACE_START_AT
+      },
+      headers: auth(app, runner)
+    });
+    assert.equal(saved.statusCode, 200, saved.body);
+    assert.deepEqual((await getRaceRoom(roomId))!.course!.baselineTrack, own);
+    const plan = await serverPlan(runner, roomId);
+    assert.equal((await attachById(app, roomId, runner, plan.id)).statusCode, 200);
+    assert.deepEqual((await getRaceRoom(roomId))!.course!.baselineTrack, own, "the runner's own curve stays");
+  });
+});
+
+test("the curve built from a curveless plan leaves out an out-of-order ETA, not every one after it", () => {
+  const plan: PacingEstimate = {
+    ...estimateFor("outlier"),
+    aidEtas: [
+      // aid-1 at 29 000 s, later than aid-2 and aid-3: the outlier.
+      { checkpointId: "aid-1", clockArrivalAt: clock(29_000), elapsedSeconds: 29_000 },
+      { checkpointId: "aid-2", clockArrivalAt: clock(12_000), elapsedSeconds: 12_000 },
+      { checkpointId: "aid-3", clockArrivalAt: clock(24_000), elapsedSeconds: 24_000 }
+    ]
+  };
+  const course = taggedCourse();
+  const byId = new Map(course.checkpoints.map((checkpoint) => [checkpoint.id, checkpoint.distanceMetersFromStart!]));
+  const room = {
+    course: { checkpoints: course.checkpoints },
+    courseDistanceMeters: byId.get("finish")!
+  } as unknown as RaceRoom;
+  const curve = planCurveFromEstimate(plan, room)!;
+  assert.deepEqual(
+    curve.points.map((point) => point.referenceElapsedSeconds),
+    [0, 12_000, 24_000, 30_000]
+  );
+  assert.deepEqual(curve.points.slice(1, 3).map((point) => point.distanceMetersFromStart), [byId.get("aid-2"), byId.get("aid-3")]);
 });

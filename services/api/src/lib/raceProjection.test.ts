@@ -876,6 +876,10 @@ test("a course with no finish checkpoint gets a route-end finish row id that nam
   ];
   assert.equal(routeEndFinishRowId(loop, 40_000), "route-finish");
   assert.equal(routeEndFinishRowId([...loop, { id: "route-finish", distanceMetersFromStart: 20_000 }], 40_000), "route-finish-2");
+  // In any case, as the finish rule reads ids.
+  const upper = loop.map((checkpoint) => (checkpoint.id === "finish" ? { ...checkpoint, id: "Finish" } : checkpoint));
+  assert.equal(routeEndFinishRowId(upper, 40_000), "route-finish");
+  assert.equal(routeEndFinishRowId([...upper, { id: " ROUTE-FINISH ", distanceMetersFromStart: 20_000 }], 40_000), "route-finish-2");
 });
 
 test("a checkpoint's next visit index is one past its highest, gaps kept", () => {

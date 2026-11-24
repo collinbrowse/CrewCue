@@ -12,6 +12,7 @@ import type {
   ScheduleStopNotesRef
 } from "@crewcue/contracts";
 import { parsePacingEstimate } from "@crewcue/contracts";
+import { buildPlanBaselineFromModel, workspaceGeometryToBaseline } from "@crewcue/map-core";
 import { finishCheckpointIndex, plannedElapsedSecondsForDistance, routeEndFinishRowId } from "../lib/raceProjection.js";
 import { compareProjectedArrivalToCutoff } from "../lib/cutoffWarning.js";
 import {
@@ -30,6 +31,7 @@ import {
   estimateCourseLengthMeters,
   finishOnlyEstimate,
   isTeaserRoom,
+  scheduleCourseLengthOf,
   teaserScheduleRoom,
   teaserScheduleSheet
 } from "../lib/raceTeaser.js";
@@ -55,8 +57,8 @@ function roomCourseLengthMeters(room: RaceRoom): number | undefined {
  * neither, the farthest checkpoint. A legacy room with no finish waypoint would otherwise put the
  * plan's finish on its last aid while the projection and the estimator read it at the route end.
  */
-function scheduleCourseLengthMeters(room: RaceRoom, checkpoints: RaceCourseCheckpoint[]): number {
-  return roomCourseLengthMeters(room) ?? resolveCourseLengthMeters(room, checkpoints);
+function scheduleCourseLengthMeters(room: RaceRoom): number {
+  return scheduleCourseLengthOf(room, resolveRouteMetricPointsFromRaceRoomExport(room));
 }
 
 export type ProjectCrewScheduleSheetOptions = {
@@ -72,6 +74,13 @@ export type ProjectCrewScheduleSheetOptions = {
    * overlays still stack on later clocks.
    */
   pacingEstimate?: PacingEstimate;
+  /**
+   * Whether `pacingEstimate`'s finish was read at this course's length (its stored row records a
+   * length within tolerance of the course's, `planFinishFitsCourse`). Only then does the route-end
+   * finish row (`routeEndFinishRowId`) take the plan's finish; otherwise it reads the course's own
+   * curve (or pace) at the course length, as the projection does. Default true.
+   */
+  planFinishAtCourseEnd?: boolean;
 };
 
 /**
@@ -185,17 +194,6 @@ function checkpointDistanceMeters(checkpoint: RaceCourseCheckpoint): number {
     throw new Error("checkpoint_distance_meters_from_start_required");
   }
   return distance;
-}
-
-function resolveCourseLengthMeters(room: RaceRoom, checkpoints: RaceCourseCheckpoint[]): number {
-  const fromDerived = room.course?.derivedMetrics?.canonicalDistanceMeters;
-  if (typeof fromDerived === "number" && Number.isFinite(fromDerived) && fromDerived >= 0) {
-    return fromDerived;
-  }
-  if (typeof room.courseDistanceMeters === "number" && Number.isFinite(room.courseDistanceMeters)) {
-    return room.courseDistanceMeters;
-  }
-  return Math.max(...checkpoints.map((checkpoint) => checkpointDistanceMeters(checkpoint)), 0);
 }
 
 type MovingAnchor = { distanceMeters: number; elapsedSeconds: number };
@@ -346,7 +344,7 @@ export function projectCrewScheduleSheet(
 
   const estimate = options?.pacingEstimate ?? room.pacingEstimate;
   const overlays = overlayByCheckpointId(room);
-  const courseLengthMeters = scheduleCourseLengthMeters(room, checkpoints);
+  const courseLengthMeters = scheduleCourseLengthMeters(room);
   const ordered = [...checkpoints].sort(
     (a, b) => checkpointDistanceMeters(a) - checkpointDistanceMeters(b)
   );
@@ -425,8 +423,9 @@ export function projectCrewScheduleSheet(
   // ETA, and the timeline's last row is the finish, not that aid.
   const routeEndFinishId = routeEndFinishRowId(ordered, courseLengthMeters);
   if (routeEndFinishId !== undefined) {
+    const planFinish = options?.planFinishAtCourseEnd === false ? undefined : estimate?.expectedFinishElapsedSeconds;
     const movingSeconds =
-      estimate?.expectedFinishElapsedSeconds ??
+      planFinish ??
       Math.round(
         plannedElapsedSecondsForDistance({
           distanceMetersFromStart: courseLengthMeters,
@@ -518,7 +517,7 @@ export function planCurveFromEstimate(estimate: PacingEstimate, room: RaceRoom):
   }
   let courseLengthMeters: number;
   try {
-    courseLengthMeters = scheduleCourseLengthMeters(room, checkpoints);
+    courseLengthMeters = scheduleCourseLengthMeters(room);
   } catch {
     return undefined;
   }
@@ -535,20 +534,80 @@ export function planCurveFromEstimate(estimate: PacingEstimate, room: RaceRoom):
         Number.isFinite(point.referenceElapsedSeconds)
     )
     .sort((a, b) => a.distanceMetersFromStart - b.distanceMetersFromStart);
-  const points: RaceCourseBaselineTrack["points"] = [{ distanceMetersFromStart: 0, referenceElapsedSeconds: 0 }];
-  for (const anchor of anchors) {
-    const last = points[points.length - 1]!;
-    if (
-      anchor.distanceMetersFromStart > last.distanceMetersFromStart + 1 &&
+  const inside = anchors.filter(
+    (anchor) =>
+      anchor.distanceMetersFromStart > 1 &&
       anchor.distanceMetersFromStart < courseLengthMeters - 1 &&
-      anchor.referenceElapsedSeconds > last.referenceElapsedSeconds &&
+      anchor.referenceElapsedSeconds > 0 &&
       anchor.referenceElapsedSeconds < finishSeconds
-    ) {
-      points.push(anchor);
-    }
-  }
-  points.push({ distanceMetersFromStart: courseLengthMeters, referenceElapsedSeconds: finishSeconds });
+  );
+  const points: RaceCourseBaselineTrack["points"] = [
+    { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+    ...longestIncreasingChain(inside),
+    { distanceMetersFromStart: courseLengthMeters, referenceElapsedSeconds: finishSeconds }
+  ];
   return { points };
+}
+
+/**
+ * The most anchors (sorted by distance) that keep both distance and time strictly increasing: an
+ * outlier (an ETA out of order with its neighbours) is the one left out, never every anchor after it.
+ */
+function longestIncreasingChain<T extends { distanceMetersFromStart: number; referenceElapsedSeconds: number }>(
+  anchors: readonly T[]
+): T[] {
+  const length = anchors.map(() => 1);
+  const previous = anchors.map(() => -1);
+  let best = -1;
+  for (let i = 0; i < anchors.length; i += 1) {
+    for (let j = 0; j < i; j += 1) {
+      const before = anchors[j]!;
+      const after = anchors[i]!;
+      if (
+        after.distanceMetersFromStart > before.distanceMetersFromStart + 1 &&
+        after.referenceElapsedSeconds > before.referenceElapsedSeconds &&
+        length[j]! + 1 > length[i]!
+      ) {
+        length[i] = length[j]! + 1;
+        previous[i] = j;
+      }
+    }
+    if (best < 0 || length[i]! > length[best]!) best = i;
+  }
+  const chain: T[] = [];
+  for (let at = best; at >= 0; at = previous[at]!) chain.unshift(anchors[at]!);
+  return chain;
+}
+
+/**
+ * Whether a plan's finish was read at `room`'s course length: its stored row records a length (or
+ * a curve ending) within tolerance of the course's (`courseLengthsMatch`). A plan computed with its
+ * finish at the farthest checkpoint (a room-less compute, or one from before computes read the
+ * route's end) does not fit a course whose checkpoints stop short of the route's end.
+ */
+function planFinishFitsCourse(stored: StoredPacingEstimate | undefined, room: RaceRoom): boolean {
+  return stored !== undefined && courseLengthsMatch(estimateCourseLengthMeters(stored), roomCourseLengthMeters(room));
+}
+
+/**
+ * Whether the course's curve is one the server built, which an attach may replace: none, the route
+ * model's (a course or map save with no curve of its own), or the plan of record's (`previousPlanCurve`,
+ * its stored curve, or the one built from it at its attach). Anything else came in on PUT /course
+ * as the client's own and is kept.
+ */
+function courseCurveIsServerBuilt(room: RaceRoom, previousPlanCurve: RaceCourseBaselineTrack | undefined): boolean {
+  const curve = room.course?.baselineTrack;
+  if (!curve) return true;
+  const key = JSON.stringify(curve);
+  const same = (other: RaceCourseBaselineTrack | undefined) => other !== undefined && JSON.stringify(other) === key;
+  const pace = room.plannedPaceSecondsPerKm;
+  const route = resolveRouteMetricPointsFromRaceRoomExport(room);
+  if (route && typeof pace === "number" && same(buildPlanBaselineFromModel(route, pace))) return true;
+  const workspace = room.mapWorkspace;
+  const layer = workspace?.layers.find((entry) => entry.id === workspace.drivesProjectionLayerId);
+  if (layer && typeof pace === "number" && same(workspaceGeometryToBaseline(layer.geometry, pace))) return true;
+  if (same(previousPlanCurve)) return true;
+  return room.pacingEstimate !== undefined && same(planCurveFromEstimate(room.pacingEstimate, room));
 }
 
 /**
@@ -578,7 +637,7 @@ function derivePlannedPaceSecondsPerKm(
   const checkpoints = room.course?.checkpoints;
   if (Array.isArray(checkpoints) && checkpoints.length >= 2) {
     try {
-      const km = scheduleCourseLengthMeters(room, checkpoints) / 1000;
+      const km = scheduleCourseLengthMeters(room) / 1000;
       if (km > 0 && estimate.expectedFinishElapsedSeconds > 0) {
         return estimate.expectedFinishElapsedSeconds / km;
       }
@@ -724,6 +783,11 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       return reply.send(body);
     }
 
+    // The current plan of record's stored curve: a course carrying it is the server's to replace.
+    const previousPlanCurve = room.pacingEstimateId
+      ? (await getPacingEstimateById(room.pacingEstimateId))?.baselineTrack
+      : undefined;
+
     // `room` was read before the estimate lookup. Attach onto the live room so that
     // await cannot drop a membership that joined while the estimate was loading.
     let updated: RaceRoom | undefined;
@@ -734,8 +798,14 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
           throw new CourseMismatchError();
         }
         // A plan stored without a curve brings one built from its own ETAs, so the course's
-        // route-model curve does not stay under it (`planCurveFromEstimate`).
-        const planCurve = storedBaseline ?? planCurveFromEstimate(estimate, latest);
+        // route-model curve does not stay under it (`planCurveFromEstimate`): only when its finish
+        // was read at this course's length (a snapshot with no stored row was just saved for this
+        // course), and never over a curve the client saved with the course.
+        const planCurve =
+          storedBaseline ??
+          ((storedRow ? planFinishFitsCourse(storedRow, latest) : true) && courseCurveIsServerBuilt(latest, previousPlanCurve)
+            ? planCurveFromEstimate(estimate, latest)
+            : undefined);
         const derivedPlannedPace = derivePlannedPaceSecondsPerKm(estimate, planCurve, latest);
         // The plan's clocks are this race's start plus its elapsed seconds, as PATCH /race-start
         // and a course save keep them: an estimate computed before the start moved keeps its
@@ -804,7 +874,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
     let closedActuals: ReturnType<typeof closedActualStopSecondsByCheckpointId> | undefined;
     try {
-      const projection = await scheduleProjectionLoader(roomId);
+      const projection = await scheduleProjectionLoader(roomId, request.log);
       closedActuals = projection
         ? closedActualStopSecondsByCheckpointId(projection.checkpointSplits)
         : undefined;
@@ -823,11 +893,13 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       // `teaserScheduleSheet`). On a course with no finish waypoint its finish row is the
       // route-end finish row, as on a paid sheet. The course length is the projection's (the
       // route's on a legacy room with no stored length), as on a paid sheet.
-      const courseLengthMeters = scheduleCourseLengthMeters(room, room.course.checkpoints);
+      const courseLengthMeters = scheduleCourseLengthMeters(room);
       const source = teaser ? teaserScheduleRoom(room, courseLengthMeters) : room;
+      const planRow = room.pacingEstimateId ? await getPacingEstimateById(room.pacingEstimateId) : undefined;
       const sheet = projectCrewScheduleSheet(source, {
         closedActualStopSecondsByCheckpointId: closedActuals,
-        pacingEstimate: source.pacingEstimate
+        pacingEstimate: source.pacingEstimate,
+        planFinishAtCourseEnd: planFinishFitsCourse(planRow ?? undefined, room)
       });
       return reply.send(teaser ? teaserScheduleSheet(sheet, room, courseLengthMeters) : sheet);
     } catch (error) {
