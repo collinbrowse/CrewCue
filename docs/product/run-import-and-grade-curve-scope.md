@@ -133,6 +133,29 @@ Run with `npm run projection:backtest -- --analysis personal-terrain` (services/
 
 **Recommendation (owner's call):** don't turn the six-value model on from this evidence. Keep collecting grade tables (slice 1), build the share-sheet import (slices 4–7) because it pays off on its own, and re-test on runners' own files: fit on their training runs and predict a held-out run or a finished CrewCue race. Slice 3 waits for that test.
 
+### Own-runs test (Nov 24 2026, one runner)
+
+Run with `npm run own-runs:backtest -- <folder>` (services/api). Data: 14 of the owner's COROS runs from June to November 2026 (7 FIT, 3 TCX, 4 GPX), 7–37 km with 200–3,800 m of climbing. They stay local in the git-ignored `projection-backtest-data/my-runs`.
+
+The test leaves one run out and learns from the other 13. Each model's step times are scaled to the held-out run's actual moving time, so effort cancels and only *where the time goes* is scored: the share of moving time placed in the wrong kilometer.
+
+| Model | Moving time misplaced (mean of 14) |
+|---|---|
+| Shared curve | **5.3%** |
+| Six-value (switch grade + 5 class factors) | 5.8% (5.7% with each run weighted equally) |
+| Per-1%-grade factors | 5.8% |
+
+- **The personal versions did worse.** Each class has kilometers of data, so this isn't small samples. The runner's relation to grade, measured against their own level, changes from run to run more than it holds steady. That fits a mix of long hiking days (up to 9.6 h with 61% hiked) and short runs, where fatigue, stops and technical footing move time around.
+- **Learned values** (all 14 runs, relative to the runner's own level; above 1 means slower than the shared curve predicts):
+  - Switch grade: 11%.
+  - Hiking-grade climbs: 0.93–0.96, faster than predicted.
+  - Steep descents: 0.89–0.94, faster.
+  - Runnable climbs and descents: 1.03–1.12, slower.
+  - These directions fit the owner's sense of being strong on climbs. But on these runs, knowing them didn't place time better.
+- **Limits.** This is one runner and 14 runs, mostly training, with no races. The metric removes total-time differences on purpose, so it can't test whether personal values predict a race's *total* better from training. That needs race files, which the bulk export (due about Nov 29) should include.
+
+**Combined with the OpenSplitTime result:** neither test supports turning on personal grade factors. Keep slice 3 parked, keep collecting grade tables, and re-run both tests with the bulk export and the first CrewCue races.
+
 ### Limits
 
 - Runs imported before this change have no grade table. The API keeps only metrics, not the file, so runners would need to re-import. The estimate still works without bands.

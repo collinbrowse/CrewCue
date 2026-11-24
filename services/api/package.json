@@ -20,6 +20,7 @@
     "projection:backtest": "tsx scripts/projection-backtest/cli.ts",
     "projection:backtest:check": "tsx scripts/projection-backtest/cli.ts --fixture --check > /dev/null",
     "projection:backtest:make-fixture": "tsx scripts/projection-backtest/make-synthetic-fixture.ts",
+    "own-runs:backtest": "tsx scripts/own-runs-backtest.ts",
     "pacing:eval": "tsx scripts/pacing-eval.ts",
     "pacing:eval:synth": "tsx scripts/pacing-eval-synth.ts",
     "pacing:eval:import": "tsx scripts/pacing-eval-import.ts",
