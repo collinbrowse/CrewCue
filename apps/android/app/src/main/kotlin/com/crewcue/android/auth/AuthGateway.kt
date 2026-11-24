@@ -9,7 +9,8 @@ sealed interface AuthResult {
         val accessToken: String
     ) : AuthResult
 
-    data class Failure(val message: String, val offline: Boolean) : AuthResult
+    /** [canceled]: the person closed the sign-in page. */
+    data class Failure(val message: String, val offline: Boolean, val canceled: Boolean = false) : AuthResult
 }
 
 interface AuthGateway {

@@ -1,0 +1,19 @@
+{
+  "id": "join-link",
+  "platform": "android",
+  "entry": "crewcue://dev/join-link",
+  "device": "crewcue_api_35 phone emulator (API 35) and crewcue_fold_api_35 foldable (folded and unfolded), emulator-5608, debug APK",
+  "date": "2026-11-24",
+  "commit": "d65d44a6",
+  "session": "Local memory API on port 3000, the only listener; the API log shows only this run's actors. Seeded: Ana's Leadville 100 (paid, unlimited crew, 055818), Western States 100 (paid, one crew seat taken, 257646), Hardrock 100 (unpaid). New sign-ups stood in for by debug dev sessions for new users (crew-cara, crew-dan, crew-eve) after a force-stop.",
+  "action": "Signed out, adb opened https://collinbrowse.github.io/crewcue/join/?code=055818 and crewcue://join/<code>; Sign up to join; force-stop; a dev session for a new user. Separately, the link opened and left, then a dev session. Also crewcue://join/12, Paste invite code, Join on a full race, an unknown code, and Wi-Fi and data off.",
+  "checked": {
+    "Action": "Sign up to join confirmed the invite (confirmedInvite and confirmedInviteAtMs in the guest file) and opened Auth0 sign-up in a Custom Tab. The next new session (crew-dan on the phone, crew-eve on the unfolded foldable) joined without a tap: join-by-code 200, pending file cleared, the race's tab bar. A link opened and left, then a new session (crew-cara): no join-by-code call; the join screen shows the code and preview with Join and Not now. The foldable kept the code and preview across unfolding.",
+    "Success": "'You're joining Ana's race' with 'Leadville 100, 1 member, active' under it; after Sign up to join, the new account joined and landed in the race.",
+    "Empty": "crewcue://join/12: the join screen with 'That link didn't include an invite code. Paste it or type the 6 digits.' Paste invite code (crewcue.join-crew.paste) read 055818 from the clipboard and showed its preview.",
+    "Error": "Unknown code 999999: 'That invite code was not found.' Western States: 'This race is full. Ask the runner to add Full Crew so more crew can join.' on crewcue.join-crew.race-full (409).",
+    "Offline": "Wi-Fi and data off: 'Offline. Invite preview needs the network.'",
+    "Accessibility labels": "crewcue.join-link (dev route, agent:android:ready ok), crewcue.join-crew, crewcue.join-crew.preview, crewcue.join-crew.paste, crewcue.join-crew.race-full"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
