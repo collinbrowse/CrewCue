@@ -59,6 +59,15 @@ type ProjectionPreviousCheckpointVisit = {
   note?: string;
 };
 
+/**
+ * The index a checkpoint's next visit takes: one past the highest it has. A visit keeps its index
+ * for as long as it exists (a client refers to it by checkpoint and index), so dropping one (an
+ * auto visit pings that are pre-start now made) leaves a gap rather than renumbering the rest.
+ */
+export function nextVisitIndex(visits: ReadonlyArray<{ visitIndex: number }>): number {
+  return visits.reduce((highest, visit) => Math.max(highest, visit.visitIndex), 0) + 1;
+}
+
 function checkpointsAsMetricPoints(checkpoints: RaceCourseCheckpoint[]): CourseMetricPoint[] {
   return checkpoints.map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
 }
@@ -222,6 +231,38 @@ export function finishCheckpointIndex(checkpoints: readonly FinishCandidate[], c
     }
   }
   return isAtCourseEnd(bestDistance, courseLengthMeters) || isMarkedFinish(checkpoints[best]!) ? best : -1;
+}
+
+/**
+ * The `checkpointId` of the schedule's route-end finish row (`routeEndFinishRowId`): `finish`, or,
+ * when a checkpoint already has that id in any case, `route-finish` (then numbered) so the row
+ * never names one.
+ */
+const ROUTE_END_FINISH_ROW_IDS = ["finish", "route-finish"];
+
+/**
+ * The id of the finish row a schedule adds at the end of the route on a course with no finish
+ * checkpoint (`finishCheckpointIndex` is -1 with every checkpoint's distance known: a course file
+ * with no finish waypoint, whose checkpoints stop at its last aid station), paid and unpaid alike.
+ * The row is the finish line, so a timeline's last row (its TARGET) is the race's finish, not
+ * the last aid's ETA. It names no checkpoint of the course. Undefined when a checkpoint is the
+ * finish, or the course has fewer than two checkpoints or one of unknown distance.
+ */
+export function routeEndFinishRowId(checkpoints: readonly FinishCandidate[], courseLengthMeters: number): string | undefined {
+  if (checkpoints.length < 2 || finishCheckpointIndex(checkpoints, courseLengthMeters) >= 0) {
+    return undefined;
+  }
+  if (!checkpoints.every((checkpoint) => typeof checkpoint.distanceMetersFromStart === "number" && Number.isFinite(checkpoint.distanceMetersFromStart))) {
+    return undefined;
+  }
+  // Compared as the finish rule reads ids (`isMarkedFinish`): trimmed, in any case.
+  const taken = new Set(checkpoints.map((checkpoint) => checkpoint.id.trim().toLowerCase()));
+  for (const id of ROUTE_END_FINISH_ROW_IDS) {
+    if (!taken.has(id)) return id;
+  }
+  let n = 2;
+  while (taken.has(`route-finish-${n}`)) n += 1;
+  return `route-finish-${n}`;
 }
 
 function checkpointSlowdownThresholdRatio(checkpoint: RaceCourseCheckpoint): number {
@@ -550,7 +591,7 @@ export function recomputeRaceProjection(params: {
         };
         visits.push(currentVisit);
         metadata.push({
-          visitIndex: visits.length,
+          visitIndex: Math.max(nextVisitIndex(metadata), visits.length),
           resolvedSource: "auto"
         });
       } else if (!prevInRadius && currInRadius) {
@@ -568,7 +609,7 @@ export function recomputeRaceProjection(params: {
           };
           visits.push(currentVisit);
           metadata.push({
-            visitIndex: visits.length,
+            visitIndex: Math.max(nextVisitIndex(metadata), visits.length),
             resolvedSource: "auto"
           });
         }
@@ -625,7 +666,7 @@ export function recomputeRaceProjection(params: {
           ? (metadata?.manualEntry?.actualStopSeconds ?? null)
           : autoDetected.actualStopSeconds;
       return {
-        visitIndex: index + 1,
+        visitIndex: metadata?.visitIndex ?? index + 1,
         resolvedSource,
         autoDetected,
         ...(metadata?.manualEntry ? { manualEntry: metadata.manualEntry } : {}),
@@ -672,9 +713,12 @@ export function recomputeRaceProjection(params: {
   // The finish ETA is the arrival at the finish line, as the schedule's finish row reads it: the
   // planned stops on the way there, never the finish checkpoint's own. Checkpoints that stop
   // short of the route's end have no finish among them, so every one of their stops counts.
+  // A stop is behind the runner once they reached it (a visit) or are past its radius along the
+  // course: pings minutes apart can skip over an aid station without one landing inside it.
   const finishIndex = finishCheckpointIndex(course.checkpoints, courseLengthMeters);
   const plannedStopSecondsBeforeFinish = checkpointSplits.reduce((sum, row, index) => {
-    const reached = row.visits.length > 0;
+    const passed = progressMeters > row.distanceMetersFromStart + checkpointRadiusMeters(course.checkpoints[index]!);
+    const reached = row.visits.length > 0 || passed;
     return sum + (reached || index === finishIndex ? 0 : row.plannedStopSeconds);
   }, 0);
 

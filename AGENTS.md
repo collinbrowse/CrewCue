@@ -21,6 +21,14 @@ Race progress (mile, % complete, next aid, ETA, on-track, avg pace, elevation re
 
 Source: `GET /race-rooms/:roomId/pings/latest` → client-core `RaceDayAPI.latestPing` → `RunnerProgress` → `RaceDayReadouts.make(runner:)`. "Last ping" is the ping's `recordedAt`.
 
+## Disk hygiene
+
+The Mac is short on disk. Reuse shared caches. Free what only this worktree uses.
+
+- **Shared, never delete:** Gradle, npm and SwiftPM caches, and `~/Library/Caches/CrewCue/SourcePackages` (iOS scripts clone Swift packages there once, not per worktree). Also the Swift Android toolchain, the installed simulator runtimes and the `crewcue_api_35` AVD.
+- **Yours, free when done:** after simulator work, `npm run agent:ios:done` shuts down `CrewCue <worktree>` and its Duo twin and deletes `.xcresult` bundles. After Android work, `npm run agent:android:done`. Do not create other simulators or AVDs, and do not boot more than you use.
+- **Never** delete DerivedData, simulators or worktrees that belong to another checkout. `~/.claude/scripts/devtrim.mjs` (outside this repo) cleans those across worktrees and runs at session start.
+
 ## When to load more
 
 - **iOS UI** (`apps/ios/**`): `.claude/rules/mobile-simulator-agent-qa.md` + skill `.claude/skills/ios-simulator-agent-qa/SKILL.md`. Simulator proof on the PR before claiming done.

@@ -11,9 +11,11 @@ import {
   cumulativeDistanceAtCheckpoints,
   finishCheckpointIndex,
   isMarkedFinish,
+  nextVisitIndex,
   type FinishCandidate,
   polylineCourseLengthAndProgress,
-  recomputeRaceProjection
+  recomputeRaceProjection,
+  routeEndFinishRowId
 } from "./raceProjection.js";
 
 function withProjectedCheckpoints(course: RaceCourse): { course: RaceCourse; routeMetricPoints: CourseMetricPoint[] } {
@@ -799,4 +801,89 @@ test("checkpoints that stop short of the route's end: every planned stop counts 
       `${label}: ${stopped.etaFinishPlanIso} vs ${shortStop.etaFinishPlanIso}`
     );
   }
+});
+
+test("an aid station passed between two pings no longer adds its planned stop to the finish ETA", () => {
+  for (const tuned of [false, true]) {
+    for (const withCurve of [false, true]) {
+      const label = `${tuned ? "tuned" : "today"}, ${withCurve ? "plan curve" : "plan pace"}`;
+      // Start at a, b ~1.1 km on, finish c ~2.2 km. Pings every few minutes land ~0.6 km before
+      // and ~0.6 km after b: never inside its 150 m radius, so b gets no visit.
+      const race = (bStopSeconds: number) =>
+        withTunedConstants(tuned, () => {
+          const { course, routeMetricPoints, length } = stopsCourse({ a: 0, b: bStopSeconds, c: 0 }, withCurve);
+          const project = (
+            ping: { pingId: string; latitude: number; longitude: number; recordedAt: string },
+            previousPing: typeof ping | null,
+            previous: ReturnType<typeof recomputeRaceProjection>["state"] | null
+          ) =>
+            recomputeRaceProjection({
+              roomId: "room-1",
+              activatedAt: START_AT,
+              course,
+              plannedPaceSecondsPerKm: 600,
+              ping,
+              previousPing,
+              previous,
+              routeMetricPoints
+            });
+          const p0 = { pingId: "p0", latitude: 10.0, longitude: 20.0, recordedAt: START_AT };
+          const p1 = { pingId: "p1", latitude: 10.005, longitude: 20.0, recordedAt: at(330) };
+          const p2 = { pingId: "p2", latitude: 10.015, longitude: 20.0, recordedAt: at(1000) };
+          const first = project(p0, null, null);
+          const before = project(p1, p0, first.state);
+          const after = project(p2, p1, before.state);
+          return { length, before: before.projection, after: after.projection };
+        });
+
+      const withStop = race(600);
+      const withoutStop = race(0);
+      const b = withStop.after.checkpointSplits[1]!;
+      assert.ok(withStop.after.progressMeters > b.distanceMetersFromStart + 150, `${label}: the runner is past b`);
+      assert.deepEqual(b.visits, [], `${label}: no ping landed inside b's radius`);
+      // Still ahead of the runner, b's stop counts.
+      assert.ok(
+        finishSeconds(withStop.before.etaFinishPlanIso) - finishSeconds(withoutStop.before.etaFinishPlanIso) > 0,
+        `${label}: before b, its stop is on the way to the finish`
+      );
+      // Behind the runner, it does not: the finish is the same as with no stop planned there.
+      assert.equal(
+        withStop.after.etaFinishPlanIso,
+        withoutStop.after.etaFinishPlanIso,
+        `${label}: b is behind the runner, its 600 s stop is not ahead of the finish`
+      );
+      if (!tuned && !withCurve) {
+        const remaining = withStop.length - withStop.after.progressMeters;
+        assert.ok(
+          Math.abs(finishSeconds(withStop.after.etaFinishPlanIso) - (1000 + (remaining / 1000) * 600)) < 0.01,
+          `${label}: the ping plus the rest at plan pace, ${withStop.after.etaFinishPlanIso}`
+        );
+      }
+    }
+  }
+});
+
+test("a course with no finish checkpoint gets a route-end finish row id that names none of its checkpoints", () => {
+  assert.equal(routeEndFinishRowId(atDistances([0, 10_000, 30_000]), 40_000), "finish", "a last aid short of the route's end");
+  assert.equal(routeEndFinishRowId(atDistances([0, 10_000, 40_000]), 40_000), undefined, "a checkpoint at the end is the finish");
+  assert.equal(routeEndFinishRowId(atDistances([0, 10_000, undefined]), 40_000), undefined, "a distance unknown");
+  assert.equal(routeEndFinishRowId(atDistances([0]), 40_000), undefined, "the start alone");
+  // An earlier `finish` (a loop's first pass) that is not the farthest: the row takes another id.
+  const loop: FinishCandidate[] = [
+    { id: "start", distanceMetersFromStart: 0 },
+    { id: "finish", distanceMetersFromStart: 10_000 },
+    { id: "aid-2", distanceMetersFromStart: 30_000 }
+  ];
+  assert.equal(routeEndFinishRowId(loop, 40_000), "route-finish");
+  assert.equal(routeEndFinishRowId([...loop, { id: "route-finish", distanceMetersFromStart: 20_000 }], 40_000), "route-finish-2");
+  // In any case, as the finish rule reads ids.
+  const upper = loop.map((checkpoint) => (checkpoint.id === "finish" ? { ...checkpoint, id: "Finish" } : checkpoint));
+  assert.equal(routeEndFinishRowId(upper, 40_000), "route-finish");
+  assert.equal(routeEndFinishRowId([...upper, { id: " ROUTE-FINISH ", distanceMetersFromStart: 20_000 }], 40_000), "route-finish-2");
+});
+
+test("a checkpoint's next visit index is one past its highest, gaps kept", () => {
+  assert.equal(nextVisitIndex([]), 1);
+  assert.equal(nextVisitIndex([{ visitIndex: 1 }, { visitIndex: 2 }]), 3);
+  assert.equal(nextVisitIndex([{ visitIndex: 2 }]), 3, "visit 1 dropped: 2 is not reused");
 });
