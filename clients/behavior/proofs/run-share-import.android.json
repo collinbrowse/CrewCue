@@ -1,0 +1,20 @@
+{
+  "id": "run-share-import",
+  "platform": "android",
+  "entry": "crewcue://dev/run-share-import",
+  "device": "crewcue_api_35 emulator (emulator-5620), Android 15, debug build",
+  "date": "2026-11-24",
+  "commit": "claude/run-share-import (uncommitted client changes on 76a38c7)",
+  "session": "Dev session as intent extras (devSession, userId, role, token) against a local memory API at 10.0.2.2:3000. Files copied into the app's files folder with run-as: hill.fit (activity-hill-run.fit), export.zip (hill.fit, road.gpx, broken.fit, README.txt).",
+  "action": "am start crewcue://dev/run-share-import?file=<name>, which hands the file to the same path a SEND/VIEW intent uses, and acted on the sheet. Also sent a real ACTION_SEND with a MediaStore content URI.",
+  "checked": {
+    "Success": "hill.fit: 'Import this run?', '2026-05-17 · 2.8 km · 25:19 · 112 m climb' and a route sketch; Import → 'Run imported.' export.zip: 'Import this run?' with hill.fit 'Already imported' and '2 files can't be read'; on a fresh API, 'Import 2 runs?' / 'Import 2 runs'.",
+    "Empty": "Dev link without a file: 'Export a run from your watch app and share it to CrewCue.' with Done.",
+    "Error": "Signed out (app data cleared) with hill.fit: 'Sign in to import runs.' with OK; nothing uploaded.",
+    "Offline": "API stopped: 'Offline. Import the file when you're back online.'",
+    "Accessibility labels": "crewcue.run-share-import, crewcue.run-share-import.confirm, crewcue.run-share-import.cancel",
+    "Share intent": "ACTION_SEND from adb with a MediaStore URI opened CrewCue's sheet (filter matched). adb can't grant another app read access to that URI, so the bytes weren't readable; a real sending app grants it. Unreadable shares now show the unreadable message.",
+    "Adaptive": "Mid-preview, the window was resized to 2208x1840 (fold-open size): same 'Import 2 runs?' preview, no reset. A foldable AVD (pixel_9_pro_fold) wasn't run."
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

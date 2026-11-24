@@ -118,9 +118,20 @@ export async function resetActivityHistoryStoreForTests(): Promise<void> {
 
 export type UpsertActivityHistoryResult = {
   ref: ActivityHistoryRef;
-  /** false when an existing source+externalId row was returned unchanged (idempotent replay). */
+  /** false when an existing source+externalId row was returned (idempotent replay). */
   created: boolean;
 };
+
+/**
+ * A replayed row keeps its id and fields, but gains a grade profile when it was stored before
+ * profiles existed. Re-importing the same file is how runners backfill it. Null when nothing changes.
+ */
+function backfilled(existing: ActivityHistoryRef, incoming: ActivityHistoryRef): ActivityHistoryRef | null {
+  if (existing.gradeProfile !== undefined || incoming.gradeProfile === undefined) {
+    return null;
+  }
+  return { ...existing, gradeProfile: incoming.gradeProfile };
+}
 
 export async function upsertActivityHistory(
   athleteUserId: string,
@@ -132,7 +143,9 @@ export async function upsertActivityHistory(
   if (!pool) {
     const existing = memoryByKey.get(key);
     if (existing) {
-      return { ref: existing.ref, created: false };
+      const updated = backfilled(existing.ref, ref);
+      if (updated) existing.ref = structuredClone(updated);
+      return { ref: structuredClone(existing.ref), created: false };
     }
     const stored: StoredActivityHistory = { athleteUserId, ref: structuredClone(ref) };
     memoryByKey.set(key, stored);
@@ -147,6 +160,15 @@ export async function upsertActivityHistory(
   );
   if (existing.rowCount && existing.rows[0]) {
     const parsed = parseActivityHistoryRef(existing.rows[0].payload);
+    const updated = backfilled(parsed, ref);
+    if (updated) {
+      await pool.query(
+        `UPDATE activity_history_json SET payload = $4::jsonb
+         WHERE athlete_user_id = $1 AND source = $2 AND external_id = $3`,
+        [athleteUserId, ref.source, ref.externalId, JSON.stringify(updated)]
+      );
+      return { ref: updated, created: false };
+    }
     return { ref: parsed, created: false };
   }
 

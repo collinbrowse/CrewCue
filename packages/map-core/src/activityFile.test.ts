@@ -7,6 +7,7 @@ import {
   ActivityFileError,
   MAX_ACTIVITY_FILE_BYTES,
   detectActivityFileFormat,
+  isFootActivity,
   parseActivityFile,
   type ActivityFileErrorCode
 } from "./activityFile.js";
@@ -91,4 +92,16 @@ test("format detection prefers content over the file name", () => {
   assert.equal(detectActivityFileFormat(fixture("activity-short-road.gpx")), "gpx");
   assert.equal(detectActivityFileFormat(new TextEncoder().encode("x"), "RUN.TCX"), "tcx");
   assert.equal(detectActivityFileFormat(new TextEncoder().encode("x"), "run.kml"), null);
+});
+
+test("sport comes from the FIT session, TCX Activity and GPX type", () => {
+  const records = [0, 1, 2].map((i) => ({ timestampMs: Date.parse("2026-05-10T15:30:00Z") + i * 60_000, latitude: 45 + i * 0.001, longitude: -120, distanceMeters: i * 111 }));
+  const session = { startMs: records[0]!.timestampMs, elapsedSeconds: 120, distanceMeters: 222 };
+  assert.equal(parseActivityFile(encodeFitActivity({ records, session: { ...session, sport: 1, subSport: 3 } }), "a.fit").sport, "trail_running");
+  assert.equal(parseActivityFile(encodeFitActivity({ records, session: { ...session, sport: 2 } }), "b.fit").sport, "cycling");
+  assert.equal(parseActivityFile(encodeFitActivity({ records, session }), "c.fit").sport, null);
+  assert.equal(parseActivityFile(fixture("activity-short-road.tcx"), "r.tcx").sport, "running");
+  assert.equal(isFootActivity("hiking"), true);
+  assert.equal(isFootActivity(null), true);
+  assert.equal(isFootActivity("cycling"), false);
 });

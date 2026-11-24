@@ -3,7 +3,8 @@
  * Reuses map-core track parsing; maps clear errors for empty/corrupt uploads.
  */
 import { createHash } from "node:crypto";
-import { computeElevationGainMeters, parseGpxActivityTrack } from "@crewcue/map-core";
+import type { ActivityGradeProfile } from "@crewcue/contracts";
+import { buildActivityGradeProfile, computeElevationGainMeters, parseGpxActivityTrack } from "@crewcue/map-core";
 import { slowdownFromTimedTrack } from "./runnerSlowdown.js";
 
 export type GpxActivityParseErrorCode = "gpx_empty" | "gpx_corrupt" | "gpx_parse_failed";
@@ -28,6 +29,8 @@ export type ParsedGpxActivityMetrics = {
   elevationGainMeters?: number;
   /** Late-race slowdown from the timed track, for timed activities of 30 km or more. */
   slowdownSlope?: number;
+  /** Distance and moving time per grade, running vs hiking, for timed tracks with elevation. */
+  gradeProfile?: ActivityGradeProfile;
 };
 
 function toIsoZ(ms: number): string {
@@ -88,6 +91,10 @@ export function parseGpxActivityMetrics(gpxXml: string): ParsedGpxActivityMetric
     const slope = slowdownFromTimedTrack(parsed.points);
     if (slope !== null) {
       metrics.slowdownSlope = Number(slope.toFixed(4));
+    }
+    const gradeProfile = buildActivityGradeProfile(parsed.points);
+    if (gradeProfile) {
+      metrics.gradeProfile = gradeProfile;
     }
   }
 

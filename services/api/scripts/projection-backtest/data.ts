@@ -40,6 +40,8 @@ export type Effort = {
   startTime: Date;
   /** Distance (m) at each checkpoint, from the source. */
   d: number[];
+  /** Where each checkpoint sits on the course GPX (m). */
+  gpxD: number[];
   /** Actual elapsed (s) at each checkpoint. */
   a: number[];
   /** GPX plan shape: planned elapsed at each checkpoint as a share of planned finish. */
@@ -199,6 +201,7 @@ export function loadBacktestData(
           eventId: event.sourceEventId,
           startTime: new Date(event.startTime),
           d,
+          gpxD: gpxDistances,
           a,
           shape,
           z,

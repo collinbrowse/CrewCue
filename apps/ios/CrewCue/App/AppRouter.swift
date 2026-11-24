@@ -18,6 +18,10 @@ struct AppRouter: View {
         .onOpenURL { url in
             model.open(url)
         }
+        .sheet(isPresented: Bindable(model.sharedRunImport).isPresented) {
+            SharedRunImportSheet(model: model.sharedRunImport)
+                .crewTheme()
+        }
         .crewTheme()
     }
 }

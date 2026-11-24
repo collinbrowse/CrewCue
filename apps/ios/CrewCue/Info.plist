@@ -35,6 +35,86 @@
       </array>
     </dict>
   </array>
+  <!-- Run files shared or opened from watch apps and Files (run-share-import). CrewCue copies the
+       file in (no editing in place). FIT and TCX have no system type, so they're declared here. -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Run file</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>com.crewcue.fit</string>
+        <string>com.crewcue.tcx</string>
+        <string>com.topografix.gpx</string>
+        <string>public.zip-archive</string>
+      </array>
+    </dict>
+  </array>
+  <key>LSSupportsOpeningDocumentsInPlace</key>
+  <false/>
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>com.crewcue.fit</string>
+      <key>UTTypeDescription</key>
+      <string>FIT activity</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>fit</string>
+        </array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>com.crewcue.tcx</string>
+      <key>UTTypeDescription</key>
+      <string>TCX activity</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.xml</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>tcx</string>
+        </array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>com.topografix.gpx</string>
+      <key>UTTypeDescription</key>
+      <string>GPX track</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.xml</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>gpx</string>
+        </array>
+        <key>public.mime-type</key>
+        <array>
+          <string>application/gpx+xml</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
   <key>NSLocationWhenInUseUsageDescription</key>
   <string>CrewCue shares the runner's position with their crew during the race.</string>
   <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
