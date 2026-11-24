@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { androidPort, androidSerial, checkoutKey, emulatorGpu, FIRST_PORT, iosSimulatorName, PORT_SLOTS, sharedDevice, SOFTWARE_GPU } from "./lib/agentDevice.mjs";
+import { androidPort, androidSerial, checkoutKey, emulatorGpu, FIRST_PORT, iosSimulatorName, iosSimulatorNames, PORT_SLOTS, sharedDevice, sharedSourcePackagesArgs, SOFTWARE_GPU } from "./lib/agentDevice.mjs";
 
 const worktree = (name) => `/Users/x/CrewCue/.claude/worktrees/${name}`;
 
@@ -64,4 +64,16 @@ test("Android goes to one worktree at a time", async () => {
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
+});
+
+test("each checkout owns its simulator and its Duo twin", () => {
+  assert.deepEqual(iosSimulatorNames(worktree("billing-649-ab12")), ["CrewCue billing-649-ab12", "CrewCue billing-649-ab12 Duo"]);
+});
+
+test("package checkouts are shared locally, left to xcodebuild in CI", () => {
+  assert.deepEqual(sharedSourcePackagesArgs({ CI: "true" }), []);
+  assert.deepEqual(sharedSourcePackagesArgs({ CREWCUE_SPM_CACHE: "/tmp/spm" }), ["-clonedSourcePackagesDirPath", "/tmp/spm"]);
+  const [flag, dir] = sharedSourcePackagesArgs({});
+  assert.equal(flag, "-clonedSourcePackagesDirPath");
+  assert.match(dir, /Library\/Caches\/CrewCue\/SourcePackages$/);
 });
