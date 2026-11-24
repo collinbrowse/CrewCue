@@ -95,7 +95,9 @@ data class InviteShare(
     val code: String?,
     val link: String?,
     val text: String?,
-    val locked: Boolean
+    val locked: Boolean,
+    /** Why it failed (client-core's `reason`), for the log only; null when it loaded. */
+    val reason: String? = null
 ) {
     /** Something to share: a valid code with its link and text. */
     val shareable: Boolean get() = state == InviteState.Ready && code != null && link != null && text != null
@@ -117,7 +119,8 @@ data class InviteShare(
                 code = field("code"),
                 link = field("link"),
                 text = field("shareText"),
-                locked = details?.optBoolean("locked") == true
+                locked = details?.optBoolean("locked") == true,
+                reason = json?.optText("reason")?.trim()?.ifEmpty { null }
             )
         }
     }
@@ -127,7 +130,11 @@ data class InviteShare(
 enum class InviteState { Loading, Ready, Empty, Error, Offline }
 
 /** Builds the race's invite through client-core (`inviteShare`: the room read and its details). */
-class InviteShareViewModel(private val raceDay: RaceDayBridge, private val roomId: String) : ViewModel() {
+class InviteShareViewModel(
+    private val raceDay: RaceDayBridge,
+    private val roomId: String,
+    private val log: (String) -> Unit = {}
+) : ViewModel() {
     var share by mutableStateOf<InviteShare?>(null)
         private set
     var copied by mutableStateOf(false)
@@ -136,7 +143,13 @@ class InviteShareViewModel(private val raceDay: RaceDayBridge, private val roomI
     fun load(errorLine: String) {
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { raceDay.inviteShare(roomId) }
-            share = InviteShare.from((result as? RuntimeResult.Success)?.result, errorLine)
+            val loaded = InviteShare.from((result as? RuntimeResult.Success)?.result, errorLine)
+            // Error and Offline name their cause in the log, never on screen.
+            when {
+                result is RuntimeResult.Failure -> log("inviteShare bridge failed: ${result.message}")
+                loaded.reason != null -> log("inviteShare ${loaded.state}: ${loaded.reason}")
+            }
+            share = loaded
         }
     }
 
@@ -145,9 +158,13 @@ class InviteShareViewModel(private val raceDay: RaceDayBridge, private val roomI
     }
 }
 
-class InviteShareViewModelFactory(private val raceDay: RaceDayBridge, private val roomId: String) : ViewModelProvider.Factory {
+class InviteShareViewModelFactory(
+    private val raceDay: RaceDayBridge,
+    private val roomId: String,
+    private val log: (String) -> Unit = {}
+) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T = InviteShareViewModel(raceDay, roomId) as T
+    override fun <T : ViewModel> create(modelClass: Class<T>): T = InviteShareViewModel(raceDay, roomId, log) as T
 }
 
 /**
@@ -160,7 +177,7 @@ fun InviteShareScreen(shell: ShellViewModel, roomId: String, onBack: () -> Unit,
     val text = shell.inviteText
     val model: InviteShareViewModel = viewModel(
         key = "invite-$roomId",
-        factory = InviteShareViewModelFactory(shell.container.raceDay, roomId)
+        factory = InviteShareViewModelFactory(shell.container.raceDay, roomId, shell.container.logger::log)
     )
     val context = LocalContext.current
     LaunchedEffect(roomId) { model.load(text.shareError) }

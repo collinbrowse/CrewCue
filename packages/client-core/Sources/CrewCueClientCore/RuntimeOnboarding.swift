@@ -49,6 +49,8 @@ import Foundation
 ///
 /// - `inviteShare`: `roomId` → `state` (ready, empty, error, offline), `status` and `details`
 ///   (`InviteCopy.shareDetails`: `raceName`, `code`, `link`, `shareText`, `locked`), with `copy`.
+///   Offline is a transport failure only (`inviteShareIsOffline`); error and offline add `reason`,
+///   the underlying error for the app's log, never shown.
 /// - `confirmedInviteForSignIn`: `pendingJoin`, confirmed and current, read signed out before a
 ///   sign-in. `inviteJoinLine`: `raceName`, or `code` + `message` → `line`.
 /// - `inviteCopy`: `copy`, every `InviteCopy` line by name. `pastedInviteCode`: `text` → `code`
@@ -212,12 +214,14 @@ extension RuntimeCall {
             }
             details = InviteCopy.shareDetails(for: room)
         } catch {
-            let offline = PendingJoinOutcome.outcome(for: error) == .offline
-            (try? graph(object))?.logger.log("inviteShare failed: \(error)")
+            let offline = inviteShareIsOffline(error)
             return [
                 "state": offline ? "offline" : "error",
                 "status": offline ? InviteCopy.shareOffline : InviteCopy.shareError,
                 "details": NSNull(),
+                // Not shown: the app logs it, so a device run names the cause (the runtime's
+                // own logger is silent).
+                "reason": String(String(describing: error).prefix(300)),
                 "copy": inviteCopyJSON()
             ] as [String: Any]
         }
@@ -236,6 +240,14 @@ extension RuntimeCall {
             ] as [String: Any],
             "copy": inviteCopyJSON()
         ] as [String: Any]
+    }
+
+    /// Offline only for a transport failure: no connection, a lost or refused connection, or no
+    /// answer before the deadline (`URLError`, or `NSURLErrorDomain` on Android). A body that
+    /// didn't decode, a non-HTTP answer (`ClientHTTPError` status 0), a missing base URL or any
+    /// HTTP error is "Couldn't load the invite.", never Offline: those happen with the network up.
+    static func inviteShareIsOffline(_ error: any Error) -> Bool {
+        TransportFailure.isOffline(error)
     }
 
     /// Read before a sign-in's first onboarding read: the guest's pending code, confirmed (Sign up

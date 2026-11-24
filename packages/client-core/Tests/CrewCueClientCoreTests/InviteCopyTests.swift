@@ -72,12 +72,13 @@ private func runtimeResult(_ request: String) async throws -> [String: Any] {
 }
 
 @Test func inviteShareOpAnswersAStateAndTheCopy() async throws {
-    // No server: the op still answers, with the screen's state and words.
+    // No base URL: the op still answers with the screen's words. Nothing reached the network,
+    // so it is an error, never Offline.
     let body = try await runtimeResult(#"{"op":"inviteShare","roomId":"r1"}"#)
-    let state = try #require(body["state"] as? String)
-    #expect(state == "offline" || state == "error")
-    #expect(body["status"] as? String == (state == "offline" ? InviteCopy.shareOffline : InviteCopy.shareError))
+    #expect(body["state"] as? String == "error")
+    #expect(body["status"] as? String == InviteCopy.shareError)
     #expect(body["details"] is NSNull)
+    #expect((body["reason"] as? String)?.isEmpty == false)
     let copy = try #require(body["copy"] as? [String: String])
     #expect(copy["shareTitle"] == InviteCopy.shareTitle && copy["shareButton"] == InviteCopy.shareButton)
     #expect(copy["inviteCrewButton"] == InviteCopy.inviteCrewButton && copy["joinTitle"] == InviteCopy.joinTitle)
@@ -146,4 +147,75 @@ private func runtimeResult(_ request: String) async throws -> [String: Any] {
     let read = try await runtimeResult(#"{"op":"parseInviteLink","link":"crewcue://join/123456"}"#)
     #expect(read["code"] as? String == "123456" && read["joinLink"] as? Bool == true)
     #expect(try await runtimeResult(#"{"op":"parseInviteLink","link":"crewcue://dev/hello"}"#)["joinLink"] as? Bool == false)
+}
+
+// MARK: - inviteShare against a scripted server
+
+/// Answers `GET /race-rooms/<id>` with a scripted status and body, or throws `failure`.
+private struct InviteRoomServer: HTTPTransport {
+    var status = 200
+    var body = ""
+    var failure: (any Error)?
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if let failure { throw failure }
+        return HTTPResponse(status: status, body: Data(body.utf8))
+    }
+}
+
+/// The API's `GET /race-rooms/:roomId` for the runner, as `services/api` sends it: the room inside
+/// `room`, with `permissions` beside it.
+private let inviteRoomBody = #"""
+{"room":{"id":"r1","joinCode":"569806","creatorName":"Ana","teamId":"team-1","athleteId":"runner-ana","name":"Leadville 100","status":"active","createdAt":"2026-11-24T17:12:20.793Z","createdByUserId":"runner-ana","entitlement":{"status":"paid","lastUpdatedAt":"2026-11-24T17:12:20.800Z","source":"manual","crewTier":"unlimited"},"memberships":[{"userId":"runner-ana","role":"athlete","joinedAt":"2026-11-24T17:12:20.793Z","displayName":"Ana"}]},"permissions":{"canViewRoom":true,"canEditRaceSetup":true,"canIssueInvite":true}}
+"""#
+
+private func inviteShare(_ server: InviteRoomServer, base: String) async throws -> [String: Any] {
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    return try await runtimeResult(
+        #"{"op":"inviteShare","roomId":"r1","baseURL":"\#(base)","token":"t","userId":"runner-ana"}"#
+    )
+}
+
+@Test func inviteShareReadsTheRunnersRoom() async throws {
+    let body = try await inviteShare(InviteRoomServer(body: inviteRoomBody), base: "https://invite-ready.test")
+    #expect(body["state"] as? String == "ready")
+    #expect(body["status"] as? String == InviteCopy.shareReady)
+    let details = try #require(body["details"] as? [String: Any])
+    #expect(details["code"] as? String == "569806")
+    #expect(details["link"] as? String == "https://collinbrowse.github.io/crewcue/join/?code=569806")
+    #expect(details["locked"] as? Bool == false)
+    #expect(body["reason"] == nil)
+}
+
+@Test func inviteShareIsOfflineOnlyForATransportFailure() async throws {
+    // No connection: Offline.
+    let down = try await inviteShare(InviteRoomServer(failure: URLError(.notConnectedToInternet)), base: "https://invite-down.test")
+    #expect(down["state"] as? String == "offline")
+    #expect(down["status"] as? String == InviteCopy.shareOffline)
+    // Android reports a refused connection as NSURLErrorDomain -1: Offline too.
+    let refused = try await inviteShare(
+        InviteRoomServer(failure: NSError(domain: NSURLErrorDomain, code: -1)), base: "https://invite-refused.test"
+    )
+    #expect(refused["state"] as? String == "offline")
+
+    // The network answered: never Offline.
+    let garbled = try await inviteShare(InviteRoomServer(body: #"{"room":{"id":"r1"}}"#), base: "https://invite-garbled.test")
+    #expect(garbled["state"] as? String == "error")
+    #expect(garbled["status"] as? String == InviteCopy.shareError)
+    #expect((garbled["reason"] as? String)?.isEmpty == false)
+    let notJSON = try await inviteShare(InviteRoomServer(body: "<html>proxy</html>"), base: "https://invite-html.test")
+    #expect(notJSON["state"] as? String == "error")
+    let server = try await inviteShare(InviteRoomServer(status: 500, body: #"{"error":"boom"}"#), base: "https://invite-500.test")
+    #expect(server["state"] as? String == "error")
+    // A non-HTTP answer (status 0) reached something: an error, not Offline.
+    let nonHTTP = try await inviteShare(InviteRoomServer(status: 0, body: ""), base: "https://invite-zero.test")
+    #expect(nonHTTP["state"] as? String == "error")
+}
+
+@Test func inviteShareWithoutAJoinCodeIsEmpty() async throws {
+    let noCode = inviteRoomBody.replacingOccurrences(of: #""joinCode":"569806","#, with: "")
+    let body = try await inviteShare(InviteRoomServer(body: noCode), base: "https://invite-empty.test")
+    #expect(body["state"] as? String == "empty")
+    #expect(body["status"] as? String == InviteCopy.shareEmpty)
 }

@@ -200,6 +200,11 @@ class InviteLinksTest {
         assertEquals(InviteState.Empty, empty.state)
         assertFalse(empty.shareable)
         assertEquals(InviteState.Offline, InviteShare.from(JSONObject("""{"state":"offline","status":"o"}""")).state)
+        // The cause is read for the log only; a loaded invite has none.
+        val decodeFailure = InviteShare.from(JSONObject("""{"state":"error","status":"e","reason":"keyNotFound(name)"}"""))
+        assertEquals(InviteState.Error, decodeFailure.state)
+        assertEquals("keyNotFound(name)", decodeFailure.reason)
+        assertNull(share.reason)
         // The bridge itself failed: an error, with the line the screen passes.
         val failed = InviteShare.from(null, "Couldn't load the invite.")
         assertEquals(InviteState.Error, failed.state)
