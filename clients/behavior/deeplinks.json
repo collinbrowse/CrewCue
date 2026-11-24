@@ -381,7 +381,7 @@
       "sdk": "none",
       "scope": "v1",
       "ios": "pass",
-      "android": "pass"
+      "android": "fail"
     }
   ]
 }

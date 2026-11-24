@@ -213,6 +213,7 @@ extension RuntimeCall {
             details = InviteCopy.shareDetails(for: room)
         } catch {
             let offline = PendingJoinOutcome.outcome(for: error) == .offline
+            (try? graph(object))?.logger.log("inviteShare failed: \(error)")
             return [
                 "state": offline ? "offline" : "error",
                 "status": offline ? InviteCopy.shareOffline : InviteCopy.shareError,
