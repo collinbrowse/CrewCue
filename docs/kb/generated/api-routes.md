@@ -137,7 +137,7 @@ Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| POST | `/race-rooms/:roomId/routing/route` | identity + membership | [services/api/src/routes/routingRoutes.ts:163](../../../services/api/src/routes/routingRoutes.ts#L163) |
+| POST | `/race-rooms/:roomId/routing/route` | identity + membership | [services/api/src/routes/routingRoutes.ts:164](../../../services/api/src/routes/routingRoutes.ts#L164) |
 
 ## stravaRoutes
 
