@@ -159,7 +159,9 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/Generated/ScheduleStopNotesRef.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/ScheduleStopNotesRef.swift) | `ScheduleStopNotesRef` |
 | [packages/client-core/Sources/CrewCueClientCore/Generated/TeaserLockedCheckpoints.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/TeaserLockedCheckpoints.swift) | `TeaserLockedCheckpoints` |
 | [packages/client-core/Sources/CrewCueClientCore/Idempotency.swift](../../../packages/client-core/Sources/CrewCueClientCore/Idempotency.swift) | `IdempotencyKey` |
+| [packages/client-core/Sources/CrewCueClientCore/InviteCopy.swift](../../../packages/client-core/Sources/CrewCueClientCore/InviteCopy.swift) | `InviteCopy`, `InviteShareDetails` |
 | [packages/client-core/Sources/CrewCueClientCore/InviteLink.swift](../../../packages/client-core/Sources/CrewCueClientCore/InviteLink.swift) | `InviteSource`, `InviteMatch`, `InviteLink` |
+| [packages/client-core/Sources/CrewCueClientCore/InviteRoute.swift](../../../packages/client-core/Sources/CrewCueClientCore/InviteRoute.swift) | `InviteLinkRoute` |
 | [packages/client-core/Sources/CrewCueClientCore/LocationUploadGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/LocationUploadGate.swift) | `LocationUploadGate` |
 | [packages/client-core/Sources/CrewCueClientCore/Logging.swift](../../../packages/client-core/Sources/CrewCueClientCore/Logging.swift) | `Logger` |
 | [packages/client-core/Sources/CrewCueClientCore/Onboarding.swift](../../../packages/client-core/Sources/CrewCueClientCore/Onboarding.swift) | `OnboardingStep`, `OnboardingOutcome`, `OnboardingChoice`, `OnboardingError`, `OnboardingRace`, `OnboardingInput`, `OnboardingStepStatus`, `OnboardingState`, `Onboarding` |
@@ -204,21 +206,21 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-115 files under `packages/client-core/Sources/`.
+117 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 65 | 14207 |
+| `CrewCueClientCore` | 67 | 14509 |
 | `CrewCueClientCore/Generated` | 50 | 984 |
 
 ### iOS app (SwiftUI)
 
-80 files under `apps/ios/CrewCue/`.
+82 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 15 | 1805 |
+| `App` | 15 | 1933 |
 | `Brand` | 1 | 184 |
 | `Design` | 7 | 1869 |
 | `Logging` | 2 | 18 |
@@ -229,15 +231,16 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/BrandLoader` | 1 | 47 |
 | `Screens/Chat` | 4 | 955 |
 | `Screens/Incidents` | 2 | 182 |
-| `Screens/Join` | 2 | 186 |
+| `Screens/Invite` | 2 | 197 |
+| `Screens/Join` | 2 | 377 |
 | `Screens/Map` | 7 | 3052 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Onboarding` | 10 | 3772 |
+| `Screens/Onboarding` | 10 | 3868 |
 | `Screens/Pace` | 2 | 1913 |
-| `Screens/Profile` | 2 | 620 |
-| `Screens/RoomMembers` | 2 | 199 |
+| `Screens/Profile` | 2 | 627 |
+| `Screens/RoomMembers` | 2 | 216 |
 | `Screens/Settings` | 2 | 365 |
-| `Screens/Shell` | 4 | 735 |
+| `Screens/Shell` | 4 | 733 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)
