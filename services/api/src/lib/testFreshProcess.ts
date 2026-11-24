@@ -19,3 +19,33 @@ export function runInFreshProcess<T = unknown>(script: string, args: string[] = 
   }
   return JSON.parse(line.slice("RESULT:".length)) as T;
 }
+
+export type FreshProcessStep = { method: string; url: string; user: string; payload?: unknown };
+
+/**
+ * Runs `steps` against a fresh API process (nothing of the room in memory, so it all comes back
+ * from Postgres) and returns each step's status and body. Each step is signed as `user` on team-1.
+ */
+export function runStepsInFreshProcess(steps: FreshProcessStep[]): Array<{ status: number; body: unknown }> {
+  const script = `
+    const { buildApp } = await import(process.argv[1]);
+    const steps = JSON.parse(process.argv[2]);
+    const app = buildApp();
+    await app.ready();
+    const out = [];
+    for (const step of steps) {
+      const token = app.jwt.sign({ sub: step.user, teamIds: ["team-1"], roomRoles: {} });
+      const res = await app.inject({
+        method: step.method,
+        url: step.url,
+        payload: step.payload,
+        headers: { authorization: "Bearer " + token }
+      });
+      out.push({ status: res.statusCode, body: res.json() });
+    }
+    process.stdout.write("\\nRESULT:" + JSON.stringify(out) + "\\n");
+    await app.close();
+    process.exit(0);
+  `;
+  return runInFreshProcess<Array<{ status: number; body: unknown }>>(script, [JSON.stringify(steps)]);
+}
