@@ -4,7 +4,7 @@
  */
 import { createHash } from "node:crypto";
 import type { ActivityHistorySource } from "@crewcue/contracts";
-import { parseActivityFile, type ActivityFileFormat } from "@crewcue/map-core";
+import { buildActivityGradeProfile, parseActivityFile, type ActivityFileFormat } from "@crewcue/map-core";
 import type { ParsedGpxActivityMetrics } from "./gpxActivityHistory.js";
 import { slowdownFromTimedTrack } from "./runnerSlowdown.js";
 
@@ -38,6 +38,10 @@ export function parseActivityFileMetrics(bytes: Uint8Array, fileName?: string): 
     const slope = parsed.points.length >= 2 ? slowdownFromTimedTrack(parsed.points) : null;
     if (slope !== null) {
       metrics.slowdownSlope = Number(slope.toFixed(4));
+    }
+    const gradeProfile = buildActivityGradeProfile(parsed.points);
+    if (gradeProfile) {
+      metrics.gradeProfile = gradeProfile;
     }
   }
   if (parsed.elevationGainMeters !== null) {

@@ -65,6 +65,15 @@ const ingestMetricsInput = z
   })
   .strict();
 
+/**
+ * What clients see. The grade profile (about 60 grade steps per run) is for the pace model only,
+ * so it stays out of list and ingest responses to keep phone payloads small.
+ */
+function toClientRef(ref: ActivityHistoryRef): ActivityHistoryRef {
+  const { gradeProfile: _gradeProfile, ...rest } = ref;
+  return rest;
+}
+
 function toIsoNow(): string {
   return new Date().toISOString();
 }
@@ -106,7 +115,7 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
 
     const validated = parseActivityHistoryRef(candidate);
     const result = await upsertActivityHistory(athleteUserId, validated);
-    return reply.code(result.created ? 201 : 200).send(result.ref);
+    return reply.code(result.created ? 201 : 200).send(toClientRef(result.ref));
   });
 
   app.post("/activity-history/gpx", async (request, reply) => {
@@ -149,12 +158,13 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       ...(metrics.elevationGainMeters !== undefined
         ? { elevationGainMeters: metrics.elevationGainMeters }
         : {}),
-      ...(metrics.slowdownSlope !== undefined ? { slowdownSlope: metrics.slowdownSlope } : {})
+      ...(metrics.slowdownSlope !== undefined ? { slowdownSlope: metrics.slowdownSlope } : {}),
+      ...(metrics.gradeProfile !== undefined ? { gradeProfile: metrics.gradeProfile } : {})
     };
 
     const validated = parseActivityHistoryRef(candidate);
     const result = await upsertActivityHistory(athleteUserId, validated);
-    return reply.code(result.created ? 201 : 200).send(result.ref);
+    return reply.code(result.created ? 201 : 200).send(toClientRef(result.ref));
   });
 
   app.post("/activity-history/file", async (request, reply) => {
@@ -200,12 +210,13 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       ...(metrics.elevationGainMeters !== undefined
         ? { elevationGainMeters: metrics.elevationGainMeters }
         : {}),
-      ...(metrics.slowdownSlope !== undefined ? { slowdownSlope: metrics.slowdownSlope } : {})
+      ...(metrics.slowdownSlope !== undefined ? { slowdownSlope: metrics.slowdownSlope } : {}),
+      ...(metrics.gradeProfile !== undefined ? { gradeProfile: metrics.gradeProfile } : {})
     };
 
     const validated = parseActivityHistoryRef(candidate);
     const result = await upsertActivityHistory(athleteUserId, validated);
-    return reply.code(result.created ? 201 : 200).send(result.ref);
+    return reply.code(result.created ? 201 : 200).send(toClientRef(result.ref));
   });
 
   app.get("/activity-history", async (request, reply) => {
@@ -213,7 +224,7 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       return reply.code(401).send({ error: "Unauthorized" });
     }
     const items = await listActivityHistoryForAthlete(request.identity.sub);
-    return reply.code(200).send({ items });
+    return reply.code(200).send({ items: items.map(toClientRef) });
   });
 
   app.get<{ Params: { historyId: string } }>("/activity-history/:historyId", async (request, reply) => {
@@ -224,6 +235,6 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
     if (!ref) {
       return reply.code(404).send({ error: "Activity history not found" });
     }
-    return reply.code(200).send(ref);
+    return reply.code(200).send(toClientRef(ref));
   });
 }
