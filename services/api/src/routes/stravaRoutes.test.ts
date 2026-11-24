@@ -150,7 +150,7 @@ test("oauth redirect bounces provider error to deep link without raw HTML", asyn
     const location = String(response.headers.location ?? "");
     assert.match(location, /^crewcue:\/\/strava\?/);
     assert.match(location, /error=access_denied/);
-    assert.doesNotMatch(location, /<script>/);
+    assert.doesNotMatch(location, /<script\b/i);
     assert.match(location, /error_description=/);
   });
 });
