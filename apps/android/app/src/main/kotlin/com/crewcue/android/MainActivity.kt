@@ -49,7 +49,8 @@ class MainActivity : ComponentActivity() {
         // A demo replay killed mid-play leaves its folder in the cache directory; sweep it at launch.
         lifecycleScope.launch(Dispatchers.IO) { container.cleanDemoRacesOnce() }
         CrewPush.ensureChannel(applicationContext)
-        CrewPush.chatRoomFrom(intent)?.let { shellModel.openChat(it) }
+        // Only on a fresh launch: folding or rotating recreates the activity with the same intent.
+        if (savedInstanceState == null) CrewPush.chatRoomFrom(intent)?.let { shellModel.openChat(it) }
         if (container.sessionStore.current() != null) {
             lifecycleScope.launch(Dispatchers.IO) { CrewPush.refreshIfAllowed(applicationContext, container.raceDay) }
         }

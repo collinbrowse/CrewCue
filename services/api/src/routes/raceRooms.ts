@@ -133,6 +133,14 @@ import {
 } from "../lib/unpaidRaceReminderScheduler.js";
 import { isTeaserRoom, projectionForRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
+import {
+  isRaceLocked,
+  aidStationLockAt,
+  raceStartChangeAllowed,
+  RACE_LOCKED_CODE,
+  RACE_LOCKED_ERROR,
+  RaceLockedError
+} from "../lib/raceLock.js";
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
@@ -303,6 +311,11 @@ const updateRaceCourseInput = z.object({
 /** `PATCH /race-rooms/:roomId/race-start`: the start alone, validated as `PUT /course` takes it. */
 const updateRaceStartInput = z.object({
   raceStartAt: z.iso.datetime()
+});
+
+/** `PATCH /race-rooms/:roomId`: rename the race. */
+const renameRaceRoomInput = z.object({
+  name: z.string().trim().min(1).max(80)
 });
 
 const putRaceMapWorkspaceInput = z.object({
@@ -2761,6 +2774,69 @@ function resolveRouteMetricPointsFromRaceRoom(room: RaceRoom): CourseMetricPoint
   return pts.length >= 2 ? pts : null;
 }
 
+/**
+ * The route line the projection follows, as a comparable string ("null" when there is none). The
+ * race lock compares it before and after an edit: the same line is an aid-station edit, a new one
+ * is another race.
+ */
+function routeLineSignature(room: RaceRoom): string {
+  return JSON.stringify(resolveRouteMetricPointsFromRaceRoom(room));
+}
+
+/**
+ * Whether the race lock refuses a `PUT /course` (see raceLock.ts): on a locked race, a start the
+ * lock does not allow, a different stored GPX, or a different route line. The same route with new
+ * checkpoints or aid-station names goes through.
+ */
+function coursePutRefusedByLock(room: RaceRoom, input: z.infer<typeof updateRaceCourseInput>): boolean {
+  const nowMs = Date.now();
+  if (!isRaceLocked(room, nowMs)) {
+    return false;
+  }
+  if (!raceStartChangeAllowed(room, input.raceStartAt, nowMs)) {
+    return true;
+  }
+  if (input.courseGpxXml !== undefined && input.courseGpxXml !== room.courseGpxXml) {
+    return true;
+  }
+  if (!input.routeOverlayLayer) {
+    return false;
+  }
+  const merged = mergePrimaryCourseRouteLayer(
+    resolveMapWorkspace(room),
+    input.routeOverlayLayer,
+    room.course?.checkpoints ?? []
+  );
+  return routeLineSignature({ ...room, mapWorkspace: merged }) !== routeLineSignature(room);
+}
+
+function raceLockedReply(reply: FastifyReply) {
+  return reply.code(409).send({ error: RACE_LOCKED_ERROR, code: RACE_LOCKED_CODE });
+}
+
+/**
+ * Store the race lock once race pings reach the first aid station (see raceLock.ts), read from the
+ * projection those pings just recomputed. Caller holds the room runtime lock. Writes only once; a
+ * failed write is retried by the next ping.
+ */
+async function lockRaceAtFirstAid(log: FastifyBaseLogger, room: RaceRoom): Promise<void> {
+  const crossings = roomProjectionState.get(room.id)?.splitCrossedAt;
+  if (!crossings || !aidStationLockAt(room, crossings)) {
+    return;
+  }
+  try {
+    // Re-read so the write carries any room field saved since `room` was read.
+    const latest = (await getRaceRoom(room.id)) ?? room;
+    const lockedAt = aidStationLockAt(latest, crossings);
+    if (!lockedAt) {
+      return;
+    }
+    await saveRaceRoom({ ...latest, raceLockedAt: lockedAt });
+  } catch (err) {
+    log.warn({ err, roomId: room.id }, "race_lock_write_failed");
+  }
+}
+
 /** Route for PUT /course: prefer new overlay, else existing workspace driving layer. */
 function resolveRouteMetricPointsForCoursePut(
   room: RaceRoom,
@@ -3343,6 +3419,43 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ room: shaped, permissions });
   });
 
+  /**
+   * Rename the race. Same gates as a course save: race-setup editors, the runner on an unpaid race
+   * included, crew on an unpaid race 402. Open on a locked race (see raceLock.ts): a name is not
+   * the course. Crew clients pick the new name up on their next room or race-list read.
+   */
+  app.patch("/race-rooms/:roomId", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const viewer = request.identity.sub;
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    const membership = room.memberships.find((member) => member.userId === viewer);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+    if (!getPermissions(membership.role).canEditRaceSetup) {
+      return reply.code(403).send({ error: "Insufficient permissions" });
+    }
+    const entitlement = evaluateEntitlement(app, room, viewer, { allowUnpaidRunner: true });
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+    const parsed = renameRaceRoomInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Race name must be 1 to 80 characters." });
+    }
+    const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => ({ ...latest, name: parsed.data.name }));
+    if (!updatedRoom) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    return reply.send(roomForViewer(updatedRoom, viewer));
+  });
+
   app.put("/race-rooms/:roomId/course", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
@@ -3372,6 +3485,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const parsed = updateRaceCourseInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid course payload" });
+    }
+    // A used race keeps its route and start; aid-station edits on the same route go through.
+    if (coursePutRefusedByLock(room, parsed.data)) {
+      return raceLockedReply(reply);
     }
 
     const idemCourse = await beginIdempotentMutation(request, parsed.data);
@@ -3458,7 +3575,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     // deleteTaskBoard*/deleteWs* leaves boards/sync gone while the room is unchanged.
     // `room` was read before idempotency and the runtime load. Overlay the new course
     // onto the live room so a join in that gap stays on the roster.
-    const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+    let updatedRoom: RaceRoom | undefined;
+    try {
+    updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+      // Checked again under the room lock: a ping may have locked the race since the read above.
+      if (coursePutRefusedByLock(latest, parsed.data)) {
+        throw new RaceLockedError();
+      }
       previousAnchorIso = resolveRaceAnchorIso(latest);
       let next: RaceRoom = {
         ...latest,
@@ -3504,6 +3627,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       });
       return next;
     });
+    } catch (err) {
+      if (err instanceof RaceLockedError) {
+        await releaseBeforeReply();
+        return raceLockedReply(reply);
+      }
+      throw err;
+    }
     if (!updatedRoom) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -3569,6 +3699,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid race start payload" });
     }
+    // A used race keeps its start, give or take a delayed gun (raceStartChangeAllowed). Sending the
+    // stored start again is a no-op and goes through.
+    if (!raceStartChangeAllowed(room, parsed.data.raceStartAt, Date.now())) {
+      return raceLockedReply(reply);
+    }
 
     const idem = await beginIdempotentMutation(request, parsed.data);
     if (idem.kind === "replay") {
@@ -3597,10 +3732,22 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
       let previousAnchorIso: string | undefined;
       // The plan of record's clocks (finish, bands, aid ETAs) move with the start.
-      const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
-        previousAnchorIso = resolveRaceAnchorIso(latest);
-        return withRaceStart(latest, parsed.data.raceStartAt);
-      });
+      let updatedRoom: RaceRoom | undefined;
+      try {
+        updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+          if (!raceStartChangeAllowed(latest, parsed.data.raceStartAt, Date.now())) {
+            throw new RaceLockedError();
+          }
+          previousAnchorIso = resolveRaceAnchorIso(latest);
+          return withRaceStart(latest, parsed.data.raceStartAt);
+        });
+      } catch (err) {
+        if (err instanceof RaceLockedError) {
+          await releaseBeforeReply();
+          return raceLockedReply(reply);
+        }
+        throw err;
+      }
       if (!updatedRoom) {
         return reply.code(404).send({ error: "Race room not found" });
       }
@@ -3855,10 +4002,18 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     try {
       // Re-read under the lock. `room` was loaded before body parsing; saving it
       // whole drops a join that committed while this request was in flight.
-      updatedRoom = await commitRaceRoomUpdate(roomId, (latest) =>
-        applyRaceMapWorkspacePut(latest, parsed.data)
-      );
+      updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+        const next = applyRaceMapWorkspacePut(latest, parsed.data);
+        // A used race keeps its route line; layer, label and checkpoint edits go through.
+        if (isRaceLocked(latest, Date.now()) && routeLineSignature(next) !== routeLineSignature(latest)) {
+          throw new RaceLockedError();
+        }
+        return next;
+      });
     } catch (err) {
+      if (err instanceof RaceLockedError) {
+        return raceLockedReply(reply);
+      }
       const code = err instanceof Error ? err.message : "";
       if (
         code === "course_route_driver_layer_required" ||
@@ -4360,6 +4515,32 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ room: roomForViewer(updatedRoom, request.identity.sub) });
   });
 
+  /**
+   * The owner deletes the race for the whole crew. Same full delete as account deletion and the
+   * unpaid sweeper (lib/raceRoomDeletion.ts), so every room URL answers 404 afterwards.
+   */
+  app.delete("/race-rooms/:roomId", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const { roomId } = request.params as { roomId: string };
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    if (room.athleteId !== request.identity.sub) {
+      return reply.code(403).send({ error: "Only the race owner can delete the race" });
+    }
+
+    // Dynamic import: lib/raceRoomDeletion.ts imports this module.
+    const { deleteRaceRoomAndData } = await import("../lib/raceRoomDeletion.js");
+    await deleteRaceRoomAndData(roomId);
+    // Wakes the crew's open chat long-polls, which then find no room.
+    publishChatRoom(roomId, "membership");
+    return reply.send({ deleted: true });
+  });
+
   app.get("/teams/:teamId/race-rooms", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
@@ -4743,6 +4924,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     );
 
     await saveWs2RuntimeSnapshot(roomId);
+    await lockRaceAtFirstAid(request.log, latestRoom);
 
     // Pings to an unpaid race are 402 above; were that gate opened, the reply is still the teaser,
     // whose finish is from the start line, not from this ping's position.
@@ -4945,6 +5127,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         pingState.lastUploadIntervalSeconds
       );
       await saveWs2RuntimeSnapshot(roomId);
+      await lockRaceAtFirstAid(request.log, latestRoom);
 
       const counts = { accepted: 0, duplicate: 0, rejected: 0 };
       for (const result of results) {

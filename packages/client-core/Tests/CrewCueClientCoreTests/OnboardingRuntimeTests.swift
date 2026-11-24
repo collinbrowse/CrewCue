@@ -98,8 +98,11 @@ private var unpaidRace: [String: Any] { [
 private struct MineServer: HTTPTransport {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         guard request.url.path == "/race-rooms/mine" else { return HTTPResponse(status: 404, body: Data("{}".utf8)) }
-        let room = try #require((demoRoomObject()["room"]) as? [String: Any])
+        var room = try #require((demoRoomObject()["room"]) as? [String: Any])
+        room["pacingEstimateId"] = "est-1"
         var crew = room
+        crew["pacingEstimateId"] = nil
+        crew["pacingEstimate"] = nil
         crew["id"] = "r2"
         crew["athleteId"] = "someone"
         crew["course"] = nil
@@ -227,6 +230,7 @@ private struct DeleteMeServer: HTTPTransport {
     let rows = try #require(mine["races"] as? [[String: Any]])
     #expect(rows.compactMap { $0["entitlementStatus"] as? String } == ["unpaid", "paid"])
     #expect(rows.compactMap { $0["hasCourse"] as? Bool } == [true, false])
+    #expect(rows.compactMap { $0["hasEstimate"] as? Bool } == [true, false])
     #expect(rows.compactMap { $0["role"] as? String } == ["athlete", "crew_member"])
     #expect(rows.compactMap { $0["activatedAt"] as? String } == ["2026-08-14T12:00:00.000Z"])
 
@@ -237,6 +241,9 @@ private struct DeleteMeServer: HTTPTransport {
     ]))
     #expect(read["flow"] as? String == "crew")
     #expect(read["step"] as? String == "runnerLocation")
+    // The saved list keeps whether each race has an estimate (runner setup's history step reads it).
+    let saved = OnboardingStore(directory: OnboardingStore.directory(besideStorageRoot: URL(fileURLWithPath: storage, isDirectory: true)))
+    #expect(saved.load(userId: "runner-1").knownRaces?.map(\.hasEstimate) == [true, false])
 }
 
 @Test func onboardingRuntimeSharesToursAcrossRacesAndLocksUnpaidCrew() async throws {

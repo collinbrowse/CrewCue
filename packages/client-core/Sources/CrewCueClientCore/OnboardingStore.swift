@@ -295,6 +295,13 @@ public struct OnboardingStore: Sendable {
         try update(userId: userId) { $0.choice = choice }
     }
 
+    /// Forgets the runner or crew pick only: Back from the runner's first setup step opens the
+    /// chooser again, and every step marked so far stays.
+    @discardableResult
+    public func clearChoice(userId: String?) throws -> OnboardingProgress {
+        try update(userId: userId) { $0.choice = nil }
+    }
+
     /// Forgets the user's progress, or only one race's.
     public func reset(userId: String?, roomId: String? = nil) throws {
         if let roomId = roomId?.trimmingCharacters(in: .whitespacesAndNewlines), !roomId.isEmpty {

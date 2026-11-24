@@ -80,7 +80,7 @@ async function createPaidRoom(
   return roomId;
 }
 
-async function put50kCourse(app: TestApp, roomId: string, ownerToken: string) {
+async function put50kCourse(app: TestApp, roomId: string, ownerToken: string, raceStartAt = RACE_START_AT) {
   const fixture = load50kCourseWithAids();
   const response = await app.inject({
     method: "PUT",
@@ -89,7 +89,7 @@ async function put50kCourse(app: TestApp, roomId: string, ownerToken: string) {
       plannedPaceSecondsPerKm: fixture.plannedPaceSecondsPerKm,
       course: { checkpoints: fixture.checkpoints },
       routeOverlayLayer: fixture.routeOverlayLayer,
-      raceStartAt: RACE_START_AT,
+      raceStartAt,
     },
     headers: { authorization: `Bearer ${ownerToken}` },
   });
@@ -993,7 +993,10 @@ test("course PUT without a new route overlay keeps the attached estimate", async
       ownerToken,
       "start-only keeps estimate",
     );
-    const seeded = await put50kCourse(app, roomId, ownerToken);
+    // A start still ahead: a race past its start + 48 h is locked (lib/raceLock.ts).
+    const DAY_MS = 86_400_000;
+    const ahead = Math.floor(Date.now() / DAY_MS) * DAY_MS + 30 * DAY_MS;
+    const seeded = await put50kCourse(app, roomId, ownerToken, new Date(ahead).toISOString());
     const estimate = await createEstimateViaApi(app, ownerToken, seeded);
     assert.equal(
       (
@@ -1015,7 +1018,7 @@ test("course PUT without a new route overlay keeps the attached estimate", async
           checkpoints: attached.course.checkpoints,
           baselineTrack: attached.course.baselineTrack,
         },
-        raceStartAt: "2026-08-16T13:00:00.000Z",
+        raceStartAt: new Date(ahead + DAY_MS).toISOString(),
         courseFileName: attached.courseFileName,
       },
       headers: { authorization: `Bearer ${ownerToken}` },

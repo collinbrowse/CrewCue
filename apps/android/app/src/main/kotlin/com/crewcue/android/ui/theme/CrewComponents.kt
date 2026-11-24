@@ -319,13 +319,19 @@ fun CrewTextField(
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
     minLines: Int = 1,
-    keyboardOptions: KeyboardOptions = KeyboardOptions.Default
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    /** Shown in the empty field. */
+    placeholder: String? = null,
+    /** The line under the field, e.g. what the value is for. */
+    supportingText: String? = null
 ) {
     val colors = MaterialTheme.colorScheme
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
+        placeholder = placeholder?.let { { Text(it) } },
+        supportingText = supportingText?.let { { Text(it) } },
         singleLine = singleLine,
         minLines = minLines,
         keyboardOptions = keyboardOptions,

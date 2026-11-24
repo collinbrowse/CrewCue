@@ -36,7 +36,8 @@ import {
 
 type App = ReturnType<typeof buildApp>;
 
-const RACE_START_AT = "2026-08-15T13:00:00.000Z";
+// Ahead of today: a paid race 48 h past its start is locked (lib/raceLock.ts), and tests here move it.
+const RACE_START_AT = "2030-08-15T13:00:00.000Z";
 const ALL_CHECKPOINTS = ["start", "aid-1", "aid-2", "aid-3", "finish"];
 const MID_COURSE = ["aid-1", "aid-2", "aid-3"];
 const UNPAID_BODY = { error: "Race not unlocked", code: "room_unpaid" };

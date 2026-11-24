@@ -14,13 +14,14 @@ Start time: a local date and time in a chosen zone; a time that does not exist b
 
 Training history: the lead "CrewCue reads your pace on a past run, adjusted for its climbs, so your finish and aid station times fit how you run." and three tips: which run to pick (a recent race or long run the watch recorded), the formats the importer takes (.gpx, .fit or .tcx up to 10 MB, exported from a watch app), and that it is optional (Skip gives a rough estimate from the course alone; Settings > Past runs adds runs later). Import a file or skip.
 
-Projection teaser: the finish ETA only, with every aid station row locked until the race is unlocked.
+Projection teaser: the finish ETA only, with every aid station row locked until the race is unlocked. Its times, like the history step's comparison line, read in the race's zone (the start time's), with the zone's name under the finish ("Pacific Time") when it isn't the phone's.
 
-Back: the navigation bar's top-leading button (a chevron and "Back", spoken "Back"), the swipe from the leading edge and VoiceOver's escape open the previous step: teaser, history, start time, course, account. What was entered stays. From the account step they return to the chooser, and only while no race exists (on the dev link, to the app's own launch). Continue on a step reached with Back (or reopened by a relaunch) opens the next step until setup is back where it was, and saves only what changed (client-core `RunnerSetupSteps`):
+Back: a Back at the top leading edge, spoken "Back" (iOS: the navigation bar's chevron and the word Back; Android: the top app bar's arrow), plus the platform's back gestures (iOS: the swipe from the leading edge and VoiceOver's escape; Android: system Back and the predictive back gesture), opens the previous step: teaser, history, start time, course, account. What was entered stays. From the account step they return to the chooser, and only while no race exists (on the dev link, to the app's own launch). Continue on a step reached with Back (or reopened by a relaunch) opens the next step until setup is back where it was, and saves only what changed (client-core `RunnerSetupSteps`):
 
 - Course: a phone that doesn't hold the file (signed out and back in, another phone, a reinstall) shows "Course saved" (with the file's name when known) and Continue, and uploads nothing. The same file picked again isn't saved again (its content is compared). A file picked after going back replaces the course only once it previews; one that can't be read shows the error with Try again and Cancel, and Cancel keeps the course from before.
 - Start time: it shows the race's saved start (`raceStartAt`) when this phone never picked one. Left as saved, Continue moves on with no request and no course file. A start-only change is saved with `PATCH /race-rooms/:roomId/race-start`, which moves the estimate with the start. The course goes with the start (`PUT /course`) only when a new file was picked or the race has no course; that save drops the estimate, so the history step runs again, after a relaunch too.
 - History: Continue always shows, and keeps the race's estimate unless a course save dropped it or a run was imported on this visit. Skip still replaces it with a rough estimate.
+- History on a phone with no setup progress for the race (a reinstall, cleared app data, another phone, a sign-in on a new device): progress is kept per phone, so setup opens the history step again even though the race already has a course, a start and an estimate. When the race list shows an estimate on the race (`pacingEstimateId`), Continue shows there too, keeps that estimate with no request, and marks the step done on this phone, so setup doesn't open it again. Skip still replaces it with a rough estimate, and a run imported on this visit computes a new one. With no estimate on the race, the step offers Import and Skip, as on a first visit.
 
 A relaunch reopens the step that still has something to save: a file picked after going back (the course step, or the start time once its preview was confirmed), a start edited and not saved, or a history step whose estimate a course save dropped. It checks again when a fresh race list arrives, until it has reopened a step or the runner moves.
 
@@ -46,7 +47,7 @@ Offline. Setup needs the network. Your answers stay on this phone until you reco
 
 ## Accessibility labels
 - crewcue.onboarding-runner-setup
-- crewcue.onboarding.back (navigation bar, label "Back")
+- crewcue.onboarding.back (the top bar's Back: iOS navigation bar, Android top app bar; label "Back")
 - crewcue.onboarding.display-name (label "Your name")
 - crewcue.onboarding.race-name (the field, then the read-only name)
 - crewcue.onboarding.course-loading (label "Reading your course…" while a picked file is read, else "Loading")

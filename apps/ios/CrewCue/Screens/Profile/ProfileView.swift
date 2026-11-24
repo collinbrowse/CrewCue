@@ -40,8 +40,15 @@ struct ProfileTabPage: View {
                 onCreated: { roomId in
                     model.noteCreated(roomId: roomId)
                 },
+                onDeleted: { roomId in
+                    model.noteDeleted(roomId: roomId)
+                },
                 onName: { [weak model] name in
                     model?.updateDisplayName(name)
+                },
+                opensRename: model.route.featureId == "race-rename",
+                onRenamed: { [weak model] roomId, name in
+                    model?.noteRenamed(roomId: roomId, name: name)
                 }
             )
         }
@@ -64,7 +71,11 @@ struct ProfileView: View {
     var onJoin: () -> Void
     var onRacePass: () -> Void = {}
     var onCreated: @MainActor (String) -> Void
+    var onDeleted: @MainActor (String) -> Void = { _ in }
     var onName: @MainActor (String) -> Void
+    /// `crewcue://dev/race-rename`: open the rename alert once the room has loaded.
+    var opensRename = false
+    var onRenamed: @MainActor (String, String) -> Void = { _, _ in }
     @Environment(\.crew) private var theme
     @Environment(\.colorScheme) private var scheme
 
@@ -114,8 +125,30 @@ struct ProfileView: View {
                         CrewSectionHeader(title: "Race & crew")
                         CrewListRow(systemImage: "person.3", title: "Room members", detail: "Your crew for this race", action: onMembers)
                         CrewListRow(systemImage: "exclamationmark.bubble", title: "Incidents", detail: "Log and review race incidents", action: onIncidents)
+                        if canRename {
+                            CrewListRow(
+                                systemImage: "pencil",
+                                title: RaceRenameCopy.rowTitle,
+                                detail: RaceRenameCopy.rowDetail,
+                                action: { model.beginRename(currentName: activeRaceName) }
+                            )
+                            .accessibilityIdentifier("crewcue.race-rename")
+                        }
                         if role == "athlete" {
                             CrewListRow(systemImage: "ticket", title: "Race Pass", detail: "Unlock this race for your crew", action: onRacePass)
+                        }
+                        if let activeRace, activeRace.isOwned(by: userId) {
+                            CrewListRow(
+                                systemImage: "trash",
+                                title: RaceDeletion.rowTitle,
+                                detail: RaceDeletion.rowDetail,
+                                tint: theme.danger
+                            ) {
+                                model.confirmDelete(activeRace)
+                            }
+                            .disabled(model.deletingRaceId != nil)
+                            .accessibilityIdentifier("crewcue.race-delete")
+                            .accessibilityLabel(RaceDeletion.rowTitle)
                         }
                     }
                     .crewGlassCard()
@@ -134,13 +167,25 @@ struct ProfileView: View {
                     if races.isEmpty == false {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(races, id: \.id) { race in
-                                ProfileRaceRow(race: race, active: race.id == roomId) {
+                                ProfileRaceRow(
+                                    race: race,
+                                    active: race.id == roomId,
+                                    canDelete: race.isOwned(by: userId),
+                                    deleting: model.deletingRaceId == race.id,
+                                    onDelete: { model.confirmDelete(race) }
+                                ) {
                                     onSelectRace(race.id)
                                 }
                             }
                         }
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("crewcue.race-switcher")
+                    }
+                    if model.deleteMessage.isEmpty == false {
+                        Text(verbatim: model.deleteMessage)
+                            .font(CrewFont.body)
+                            .foregroundStyle(theme.body)
+                            .accessibilityIdentifier("crewcue.race-delete.message")
                     }
                     if racesMessage.isEmpty == false {
                         Text(verbatim: racesMessage)
@@ -169,9 +214,60 @@ struct ProfileView: View {
         .scrollIndicators(.hidden)
         .accessibilityIdentifier("crewcue.profile")
         .accessibilityLabel("Profile")
+        .alert(
+            RaceDeletion.confirmTitle(raceName: model.pendingDelete?.name ?? ""),
+            isPresented: deleteConfirmShown,
+            presenting: model.pendingDelete
+        ) { race in
+            Button(RaceDeletion.confirmButton, role: .destructive) {
+                Task { await model.delete(race, onDeleted: onDeleted) }
+            }
+            .accessibilityIdentifier("crewcue.race-delete.confirm")
+            Button(RaceDeletion.cancelButton, role: .cancel) {
+                model.pendingDelete = nil
+            }
+        } message: { race in
+            Text(RaceDeletion.confirmBody(paid: race.paid ?? false))
+        }
         .task(id: activationID) {
             await model.activate(userId: userId, roomId: roomId, displayName: displayName, onName: onName)
+            if opensRename, canRename {
+                model.beginRename(currentName: activeRaceName)
+            }
         }
+        .alert(RaceRenameCopy.rowTitle, isPresented: $model.showsRename) {
+            TextField("Race name", text: $model.renameDraft)
+                .accessibilityLabel("Race name")
+            Button("Save") {
+                Task { await model.renameRace(onRenamed: onRenamed) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your crew sees the new name. Up to \(RaceName.maxLength) characters.")
+        }
+    }
+
+    private var canRename: Bool {
+        hasRoom && PlanAuthority.mayEditRaceSetup(role: role ?? "")
+    }
+
+    private var activeRaceName: String {
+        races.first { $0.id == roomId }?.name ?? ""
+    }
+
+    private var activeRace: RaceSummary? {
+        races.first { $0.id == roomId }
+    }
+
+    /// Dismissing the dialog (Cancel, or a tap outside) forgets the race. The delete button clears
+    /// it itself before the request starts.
+    private var deleteConfirmShown: Binding<Bool> {
+        Binding(
+            get: { model.pendingDelete != nil },
+            set: { shown in
+                if shown == false { model.pendingDelete = nil }
+            }
+        )
     }
 
     private var hasRoom: Bool {
@@ -185,13 +281,35 @@ struct ProfileView: View {
 }
 
 /// One loaded race. Tapping it makes it the race Map, Pace, Chat, and Profile follow.
+/// The owner's races also get a delete button and a context menu entry; crew rows do not.
 struct ProfileRaceRow: View {
     let race: RaceSummary
     let active: Bool
+    var canDelete = false
+    var deleting = false
+    var onDelete: () -> Void = {}
     let action: () -> Void
     @Environment(\.crew) private var theme
 
     var body: some View {
+        HStack(spacing: CrewSpace.stackSm) {
+            selectButton
+            if canDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .foregroundStyle(theme.danger)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(deleting)
+                .accessibilityLabel(Text(verbatim: "Delete \(race.name)"))
+                .accessibilityIdentifier("crewcue.race-delete.\(race.id)")
+            }
+        }
+    }
+
+    private var selectButton: some View {
         Button(action: action) {
             HStack(spacing: CrewSpace.stackSm) {
                 IconDisc(systemImage: active ? "flag.checkered" : "flag", tint: active ? theme.primary : nil)
@@ -218,6 +336,11 @@ struct ProfileRaceRow: View {
         .accessibilityValue(active ? Text("Active race") : Text(""))
         .accessibilityAddTraits(active ? .isSelected : [])
         .accessibilityIdentifier("crewcue.race-switcher.\(race.id)")
+        .contextMenu {
+            if canDelete {
+                Button(RaceDeletion.rowTitle, systemImage: "trash", role: .destructive, action: onDelete)
+            }
+        }
     }
 }
 

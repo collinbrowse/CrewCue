@@ -6,7 +6,7 @@ import Foundation
 ///   invite's token or code; left out, the saved pending join's code; `hasPendingInvite: true`
 ///   with no code saved is an invite that can't be confirmed signed out), `races?` (rows from
 ///   `myRaces`: `id`, `role`, `entitlementStatus`,
-///   `raceStartAt?`, `activatedAt?`, `hasCourse`), `activeRoomId?`. Leave `races` out (or null)
+///   `raceStartAt?`, `activatedAt?`, `hasCourse`, `hasEstimate?`), `activeRoomId?`. Leave `races` out (or null)
 ///   while `myRaces` hasn't answered: the state then follows the list saved by the last read that
 ///   had one, or is `loading` when there is none. A signed-in read adopts the signed-out guest's
 ///   progress and saves a loaded list.
@@ -18,7 +18,9 @@ import Foundation
 ///   Existing accounts: with no saved progress at all, the first loaded list that has a paid
 ///   race marks both tours done. A crew member's unpaid race answers `flow: raceLocked` with a
 ///   `reason`, `showsTabBar: true` and no tour.
-/// - `resetOnboarding`: forgets the user's progress, or one race's with `roomId`.
+/// - `resetOnboarding`: forgets the user's progress, or one race's with `roomId`. With
+///   `choiceOnly: true` it forgets only the runner or crew pick (Back from the runner's first
+///   setup step), and every marked step stays.
 ///
 /// The pending invite: one per device, expiring after 7 days, and one user's at a time. Every op
 /// below reads and saves it as the request's user (`userId`, signed out when it is blank or
@@ -103,6 +105,9 @@ extension RuntimeCall {
     static func resetOnboarding(_ object: [String: Any]) throws -> Any {
         let store = try onboardingStore(object)
         let userId = onboardingSignedIn(object) ? text(object, "userId") : nil
+        if boolValue(object["choiceOnly"]) == true {
+            return ["progress": try store.clearChoice(userId: userId).jsonObject]
+        }
         try store.reset(userId: userId, roomId: text(object, "roomId"))
         return ["progress": store.load(userId: userId).jsonObject]
     }
@@ -207,7 +212,8 @@ extension RuntimeCall {
                 role: text(row, "role") ?? "crew_member",
                 entitlementStatus: entitlement ?? "unpaid",
                 raceStartAt: OnboardingRace.raceClockStart(raceStartAt: text(row, "raceStartAt"), activatedAt: text(row, "activatedAt")),
-                hasCourse: boolValue(row["hasCourse"]) ?? false
+                hasCourse: boolValue(row["hasCourse"]) ?? false,
+                hasEstimate: boolValue(row["hasEstimate"]) ?? false
             )
         }
     }

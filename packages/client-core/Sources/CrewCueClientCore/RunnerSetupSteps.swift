@@ -199,16 +199,22 @@ public enum RunnerSetupSteps {
 
     // MARK: History
 
-    /// Continue shows on the history step once a past run was imported on this visit, and always
-    /// on a reviewed history step (the estimate it attached before still holds).
-    public static func historyShowsContinue(reviewing: Bool, importedThisVisit: Bool) -> Bool {
-        reviewing || importedThisVisit
+    /// Continue shows on the history step once a past run was imported on this visit, always on a
+    /// reviewed history step (the estimate it attached before still holds), and on a race that
+    /// already has an estimate: a phone with no setup progress for it (a reinstall, another
+    /// phone, a sign-in on a new device) still keeps the estimate the step attached there.
+    public static func historyShowsContinue(reviewing: Bool, importedThisVisit: Bool, raceHasEstimate: Bool) -> Bool {
+        reviewing || importedThisVisit || raceHasEstimate
     }
 
     /// What the history step's Continue does.
-    public enum HistoryContinue: Equatable, Sendable {
+    public enum HistoryContinue: String, Equatable, Sendable {
         /// Keep the estimate the race has: the one attached on this visit, or a reviewed step's.
+        /// No request; the step stays marked as it was, or is marked with the attach on this visit.
         case moveOn
+        /// Keep the estimate the race already has, on a phone that never ended the step: no
+        /// request, and the step is marked done here so setup doesn't open it again.
+        case keepRaceEstimate
         /// Compute and attach an estimate (`POST /pacing-estimates`, `PUT …/pacing-estimate`).
         case recompute
     }
@@ -217,15 +223,25 @@ public enum RunnerSetupSteps {
     ///   - estimateDropped: a course save after the history step dropped the estimate it attached.
     ///   - importedThisVisit: a past run was imported since the step opened.
     ///   - attachedThisVisit: the comparison attached an estimate with history since the step opened.
+    ///   - raceHasEstimate: the race list says the race has an estimate (`OnboardingRace.hasEstimate`).
     public static func historyContinue(
         reviewing: Bool,
         estimateDropped: Bool,
         importedThisVisit: Bool,
-        attachedThisVisit: Bool
+        attachedThisVisit: Bool,
+        raceHasEstimate: Bool
     ) -> HistoryContinue {
         if attachedThisVisit { return .moveOn }
-        if reviewing, !estimateDropped, !importedThisVisit { return .moveOn }
-        return .recompute
+        if estimateDropped || importedThisVisit { return .recompute }
+        if reviewing { return .moveOn }
+        return raceHasEstimate ? .keepRaceEstimate : .recompute
+    }
+
+    /// Continue marks the history step on this phone: it computed an estimate, the comparison
+    /// attached one on this visit, or it keeps the race's on a phone that never ended the step.
+    /// Moving on over a reviewed, unchanged step keeps how it was marked before.
+    public static func historyContinueMarks(_ action: HistoryContinue, attachedThisVisit: Bool) -> Bool {
+        action != .moveOn || attachedThisVisit
     }
 
     // MARK: Relaunch
