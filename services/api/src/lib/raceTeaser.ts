@@ -23,6 +23,7 @@ import {
   finishCheckpointIndex,
   hasUsableBaselineTrack,
   plannedElapsedSecondsForDistance,
+  routeEndFinishRowId,
   withinCourseLength
 } from "./raceProjection.js";
 import { withEffectiveRaceLock } from "./raceLock.js";
@@ -65,12 +66,20 @@ function finiteDistance(checkpoint: RaceCourseCheckpoint): number | undefined {
   return typeof distance === "number" && Number.isFinite(distance) ? distance : undefined;
 }
 
-/** The start (first in course order), the finish (last) and every checkpoint between them, locked. */
-export function teaserCheckpointsOf(room: RaceRoom): TeaserCheckpoints {
-  const ordered = courseOrder(room.course?.checkpoints ?? []);
+/**
+ * The start (first in course order), the finish (last) and every checkpoint between them, locked.
+ * With `courseLengthMeters`, a course with no finish checkpoint (no finish waypoint) has its
+ * finish at the route's end, the schedule's route-end finish row (`routeEndFinishRowId`): its last
+ * aid station is between the start and the finish, so it is locked too.
+ */
+export function teaserCheckpointsOf(room: RaceRoom, courseLengthMeters?: number): TeaserCheckpoints {
+  const checkpoints = room.course?.checkpoints ?? [];
+  const ordered = courseOrder(checkpoints);
   const start = ordered[0];
-  const finish = ordered.length >= 2 ? ordered[ordered.length - 1] : undefined;
-  const shown = new Set([start?.id, finish?.id].filter((id): id is string => id !== undefined));
+  const routeEndFinishId =
+    courseLengthMeters !== undefined && courseLengthMeters > 0 ? routeEndFinishRowId(checkpoints, courseLengthMeters) : undefined;
+  const finishId = routeEndFinishId ?? (ordered.length >= 2 ? ordered[ordered.length - 1]!.id : undefined);
+  const shown = new Set([start?.id, finishId].filter((id): id is string => id !== undefined));
   const locked: string[] = [];
   for (const checkpoint of ordered) {
     if (!shown.has(checkpoint.id) && !locked.includes(checkpoint.id)) {
@@ -79,7 +88,7 @@ export function teaserCheckpointsOf(room: RaceRoom): TeaserCheckpoints {
   }
   return {
     ...(start ? { startCheckpointId: start.id } : {}),
-    ...(finish ? { finishCheckpointId: finish.id } : {}),
+    ...(finishId !== undefined ? { finishCheckpointId: finishId } : {}),
     lockedCheckpointIds: locked
   };
 }
@@ -109,7 +118,7 @@ export function teaserProjection(projection: RaceRoomProjection, room: RaceRoom)
     ...projection,
     checkpointSplits: [],
     ...(projection.remainingCheckpointEtas ? { remainingCheckpointEtas: [] } : {}),
-    locked: { checkpointIds: teaserCheckpointsOf(room).lockedCheckpointIds },
+    locked: { checkpointIds: teaserCheckpointsOf(room, projection.courseLengthMeters).lockedCheckpointIds },
     etaFinishPlanIso: startLineFinishIso(projection, room)
   };
   delete shaped.etaFinishWindow;
@@ -171,10 +180,12 @@ function startLineFinishIso(projection: RaceRoomProjection, room: RaceRoom): str
  * Schedule teaser: the start and finish stops only. Build `sheet` from `teaserScheduleRoom(room)`
  * (the finish-only plan, the finish at the course length, the plan curve collapsed to its finish),
  * so the two rows it keeps read the finish ETA alone: a course re-saved so a priced stop is its
- * first or last row would otherwise carry that stop's ETA.
+ * first or last row would otherwise carry that stop's ETA. On a course with no finish waypoint the
+ * finish stop is the route-end finish row, and the last aid is locked. Pass the course length the
+ * sheet was built with.
  */
-export function teaserScheduleSheet(sheet: CrewScheduleSheet, room: RaceRoom): CrewScheduleSheet {
-  const { startCheckpointId, finishCheckpointId, lockedCheckpointIds } = teaserCheckpointsOf(room);
+export function teaserScheduleSheet(sheet: CrewScheduleSheet, room: RaceRoom, courseLengthMeters: number): CrewScheduleSheet {
+  const { startCheckpointId, finishCheckpointId, lockedCheckpointIds } = teaserCheckpointsOf(room, courseLengthMeters);
   const shown = new Set([startCheckpointId, finishCheckpointId].filter((id): id is string => id !== undefined));
   return {
     ...sheet,
@@ -188,19 +199,19 @@ export function teaserScheduleSheet(sheet: CrewScheduleSheet, room: RaceRoom): C
  * the finish checkpoint placed at `courseLengthMeters` and the plan curve collapsed to two points,
  * 0 m at 0 s and `courseLengthMeters` at the curve's value there, instead of dropped. The finish
  * row then reads the race's finish at the course end (the attached plan's, else the curve's value
- * there, as the teaser projection reads it), never a priced stop's ETA, also when the checkpoints
- * stop short of the route's end: there the row stands in for the finish past it, and is built
- * with `teaserFinishStandInId` so it arrives after its own stop. Nothing between the start and
- * the finish reads more than a straight line to that finish. The sheet never carries the curve.
- * Without a usable curve it is dropped, as in `teaserRoom`. Pass `courseLengthOf(room, route)`,
- * the length the projection and an unpaid compute read the finish at.
+ * there, as the teaser projection reads it), never a priced stop's ETA, also when a finish
+ * waypoint stops short of the route's end. On a course with no finish waypoint no checkpoint
+ * moves: the schedule's route-end finish row is the finish (`routeEndFinishRowId`). Nothing
+ * between the start and the finish reads more than a straight line to that finish. The sheet
+ * never carries the curve. Without a usable curve it is dropped, as in `teaserRoom`. Pass
+ * `courseLengthOf(room, route)`, the length the projection and an unpaid compute read the finish at.
  */
 export function teaserScheduleRoom(room: RaceRoom, courseLengthMeters: number): RaceRoom {
   const shaped = teaserRoom(room);
   if (!shaped.course || !(courseLengthMeters > 0)) {
     return shaped;
   }
-  const { finishCheckpointId } = teaserCheckpointsOf(room);
+  const { finishCheckpointId } = teaserCheckpointsOf(room, courseLengthMeters);
   const checkpoints = shaped.course.checkpoints.map((checkpoint) => {
     const distance = finiteDistance(checkpoint);
     return checkpoint.id === finishCheckpointId && distance !== undefined && distance < courseLengthMeters
@@ -228,20 +239,6 @@ export function teaserScheduleRoom(room: RaceRoom, courseLengthMeters: number): 
     shaped.course.baselineTrack = collapsed;
   }
   return shaped;
-}
-
-/**
- * The teaser's finish row on a course with no finish checkpoint (`finishCheckpointIndex` is -1:
- * the checkpoints stop short of the route's end and none is marked the finish): the farthest
- * checkpoint, which `teaserScheduleRoom` places at the course end. Its row stands in for the
- * finish past it, so it arrives after its own stop, as the projection and the teaser projection
- * count every stop toward the finish there, and paying shows the same finish. Undefined when a
- * checkpoint is the finish (its own stop is after the finish line) or there is no finish row.
- */
-export function teaserFinishStandInId(room: RaceRoom, courseLengthMeters: number): string | undefined {
-  const { finishCheckpointId } = teaserCheckpointsOf(room);
-  if (finishCheckpointId === undefined) return undefined;
-  return finishCheckpointIndex(room.course?.checkpoints ?? [], courseLengthMeters) < 0 ? finishCheckpointId : undefined;
 }
 
 function belongsTo(room: RaceRoom, userId: string): boolean {

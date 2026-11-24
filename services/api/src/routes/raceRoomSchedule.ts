@@ -12,7 +12,7 @@ import type {
   ScheduleStopNotesRef
 } from "@crewcue/contracts";
 import { parsePacingEstimate } from "@crewcue/contracts";
-import { finishCheckpointIndex, plannedElapsedSecondsForDistance } from "../lib/raceProjection.js";
+import { finishCheckpointIndex, plannedElapsedSecondsForDistance, routeEndFinishRowId } from "../lib/raceProjection.js";
 import { compareProjectedArrivalToCutoff } from "../lib/cutoffWarning.js";
 import {
   getPacingEstimateById,
@@ -30,7 +30,6 @@ import {
   estimateCourseLengthMeters,
   finishOnlyEstimate,
   isTeaserRoom,
-  teaserFinishStandInId,
   teaserScheduleRoom,
   teaserScheduleSheet
 } from "../lib/raceTeaser.js";
@@ -73,13 +72,6 @@ export type ProjectCrewScheduleSheetOptions = {
    * overlays still stack on later clocks.
    */
   pacingEstimate?: PacingEstimate;
-  /**
-   * A checkpoint whose row stands in for the finish line past it: an unpaid race's finish row on
-   * a course with no finish waypoint (`teaserFinishStandInId`), which `teaserScheduleRoom` places
-   * at the course end. Its arrival is the finish's, after its own stop, as the projection counts
-   * every stop toward the finish on such a course.
-   */
-  finishStandInCheckpointId?: string;
 };
 
 /**
@@ -223,8 +215,8 @@ export function setScheduleProjectionLoaderForTests(loader?: ScheduleProjectionL
  * The plan's finish goes on the finish checkpoint (`finishCheckpointIndex`, as the projection
  * reads it): the farthest, when it is at the course's end or marked as the finish. A course file
  * with no finish waypoint stops short of the route's end, and its farthest checkpoint is an aid
- * station: it keeps its own ETA (or its interpolation), and the finish is read from the estimate
- * and the projection, not from that row.
+ * station: it keeps its own ETA (or its interpolation), and the plan's finish goes on the
+ * schedule's route-end finish row (`projectCrewScheduleSheet`), not on that aid's row.
  */
 export function movingElapsedSecondsFromEstimate(
   estimate: PacingEstimate,
@@ -316,10 +308,11 @@ export function movingElapsedSecondsFromEstimate(
  * Build a crew schedule sheet from live checkpoints + stop-plan overlays + closed check-ins.
  * Clock policy:
  * - Moving time from distance/pace (or estimate plan-of-record); a stop’s own stoppage/delay/actual
- *   does not shift its arrival (except a row standing in for the finish past it,
- *   `finishStandInCheckpointId`).
+ *   does not shift its arrival.
  * - The course length is the projection's (`scheduleCourseLengthMeters`), and the finish row
- *   (`finishCheckpointIndex`) reads the plan's finish there, with or without an estimate.
+ *   (`finishCheckpointIndex`) reads the plan's finish there, with or without an estimate. A course
+ *   with no finish checkpoint gets a finish row at the route's end (`routeEndFinishRowId`), after
+ *   every stop; its `checkpointId` names no checkpoint of the course.
  * - Later arrivals add cumulative prior planned stoppage + delay overrides, unless a **closed** visit
  *   exists at a prior stop — then that stop contributes `actualStopSeconds` instead
  *   (equiv. shift delta = actual − plannedStoppage − delayOverride; no double-count of delay).
@@ -394,9 +387,7 @@ export function projectCrewScheduleSheet(
     );
     // Closed visit replaces planned+delay (delta = actual − planned − delay). Incomplete → plan path.
     const stopContribution = closedActual !== undefined ? closedActual : plannedContribution;
-    // A row standing in for the finish past it arrives after its own stop, as the finish does.
-    const ownStopBeforeArrival = checkpoint.id === options?.finishStandInCheckpointId ? stopContribution : 0;
-    const elapsedSeconds = movingSeconds + cumulativePriorStoppageSeconds + ownStopBeforeArrival;
+    const elapsedSeconds = movingSeconds + cumulativePriorStoppageSeconds;
     const notes = notesRefFromOverlay(overlay);
     const clockArrivalAt = new Date(raceStartMs + elapsedSeconds * 1000).toISOString();
     const stop: ScheduleStop = {
@@ -426,6 +417,33 @@ export function projectCrewScheduleSheet(
     stops.push(stop);
 
     cumulativePriorStoppageSeconds += stopContribution;
+  }
+
+  // A course with no finish checkpoint (no finish waypoint: its checkpoints stop at the last aid
+  // station, short of the route's end) gets a finish row at the end of the route, after every
+  // stop, the last aid's too, where the projection reads the finish. The last aid keeps its own
+  // ETA, and the timeline's last row is the finish, not that aid.
+  const routeEndFinishId = routeEndFinishRowId(ordered, courseLengthMeters);
+  if (routeEndFinishId !== undefined) {
+    const movingSeconds =
+      estimate?.expectedFinishElapsedSeconds ??
+      Math.round(
+        plannedElapsedSecondsForDistance({
+          distanceMetersFromStart: courseLengthMeters,
+          plannedPaceSecondsPerKm,
+          baselineTrack: course.baselineTrack,
+          courseLengthMeters
+        })
+      );
+    const elapsedSeconds = movingSeconds + cumulativePriorStoppageSeconds;
+    stops.push({
+      id: `stop-${routeEndFinishId}`,
+      checkpointId: routeEndFinishId,
+      clockArrivalAt: new Date(raceStartMs + elapsedSeconds * 1000).toISOString(),
+      elapsedSeconds,
+      movingElapsedSeconds: movingSeconds,
+      plannedStoppageSeconds: 0
+    });
   }
 
   const sheet: CrewScheduleSheet = {
@@ -479,6 +497,58 @@ async function loadProvenanceRooms(stored: StoredPacingEstimate, targetRoomId: s
     if (room && room.id === id) rooms.push(room);
   }
   return rooms;
+}
+
+/**
+ * The plan curve of a plan stored without one: 0 s at the start, each aid ETA at its checkpoint,
+ * and the plan's finish at the course length (`scheduleCourseLengthMeters`, where the schedule's
+ * finish row reads it), so the projection reads the plan the schedule reads. An aid ETA that does
+ * not fall strictly between its neighbours (out of order, or past the course end) is left out.
+ * Undefined when there is no course, no course length or no finish to anchor.
+ *
+ * Without it, attaching such a plan keeps the course's own curve (the route model's, put there by
+ * the course save), and the projection's finish, paid and unpaid, read that curve while the
+ * schedule's finish row read the plan.
+ */
+export function planCurveFromEstimate(estimate: PacingEstimate, room: RaceRoom): RaceCourseBaselineTrack | undefined {
+  const checkpoints = room.course?.checkpoints;
+  const finishSeconds = estimate.expectedFinishElapsedSeconds;
+  if (!checkpoints || checkpoints.length < 2 || !(Number.isFinite(finishSeconds) && finishSeconds > 0)) {
+    return undefined;
+  }
+  let courseLengthMeters: number;
+  try {
+    courseLengthMeters = scheduleCourseLengthMeters(room, checkpoints);
+  } catch {
+    return undefined;
+  }
+  if (!(Number.isFinite(courseLengthMeters) && courseLengthMeters > 0)) {
+    return undefined;
+  }
+  const byId = new Map(checkpoints.map((checkpoint) => [checkpoint.id, checkpoint.distanceMetersFromStart]));
+  const anchors = estimate.aidEtas
+    .map((eta) => ({ distanceMetersFromStart: byId.get(eta.checkpointId), referenceElapsedSeconds: eta.elapsedSeconds }))
+    .filter(
+      (point): point is { distanceMetersFromStart: number; referenceElapsedSeconds: number } =>
+        typeof point.distanceMetersFromStart === "number" &&
+        Number.isFinite(point.distanceMetersFromStart) &&
+        Number.isFinite(point.referenceElapsedSeconds)
+    )
+    .sort((a, b) => a.distanceMetersFromStart - b.distanceMetersFromStart);
+  const points: RaceCourseBaselineTrack["points"] = [{ distanceMetersFromStart: 0, referenceElapsedSeconds: 0 }];
+  for (const anchor of anchors) {
+    const last = points[points.length - 1]!;
+    if (
+      anchor.distanceMetersFromStart > last.distanceMetersFromStart + 1 &&
+      anchor.distanceMetersFromStart < courseLengthMeters - 1 &&
+      anchor.referenceElapsedSeconds > last.referenceElapsedSeconds &&
+      anchor.referenceElapsedSeconds < finishSeconds
+    ) {
+      points.push(anchor);
+    }
+  }
+  points.push({ distanceMetersFromStart: courseLengthMeters, referenceElapsedSeconds: finishSeconds });
+  return { points };
 }
 
 /**
@@ -663,7 +733,10 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         if (courseMismatch(latest)) {
           throw new CourseMismatchError();
         }
-        const derivedPlannedPace = derivePlannedPaceSecondsPerKm(estimate, storedBaseline, latest);
+        // A plan stored without a curve brings one built from its own ETAs, so the course's
+        // route-model curve does not stay under it (`planCurveFromEstimate`).
+        const planCurve = storedBaseline ?? planCurveFromEstimate(estimate, latest);
+        const derivedPlannedPace = derivePlannedPaceSecondsPerKm(estimate, planCurve, latest);
         // The plan's clocks are this race's start plus its elapsed seconds, as PATCH /race-start
         // and a course save keep them: an estimate computed before the start moved keeps its
         // elapsed plan and takes the start as it is now.
@@ -675,10 +748,10 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
           ...(derivedPlannedPace !== undefined && derivedPlannedPace > 0
             ? { plannedPaceSecondsPerKm: derivedPlannedPace }
             : {}),
-          ...(storedBaseline
+          ...(planCurve
             ? {
                 course: latest.course
-                  ? { ...latest.course, baselineTrack: storedBaseline }
+                  ? { ...latest.course, baselineTrack: planCurve }
                   : latest.course
               }
             : {})
@@ -747,18 +820,16 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       // A teaser sheet is built from the finish-only plan, the finish at the course length and the
       // plan curve collapsed to its finish, so the start and finish rows it keeps read the finish
       // alone, the same finish the teaser projection shows (see `teaserScheduleRoom`,
-      // `teaserScheduleSheet`). On a course with no finish waypoint its finish row stands in for
-      // the finish past it, after its own stop (`teaserFinishStandInId`). The course length is the
-      // projection's (the route's on a legacy room with no stored length), as on a paid sheet.
+      // `teaserScheduleSheet`). On a course with no finish waypoint its finish row is the
+      // route-end finish row, as on a paid sheet. The course length is the projection's (the
+      // route's on a legacy room with no stored length), as on a paid sheet.
       const courseLengthMeters = scheduleCourseLengthMeters(room, room.course.checkpoints);
       const source = teaser ? teaserScheduleRoom(room, courseLengthMeters) : room;
-      const finishStandInCheckpointId = teaser ? teaserFinishStandInId(room, courseLengthMeters) : undefined;
       const sheet = projectCrewScheduleSheet(source, {
         closedActualStopSecondsByCheckpointId: closedActuals,
-        pacingEstimate: source.pacingEstimate,
-        ...(finishStandInCheckpointId !== undefined ? { finishStandInCheckpointId } : {})
+        pacingEstimate: source.pacingEstimate
       });
-      return reply.send(teaser ? teaserScheduleSheet(sheet, room) : sheet);
+      return reply.send(teaser ? teaserScheduleSheet(sheet, room, courseLengthMeters) : sheet);
     } catch (error) {
       const message = error instanceof Error ? error.message : "schedule_projection_failed";
       if (message === "checkpoint_distance_meters_from_start_required") {

@@ -54,6 +54,7 @@ import {
 } from "@crewcue/map-core";
 import {
   hasUsableBaselineTrack,
+  nextVisitIndex,
   type ProjectionPing,
   type LiveRatioAccumulator,
   type ProjectionPreviousState,
@@ -1306,6 +1307,43 @@ async function reseedPreRaceProjection(roomId: string, room: RaceRoom): Promise<
   }
 }
 
+/**
+ * Whether the stored projection was driven by pings that are pre-start: a ping drove it (it is not
+ * the bootstrap), and the room's latest accepted ping is before the race start, so every accepted
+ * ping is. A server from before pre-start pings were ignored folded a runner's test pings into the
+ * projection and stored it; nothing since has replaced it while the race has no race ping.
+ */
+function hasStalePreStartProjection(roomId: string, room: RaceRoom): boolean {
+  const stored = roomProjectionState.get(roomId);
+  const last = roomPingState.get(roomId)?.lastAccepted;
+  return Boolean(
+    stored && stored.lastProjectionCore.asOfPingId !== BOOTSTRAP_PING_ID && last && isPreStartPing(room, last.recordedAtMs)
+  );
+}
+
+/**
+ * A read of the projection re-seeds a stale pre-start one (`hasStalePreStartProjection`) and saves
+ * it, so a race created before pre-start pings were ignored reads what a race created since reads:
+ * the projection at the start, with only the crew's check-ins kept (`reseedPreRaceProjection`),
+ * and no upload interval adopted from a test ping. Takes the room runtime lock only when there is
+ * something to re-seed, and checks again under it; callers must not hold it.
+ */
+async function reseedStalePreStartProjectionOnRead(roomId: string, room: RaceRoom): Promise<void> {
+  if (!hasStalePreStartProjection(roomId, room)) {
+    return;
+  }
+  await withRoomRuntimeLock(roomId, async () => {
+    await loadWs2RuntimeIfNeeded(roomId);
+    const latest = await getRaceRoom(roomId);
+    if (!latest || !hasStalePreStartProjection(roomId, latest)) {
+      return;
+    }
+    await reseedPreRaceProjection(roomId, latest);
+    delete getOrInitPingState(roomId).lastUploadIntervalSeconds;
+    await saveWs2RuntimeSnapshot(roomId);
+  });
+}
+
 type TaskBoardMaterializedPayload = {
   checkpointPlans: CheckpointPlan[];
   tasks: CrewTask[];
@@ -2315,6 +2353,9 @@ export async function removeMemberForAccountDeletion(
 export async function getProjectionViewForRoom(roomId: string): Promise<RaceRoomProjection | undefined> {
   await loadWs2RuntimeIfNeeded(roomId);
   const room = await getRaceRoom(roomId);
+  if (room) {
+    await reseedStalePreStartProjectionOnRead(roomId, room);
+  }
   let stored = roomProjectionState.get(roomId);
   if (!stored && room) {
     await ensureBootstrapProjection(roomId, room, true);
@@ -2343,19 +2384,20 @@ function checkpointSplitHasVisitLog(split: RaceCheckpointSplitRow): boolean {
 }
 
 /**
- * The crew's check-ins in a projection's splits: the visits with a `manualEntry`, renumbered,
- * without their auto-detected part, each one the crew's (`manual_crew`). Splits with none are
- * left out. Before the race's first ping these are the only visits that count: an auto visit,
- * and the auto part of a check-in entered over one, came from pings that are pre-start now.
+ * The crew's check-ins in a projection's splits: the visits with a `manualEntry`, without their
+ * auto-detected part, each one the crew's (`manual_crew`). Splits with none are left out. Before
+ * the race's first ping these are the only visits that count: an auto visit, and the auto part of
+ * a check-in entered over one, came from pings that are pre-start now. Each keeps its
+ * `visitIndex`, the one a crew phone refers to it by (`nextVisitIndex`): renumbered, a dropped
+ * auto visit's index would name the check-in, and the check-in's another visit.
  */
 function crewCheckInSplits(splits: readonly RaceCheckpointSplitRow[]): RaceCheckpointSplitRow[] {
   const kept: RaceCheckpointSplitRow[] = [];
   for (const split of splits) {
     const visits = split.visits
       .filter((visit) => visit.manualEntry !== undefined)
-      .map(({ autoDetected: _pingDerived, ...visit }, index): CheckpointVisit => ({
+      .map(({ autoDetected: _pingDerived, ...visit }): CheckpointVisit => ({
         ...visit,
-        visitIndex: index + 1,
         resolvedSource: "manual_crew",
         activeActualStopSeconds: visit.manualEntry?.actualStopSeconds ?? null
       }));
@@ -2436,8 +2478,9 @@ function pruneProjectionStateMaps(
 /**
  * Visit accumulators without the auto visits that arrived before the race start: pings that are
  * pre-start now made them (the start moved later than them). The crew's check-ins stay (a visit
- * with a `manualEntry`). Renumbered. Under a start that has not moved this drops nothing: a
- * pre-start ping never folds in, so no auto visit opens before the start.
+ * with a `manualEntry`), each with its own `visitIndex` (`nextVisitIndex`). Under a start that has
+ * not moved this drops nothing: a pre-start ping never folds in, so no auto visit opens before the
+ * start.
  */
 function withoutPreStartAutoVisits(
   state: Pick<RoomProjectionState, "visitStates" | "visitMeta">,
@@ -2456,9 +2499,7 @@ function withoutPreStartAutoVisits(
         return;
       }
       keptVisits.push({ ...visit });
-      if (meta) {
-        keptMetadata.push({ ...meta, visitIndex: keptVisits.length });
-      }
+      keptMetadata.push(meta ? { ...meta } : { visitIndex: index + 1, resolvedSource: "auto" });
     });
     delete visitMeta[checkpointId];
     if (keptVisits.length > 0) {
@@ -5148,7 +5189,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  /** The athlete's path: accepted samples oldest first, paged by `after` (exclusive). Any member may read it. */
+  /**
+   * The athlete's path: accepted samples oldest first, paged by `after` (exclusive). Any member may
+   * read it. Each page names the start its `preStart` marks were judged against (`raceStartAt`).
+   */
   app.get("/race-rooms/:roomId/pings/track", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
@@ -5178,10 +5222,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       // Judged against the start as it is now, so moving the start re-marks the stored track.
       ...(isPreStartPing(room, row.recordedAtMs) ? { preStart: true as const } : {})
     }));
+    const startMs = raceStartMs(room);
     const response: RaceRoomPingTrackResponse = {
       roomId,
       points,
-      ...(points.length === limit ? { nextCursor: points[points.length - 1]!.recordedAt } : {})
+      ...(points.length === limit ? { nextCursor: points[points.length - 1]!.recordedAt } : {}),
+      // The start the marks above were judged against: a client holding points read under another
+      // start reads the track again from the beginning (see the contract).
+      ...(startMs !== undefined ? { raceStartAt: new Date(startMs).toISOString() } : {})
     };
     return reply.send(response);
   });
@@ -5209,6 +5257,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     await loadWs2RuntimeIfNeeded(roomId);
+    await reseedStalePreStartProjectionOnRead(roomId, room);
 
     let stored = roomProjectionState.get(roomId);
     if (!stored) {
@@ -5340,7 +5389,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       targetVisit.resolvedSource = "manual_crew";
     } else {
       split.visits.push({
-        visitIndex: split.visits.length + 1,
+        visitIndex: nextVisitIndex(split.visits),
         resolvedSource: "manual_crew",
         manualEntry,
         activeActualStopSeconds: null,
