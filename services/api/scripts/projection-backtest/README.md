@@ -49,6 +49,7 @@ Each course uses one checkpoint layout: the most common across its events, weigh
 | `prior_sweep.py` | `prior-sweep` |
 | `fresh_look.py` / `fresh_look2.py` / `fresh_look3.py` | `fresh-look` / `fresh-look-2` / `fresh-look-3` |
 | `history_size.py` | `history-size` |
+| (new) personal climbing and descent vs the shared curve, run-import scope slice 2 | `personal-terrain` |
 
 **Differences from the Python:**
 - The RNG is seeded mulberry32, so plan-noise draws differ from Python's `random`.
