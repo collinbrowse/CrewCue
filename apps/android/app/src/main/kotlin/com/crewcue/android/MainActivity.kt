@@ -120,8 +120,8 @@ class MainActivity : ComponentActivity() {
         val signedIn = shellModel.session != null || container.sessionStore.current() != null
         lifecycleScope.launch {
             if (uri != null) {
-                val (name, bytes) = withContext(Dispatchers.IO) { SharedRunImportViewModel.readShared(applicationContext, uri) }
-                sharedRunImport.receive(name, bytes, signedIn)
+                val (name, path) = withContext(Dispatchers.IO) { SharedRunImportViewModel.copyShared(applicationContext, uri) }
+                sharedRunImport.receive(name, path, signedIn)
                 return@launch
             }
             val name = android.net.Uri.parse(devLink).getQueryParameter("file")
@@ -129,8 +129,8 @@ class MainActivity : ComponentActivity() {
                 sharedRunImport.showTip()
                 return@launch
             }
-            val bytes = withContext(Dispatchers.IO) { runCatching { java.io.File(filesDir, name).readBytes() }.getOrNull() }
-            sharedRunImport.receive(name, bytes, signedIn)
+            val file = java.io.File(filesDir, name)
+            sharedRunImport.receive(name, file.takeIf { it.canRead() }?.absolutePath, signedIn)
         }
         return true
     }

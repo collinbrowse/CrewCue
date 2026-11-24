@@ -25,17 +25,27 @@ final class SharedRunImportModel {
     }
 
     /// A file URL from the share sheet, "Open in", or the dev link. Copied in, never edited in place.
+    /// Read off the main thread: a whole watch-app export can be 100+ MB.
     func receive(url: URL, signedIn: Bool) {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url) else {
-            // The sending app didn't let CrewCue read the file.
-            generation += 1
-            file = nil
-            state = signedIn ? .failed(SharedRunImport.unreadableMessage) : .signedOut
-            return
+        generation += 1
+        let ticket = generation
+        file = nil
+        state = signedIn ? .reading(fileName: url.lastPathComponent) : .signedOut
+        guard signedIn else { return }
+        Task {
+            let data = await Task.detached(priority: .userInitiated) { () -> Data? in
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                return try? Data(contentsOf: url, options: .mappedIfSafe)
+            }.value
+            guard ticket == generation else { return }
+            guard let data else {
+                // The sending app didn't let CrewCue read the file.
+                state = .failed(SharedRunImport.unreadableMessage)
+                return
+            }
+            receive(fileName: url.lastPathComponent, data: data, signedIn: signedIn)
         }
-        receive(fileName: url.lastPathComponent, data: data, signedIn: signedIn)
     }
 
     func receive(fileName: String, data: Data, signedIn: Bool) {

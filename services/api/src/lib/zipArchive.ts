@@ -12,7 +12,8 @@ export class ZipArchiveError extends Error {
   }
 }
 
-export type ZipEntry = { name: string; bytes: Uint8Array };
+/** `bytes` is null for a file over `maxEntryBytes`: listed, never inflated. */
+export type ZipEntry = { name: string; bytes: Uint8Array | null };
 
 const EOCD_SIGNATURE = 0x06054b50;
 const CENTRAL_SIGNATURE = 0x02014b50;
@@ -31,6 +32,17 @@ export function readZipEntries(
   bytes: Uint8Array,
   limits: { maxEntries: number; maxEntryBytes: number; maxTotalBytes: number }
 ): ZipEntry[] {
+  return [...zipEntries(bytes, limits)];
+}
+
+/**
+ * The same files as {@link readZipEntries}, inflated one at a time, so a large export never holds
+ * every file in memory at once.
+ */
+export function* zipEntries(
+  bytes: Uint8Array,
+  limits: { maxEntries: number; maxEntryBytes: number; maxTotalBytes: number }
+): Generator<ZipEntry> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   // End of central directory: last 22 bytes, or earlier when there's a comment (≤ 65535 bytes).
   let eocd = -1;
@@ -47,7 +59,7 @@ export function readZipEntries(
     throw new ZipArchiveError("This .zip is too large. Export fewer runs at a time.");
   }
 
-  const entries: ZipEntry[] = [];
+  let count = 0;
   let total = 0;
   let offset = directoryOffset;
   for (let index = 0; index < entryCount; index += 1) {
@@ -68,11 +80,13 @@ export function readZipEntries(
     const base = name.split("/").pop() ?? "";
     if (name.endsWith("/") || name.startsWith("__MACOSX/") || base.startsWith(".") || base === "") continue;
     if (flags & 0x1) throw new ZipArchiveError("This .zip is password-protected.");
-    if (entries.length >= limits.maxEntries) {
+    if (count >= limits.maxEntries) {
       throw new ZipArchiveError(`This .zip has more than ${limits.maxEntries} files. Export fewer runs at a time.`);
     }
     if (size > limits.maxEntryBytes) {
-      throw new ZipArchiveError(`${base} is larger than ${Math.round(limits.maxEntryBytes / 1024 / 1024)} MB.`);
+      count += 1;
+      yield { name: base, bytes: null };
+      continue;
     }
     total += size;
     if (total > limits.maxTotalBytes) {
@@ -98,7 +112,7 @@ export function readZipEntries(
     } else {
       throw new ZipArchiveError("This .zip uses a compression CrewCue can't read.");
     }
-    entries.push({ name: base, bytes: content });
+    count += 1;
+    yield { name: base, bytes: content };
   }
-  return entries;
 }
