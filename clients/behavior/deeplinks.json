@@ -364,6 +364,24 @@
       "scope": "v1",
       "ios": "fail",
       "android": "fail"
+    },
+    {
+      "id": "invite-share",
+      "entry": "crewcue://dev/invite-share",
+      "label": "crewcue.invite-share",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "fail"
+    },
+    {
+      "id": "join-link",
+      "entry": "crewcue://dev/join-link",
+      "label": "crewcue.join-link",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "fail"
     }
   ]
 }

@@ -49,6 +49,7 @@ final class OnboardingModel {
         if signedIn != self.signedIn || userId != self.userId {
             lastRaces = nil
             racesFailed = false
+            awaitingJoinedRace = false
         }
         self.signedIn = signedIn
         self.userId = userId
@@ -56,12 +57,22 @@ final class OnboardingModel {
         if let races {
             lastRaces = races
             racesFailed = false
+            awaitingJoinedRace = false
         }
         read()
     }
 
     func noteRacesFailed() {
         racesFailed = true
+        awaitingJoinedRace = false
+    }
+
+    /// An invite was just joined and the race list that includes it hasn't answered: the entry
+    /// shows the loader, not the chooser or the join screen the list it knows would pick.
+    private(set) var awaitingJoinedRace = false
+
+    func noteJoinedAwaitingRaces() {
+        awaitingJoinedRace = true
     }
 
     /// Saves the chooser pick.
@@ -100,6 +111,59 @@ final class OnboardingModel {
         read()
     }
 
+    // MARK: Pending invite
+
+    /// The invite code waiting to be joined on this device for the current reader (signed out, or
+    /// this user), nil when none is or it expired.
+    private(set) var pendingJoin: PendingJoin?
+
+    /// Saves a join link's or a typed code as the device's pending invite (replacing any other),
+    /// so it survives sign-up and a relaunch. False when it couldn't be saved.
+    @discardableResult
+    func savePendingJoin(code: String, source: InviteSource) -> Bool {
+        guard let store else { return false }
+        do {
+            try store.pendingJoins.save(code: code, source: source, userId: signedIn ? userId : nil, now: clock.now())
+        } catch {
+            logger.log("pending join not saved")
+            read()
+            return false
+        }
+        read()
+        return true
+    }
+
+    /// Signed out, the person confirmed the invite: sign-in comes next, and joins once it lands.
+    func confirmInvite(_ code: String) {
+        guard let store else { return }
+        do {
+            try store.mark(.join, invite: code, userId: signedIn ? userId : nil)
+        } catch {
+            logger.log("invite not confirmed")
+        }
+        read()
+    }
+
+    /// Joined, or the person gave up on the invite (Back): forget it.
+    func clearPendingJoin() {
+        guard let store else { return }
+        do {
+            try store.pendingJoins.clear()
+        } catch {
+            logger.log("pending join not cleared")
+        }
+        read()
+    }
+
+    /// Joins the pending invite as the signed-in user (`PendingJoinStore.resolve`), which clears it
+    /// once joined or when the code can't work. Nothing pending answers `nothingPending`.
+    func resolvePendingJoin(graph: ClientGraph) async -> PendingJoinOutcome {
+        guard let store, signedIn, let userId else { return .nothingPending }
+        let outcome = await store.pendingJoins.resolve(graph: graph, userId: userId)
+        read()
+        return outcome
+    }
+
     /// The saved race this state knows, if any.
     func race(_ roomId: String?) -> OnboardingRace? {
         guard let roomId else { return nil }
@@ -113,7 +177,8 @@ final class OnboardingModel {
     }
 
     var entry: OnboardingEntry {
-        Self.entry(for: state, signedIn: signedIn, racesFailed: racesFailed)
+        if awaitingJoinedRace, signedIn { return .loading }
+        return Self.entry(for: state, signedIn: signedIn, racesFailed: racesFailed)
     }
 
     static func entry(for state: OnboardingState, signedIn: Bool, racesFailed: Bool) -> OnboardingEntry {
@@ -153,6 +218,7 @@ final class OnboardingModel {
                 now: clock.now()
             )
             races = signedIn ? (lastRaces ?? result.progress.knownRaces ?? []) : []
+            pendingJoin = result.pendingJoin
             state = result.state
         } catch {
             logger.log("onboarding read failed")

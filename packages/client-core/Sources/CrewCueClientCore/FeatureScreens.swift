@@ -180,6 +180,10 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.race-rename", title: "Rename race", body: raceRenameBody(state))
         case "course-locked":
             return FeatureCopy(accessibilityIdentifier: "crewcue.course-locked", title: "Course locked", body: courseLockedBody(state))
+        case "invite-share":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.invite-share", title: InviteCopy.shareTitle, body: inviteShareBody(state))
+        case "join-link":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.join-link", title: InviteCopy.joinLinkTitle, body: joinLinkBody(state))
         default:
             return FeatureCopy(accessibilityIdentifier: "crewcue.unknown", title: "CrewCue", body: "Unknown fixture.")
         }
@@ -432,6 +436,24 @@ private func membersBody(_ state: FeatureState) -> String {
     case .empty: "No members yet."
     case .error: "Couldn't update members."
     case .offline: "Offline. Roster not updated."
+    }
+}
+
+private func inviteShareBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: InviteCopy.shareReady
+    case .empty: InviteCopy.shareEmpty
+    case .error: InviteCopy.shareError
+    case .offline: InviteCopy.shareOffline
+    }
+}
+
+private func joinLinkBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: InviteCopy.joiningRace(runner: "Sam")
+    case .empty: InviteCopy.linkWithoutCode
+    case .error: PendingJoinOutcome.invalidCodeMessage
+    case .offline: PendingJoinOutcome.offlineMessage
     }
 }
 

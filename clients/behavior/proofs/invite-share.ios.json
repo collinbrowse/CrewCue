@@ -1,0 +1,19 @@
+{
+  "id": "invite-share",
+  "platform": "ios",
+  "entry": "crewcue://dev/invite-share",
+  "device": "iPhone simulator (CrewCue agent-ae13511d415ec5df3), iOS 27, Debug build; iPhone Duo simulator (CrewCue agent-ae13511d415ec5df3 Duo), iOS 27.2, outer and inner displays",
+  "date": "2026-11-24",
+  "commit": "claude/onboarding-7b-ios-invite-links on main 33a01e0",
+  "session": "Local memory API (HS256 dev JWTs); runner Sam's paid race Western States 100, --dev-session runner-sam athlete.",
+  "action": "Opened Profile > Room members as the runner, tapped Invite crew, tapped Share invite (system share sheet opened, dismissed without sending); on the Duo opened crewcue://dev/invite-share on the outer display, then unfolded to the inner one.",
+  "checked": {
+    "Action": "Invite crew shows only for the race's runner; the share sheet opened with the share text.",
+    "Success": "Code 558726 in large type, 'Western States 100', link https://collinbrowse.github.io/crewcue/join/?code=558726, Share invite, Copy code, 'Invite ready to share.'; inner display puts the code card beside the link and actions, outer stacks them clear of the camera column, same state after unfolding.",
+    "Empty": "No room id or no joinCode: 'No invite code for this race yet.' (InviteShareModel.state; fixture copy on crewcue://dev/invite-share?state=empty).",
+    "Error": "Load failure: 'Couldn't load the invite.' (fixture copy ?state=error); not forced on the device.",
+    "Offline": "Transport failure: 'Offline. The invite needs the network.' (fixture copy ?state=offline); not forced on the device.",
+    "Accessibility labels": "crewcue.invite-share, crewcue.invite-share.code, crewcue.invite-share.link, crewcue.invite-share.share, crewcue.room-members.invite"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

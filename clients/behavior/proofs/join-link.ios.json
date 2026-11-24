@@ -1,0 +1,20 @@
+{
+  "id": "join-link",
+  "platform": "ios",
+  "entry": "crewcue://dev/join-link",
+  "device": "iPhone simulator (CrewCue agent-ae13511d415ec5df3), iOS 27, Debug build; iPhone Duo simulator (CrewCue agent-ae13511d415ec5df3 Duo), iOS 27.2, outer and inner displays",
+  "date": "2026-11-24",
+  "commit": "claude/onboarding-7b-ios-invite-links on main 33a01e0",
+  "session": "Local memory API (HS256 dev JWTs) with seeded races: paid open race (runner Sam), a paid race whose one crew seat is taken (runner Kat), an unpaid race (runner Lee). Sign-up finishing was stood in for by relaunching with --dev-session, which runs the same ShellModel.adopt as Auth0.",
+  "action": "Signed out, opened the live join page in Safari (xcrun simctl openurl https://collinbrowse.github.io/crewcue/join/?code=...), tapped its Open CrewCue (crewcue://join/<code>), tapped Sign up to join, then signed in; signed in, opened crewcue://join/<code> and tapped Join; opened crewcue://join/ with no code; tapped Paste invite code; folded the Duo from inner to outer mid-join and joined. XCUITest JoinLinkTests opens the https link and crewcue://join links in the app (XCUIApplication.open).",
+  "checked": {
+    "Action": "Join screen opened with the link's code and the preview; Sign up to join saved and confirmed the invite (crewcue-onboarding/@pending-join.json and confirmedInvite), sign-in joined on its own (server membership crew-alex crew_member) and opened the race's tab bar; the pending file was removed.",
+    "Success": "'You're joining Sam's race' with 'Western States 100, 1 member, active'; after sign-in the Map tab opened on Western States 100.",
+    "Empty": "crewcue://join/ (no code): 'That link didn't include an invite code. Paste it or type the 6 digits.' with the Paste row and Join disabled.",
+    "Error": "Full race: 'This race is full. Ask the runner to add Full Crew so more crew can join.' (red); unpaid race after sign-in: 'The runner hasn't unlocked this race yet.', code kept on the join screen.",
+    "Offline": "Not run on the device: PendingJoinOutcome.offline keeps the code (client-core PendingJoinTests); the screen shows outcome.message 'Offline. Joining a race needs the network.'",
+    "Accessibility labels": "crewcue.join-crew, crewcue.join-crew.preview, crewcue.join-crew.paste, crewcue.join-crew.race-full; dev route crewcue.join-link (DeeplinkSmokeTests)"
+  },
+  "unproven": "A verified Universal Link: the simulator build isn't signed with the 84XX2W7G34 team, so the https link opens Safari and the join page's button hands over crewcue://join. Needs a signed device build.",
+  "screenshots": "Attached to the PR, not committed."
+}

@@ -327,7 +327,9 @@ actor CourseImportTransport: HTTPTransport {
         ("crewcue://dev/onboarding-runner-setup", "onboarding-runner-setup"),
         ("crewcue://dev/onboarding-race-preview", "onboarding-race-preview"),
         ("crewcue://dev/race-rename", "race-rename"),
-        ("crewcue://dev/course-locked", "course-locked")
+        ("crewcue://dev/course-locked", "course-locked"),
+        ("crewcue://dev/invite-share", "invite-share"),
+        ("crewcue://dev/join-link", "join-link")
     ]
     for (url, featureId) in cases {
         let route = Route.parse(url)

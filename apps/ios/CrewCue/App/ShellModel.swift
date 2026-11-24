@@ -34,6 +34,8 @@ final class ShellModel {
     let activityImportModel: ActivityImportModel
     let accountDeletionModel: AccountDeletionModel
     let membersModel: RoomMembersModel
+    /// The runner's invite link and code (Room members → Invite crew).
+    let inviteModel: InviteShareModel
     let incidentsModel: IncidentsModel
     let paceModel: PaceModel
     let mapModel: MapModel
@@ -95,6 +97,7 @@ final class ShellModel {
         self.activityImportModel = ActivityImportModel(client: client)
         self.accountDeletionModel = AccountDeletionModel(client: client)
         self.membersModel = RoomMembersModel(client: client)
+        self.inviteModel = InviteShareModel(client: client)
         self.incidentsModel = IncidentsModel(client: client)
         self.paceModel = PaceModel(client: client)
         self.mapModel = MapModel(client: client)
@@ -114,7 +117,13 @@ final class ShellModel {
             self?.adopt(session)
         }
         self.joinModel.onJoined = { [weak self] roomId, role in
+            // Joined by hand: a pending invite (this code, or an older one) is done with.
+            self?.onboarding.noteJoinedAwaitingRaces()
+            self?.onboarding.clearPendingJoin()
             self?.noteJoined(roomId: roomId, role: role)
+        }
+        self.joinModel.onNeedsAccount = { [weak self] code in
+            self?.requestAccount(toJoin: code)
         }
         self.athleteModel.onSaved = { [weak self] name in
             self?.updateDisplayName(name)
@@ -168,6 +177,97 @@ final class ShellModel {
             freshRaces: races != nil
         )
         syncRacePreview()
+        // A pending invite read back (a relaunch, a sign-out) shows its code on the join screen.
+        if let pending = onboarding.pendingJoin, joinModel.code.isEmpty, !joinModel.joining {
+            joinModel.adopt(code: pending.code)
+        }
+    }
+
+    // MARK: Invites
+
+    /// A join link (the https join page, a Universal Link, or `crewcue://join/<code>`). Release
+    /// builds open these too; only `crewcue://dev/*` is Debug-only. The code is saved as the
+    /// device's pending invite, so a signed-out person keeps it through sign-up, and the
+    /// onboarding gate shows the join screen with the race's preview.
+    func openInvite(code: String, source: InviteSource) {
+        fixtureOverlay = false
+        racePreviewDevStart = nil
+        showsSettings = false
+        let saved = onboarding.savePendingJoin(code: code, source: source)
+        joinModel.adopt(code: code)
+        // Without the onboarding folder nothing is pending: the join screen still takes the code.
+        show(Route(featureId: saved ? "app-shell" : "join-crew", state: .success))
+        syncOnboarding()
+    }
+
+    /// A join link whose code couldn't be read: the join screen, offering Paste or typing it.
+    private func openJoinWithoutCode() {
+        fixtureOverlay = false
+        racePreviewDevStart = nil
+        showsSettings = false
+        joinModel.noteLinkWithoutCode()
+        show(Route(featureId: "join-crew", state: .success))
+    }
+
+    /// Signed out, Join on a previewed code: keep the code as the pending invite, confirm it, and
+    /// open sign-up. Signing in then joins it (`adopt`).
+    func requestAccount(toJoin code: String) {
+        guard !isSignedIn else { return }
+        if onboarding.pendingJoin?.code != code {
+            onboarding.savePendingJoin(code: code, source: .typed)
+        }
+        onboarding.confirmInvite(code)
+        authModel.signingUp = true
+        fixtureOverlay = false
+        show(Route(featureId: "app-shell", state: .success))
+        syncOnboarding()
+    }
+
+    /// Back from the join screen or the sign-in after it: the person gave up on the invite.
+    func leaveCrewJoin() {
+        onboarding.clearPendingJoin()
+        onboarding.clearChoice()
+        joinModel.clear()
+        syncOnboarding()
+    }
+
+    /// Joins the pending invite right after sign-in. Joined: the race becomes active. Anything else
+    /// (the race full or locked, offline) stays on the join screen with why; the code stays saved
+    /// unless it can never work.
+    func joinPendingInvite() async {
+        guard let userId = signedInUserId else { return }
+        joinModel.beginAutoJoin()
+        let outcome = await onboarding.resolvePendingJoin(graph: client.graph)
+        guard signedInUserId == userId else { return }
+        switch outcome {
+        case .joined(let roomId):
+            onboarding.noteJoinedAwaitingRaces()
+            joinModel.clear()
+            noteJoined(roomId: roomId, role: "crew_member")
+        case .alreadyMember(let roomId):
+            onboarding.noteJoinedAwaitingRaces()
+            joinModel.clear()
+            noteJoined(roomId: roomId, role: nil)
+        default:
+            joinModel.show(outcome)
+            syncOnboarding()
+        }
+    }
+
+    /// The join page's https link or `crewcue://join...`, whether or not its code reads.
+    static func isJoinLink(_ url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased() else { return false }
+        let host = components.host?.lowercased() ?? ""
+        switch scheme {
+        case "https":
+            let path = components.path.hasSuffix("/") ? components.path : components.path + "/"
+            return host == InviteLink.host && path.lowercased().hasPrefix(InviteLink.path)
+        case InviteLink.appScheme:
+            return host == InviteLink.appHost
+        default:
+            return false
+        }
     }
 
     /// The replay follows the gate: another race on its step starts over, and leaving the step
@@ -309,6 +409,15 @@ final class ShellModel {
     }
 
     func open(_ url: URL) {
+        // Join links open in every build, ahead of the Debug-only dev routes.
+        if let invite = InviteLink.match(url.absoluteString) {
+            openInvite(code: invite.code, source: invite.source)
+            return
+        }
+        if Self.isJoinLink(url) {
+            openJoinWithoutCode()
+            return
+        }
         guard url.scheme?.caseInsensitiveCompare("crewcue") == .orderedSame else { return }
         // Strava is off in v1 (#652): its return link then opens the shell like any other link.
         if ClientFeatureFlags.stravaEnabled, Self.isStravaReturn(url) {
@@ -394,6 +503,8 @@ final class ShellModel {
     }
 
     func adopt(_ session: ClientSession) {
+        // Signed out, the person confirmed an invite before signing in: join it now.
+        let joinsInvite = !isSignedIn && onboarding.state.inviteConfirmed
         prepareStores()
         client.graph.session?.adopt(session)
         client.graph.tokenProvider = StaticTokenProvider(token: session.accessToken)
@@ -410,6 +521,9 @@ final class ShellModel {
         syncOnboarding()
         enterShellIfNeeded()
         Task { await loadRaces() }
+        if joinsInvite {
+            Task { await joinPendingInvite() }
+        }
         // Tokens rotate; re-register silently when notifications are already allowed.
         Task { await pushModel.refreshIfAuthorized(role: session.role) }
     }
@@ -596,6 +710,7 @@ final class ShellModel {
         activityImportModel.clear()
         accountDeletionModel.clear()
         membersModel.clear()
+        inviteModel.clear()
         incidentsModel.clear()
         paceModel.clear()
         mapModel.clear()
@@ -606,6 +721,7 @@ final class ShellModel {
         upgradeModel.clear()
         runnerSetup.clear()
         racePreview.clear()
+        joinModel.clear()
         syncOnboarding()
         showsSettings = false
         settingsFocus = nil
