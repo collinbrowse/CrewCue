@@ -1,6 +1,6 @@
 /**
  * Regenerates the FIT and TCX activity fixtures from `activity-short-road.gpx` so all three
- * formats describe the same 8 km run. Run: `npx tsx fixtures/pacing/make-activity-files.ts`.
+ * formats describe the same 8 km run, plus `activity-hill-run.fit` (dense, with cadence). Run: `npx tsx fixtures/pacing/make-activity-files.ts`.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -74,4 +74,56 @@ ${trackpoints}
 </TrainingCenterDatabase>
 `;
 writeFileSync(join(PACING_FIXTURES_DIR, "activity-short-road.tcx"), tcx);
+// Hill run: one point a second with cadence (strides per minute, as FIT stores it). 1 km flat
+// running, 800 m at 14% hiking, a 90 s stop, then 1 km at −9% running. For the grade profile.
+const hillStartMs = Date.parse("2026-05-17T14:00:00Z");
+const hillRecords: Parameters<typeof encodeFitActivity>[0]["records"] = [];
+{
+  let meters = 0;
+  let elevation = 1200;
+  let seconds = 0;
+  const push = (cadence: number) =>
+    hillRecords.push({
+      timestampMs: hillStartMs + Math.round(seconds) * 1000,
+      latitude: 39.5 + meters / 111_195,
+      longitude: -106.0,
+      elevationMeters: Math.round(elevation * 5) / 5,
+      distanceMeters: meters,
+      cadence
+    });
+  push(86);
+  const legs = [
+    { meters: 1000, grade: 0, speed: 3, cadence: 86, stop: 0 },
+    { meters: 800, grade: 0.14, speed: 1, cadence: 56, stop: 0 },
+    { meters: 1000, grade: -0.09, speed: 3.4, cadence: 88, stop: 90 }
+  ];
+  for (const leg of legs) {
+    for (let s = 0; s < leg.stop; s += 1) {
+      seconds += 1;
+      push(0);
+    }
+    let left = leg.meters;
+    while (left > 1e-9) {
+      const step = Math.min(leg.speed, left);
+      meters += step;
+      elevation += step * leg.grade;
+      seconds += 1;
+      left -= step;
+      push(leg.cadence);
+    }
+  }
+}
+const hillLast = hillRecords[hillRecords.length - 1]!;
+const hillFit = encodeFitActivity({
+  records: hillRecords,
+  session: {
+    startMs: hillStartMs,
+    elapsedSeconds: (hillLast.timestampMs - hillStartMs) / 1000,
+    distanceMeters: hillLast.distanceMeters!,
+    ascentMeters: 112
+  }
+});
+writeFileSync(join(PACING_FIXTURES_DIR, "activity-hill-run.fit"), hillFit);
+
+console.log(`hill fit ${hillFit.length} B`);
 console.log(`fit ${fit.length} B, treadmill ${treadmill.length} B, tcx ${tcx.length} B, ${totalMeters.toFixed(0)} m`);

@@ -207,6 +207,109 @@ export interface ActivityHistoryRef {
    * or more). Feeds the runner's own slowdown in the pace model.
    */
   slowdownSlope?: number;
+  /**
+   * How the runner moved at each grade on this activity's timed track: distance and moving time
+   * per 1% grade step, split by running and hiking. Feeds the personal climbing and descent model
+   * (docs/product/run-import-and-grade-curve-scope.md). Absent for untimed or elevation-free files
+   * and for rows imported before it existed.
+   */
+  gradeProfile?: ActivityGradeProfile;
+}
+
+export const ACTIVITY_GRADE_PROFILE_VERSION = 1;
+/** Grades steeper than this (either way) are counted in the end steps. */
+export const ACTIVITY_GRADE_PROFILE_MAX_PERCENT = 40;
+export const ACTIVITY_GRADE_PROFILE_QUALITIES = ["high", "typical", "low"] as const;
+export type ActivityGradeProfileQuality = (typeof ACTIVITY_GRADE_PROFILE_QUALITIES)[number];
+/** Where the run or hike label came from: the watch's step cadence, or a speed and grade rule. */
+export const ACTIVITY_GRADE_PROFILE_LABEL_SOURCES = ["cadence", "speed"] as const;
+export type ActivityGradeProfileLabelSource = (typeof ACTIVITY_GRADE_PROFILE_LABEL_SOURCES)[number];
+
+/** Distance and moving time at one whole-percent grade (rounded), split by running and hiking. */
+export interface ActivityGradeProfileBin {
+  /** Integer grade in percent, −40…40. */
+  gradePercent: number;
+  runMeters: number;
+  runSeconds: number;
+  hikeMeters: number;
+  hikeSeconds: number;
+}
+
+export interface ActivityGradeProfile {
+  /** Algorithm version, so stored profiles can be told apart when the measurement changes. */
+  version: number;
+  /** Measured from the file: elevation noise and point spacing. Sets the smoothing and the weight. */
+  quality: ActivityGradeProfileQuality;
+  /** Window the elevation was smoothed over before grades were read. */
+  smoothingMeters: number;
+  /** Estimated point-to-point elevation noise (meters, robust σ). */
+  elevationNoiseMeters: number;
+  /** Median distance between consecutive recorded points. */
+  medianPointSpacingMeters: number;
+  labelSource: ActivityGradeProfileLabelSource;
+  movingMeters: number;
+  movingSeconds: number;
+  /** Non-empty grade steps only, ascending by grade. */
+  bins: ActivityGradeProfileBin[];
+}
+
+function parseActivityGradeProfile(value: unknown, field: string): ActivityGradeProfile {
+  if (!isRecord(value)) {
+    throw new TypeError(`${field} must be an object`);
+  }
+  if (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 1) {
+    throw new TypeError(`${field}.version must be a positive integer`);
+  }
+  if (
+    typeof value.quality !== "string" ||
+    !(ACTIVITY_GRADE_PROFILE_QUALITIES as readonly string[]).includes(value.quality)
+  ) {
+    throw new TypeError(`${field}.quality must be high, typical, or low`);
+  }
+  if (
+    typeof value.labelSource !== "string" ||
+    !(ACTIVITY_GRADE_PROFILE_LABEL_SOURCES as readonly string[]).includes(value.labelSource)
+  ) {
+    throw new TypeError(`${field}.labelSource must be cadence or speed`);
+  }
+  if (!Array.isArray(value.bins)) {
+    throw new TypeError(`${field}.bins must be an array`);
+  }
+  let lastGrade = -Infinity;
+  const bins = value.bins.map((raw, index): ActivityGradeProfileBin => {
+    const binField = `${field}.bins[${index}]`;
+    if (!isRecord(raw)) {
+      throw new TypeError(`${binField} must be an object`);
+    }
+    const grade = raw.gradePercent;
+    if (
+      typeof grade !== "number" ||
+      !Number.isInteger(grade) ||
+      Math.abs(grade) > ACTIVITY_GRADE_PROFILE_MAX_PERCENT ||
+      grade <= lastGrade
+    ) {
+      throw new TypeError(`${binField}.gradePercent must be an ascending integer within ±40`);
+    }
+    lastGrade = grade;
+    return {
+      gradePercent: grade,
+      runMeters: parseDistanceMeters(raw.runMeters, `${binField}.runMeters`),
+      runSeconds: parseDurationSeconds(raw.runSeconds, `${binField}.runSeconds`),
+      hikeMeters: parseDistanceMeters(raw.hikeMeters, `${binField}.hikeMeters`),
+      hikeSeconds: parseDurationSeconds(raw.hikeSeconds, `${binField}.hikeSeconds`)
+    };
+  });
+  return {
+    version: value.version,
+    quality: value.quality as ActivityGradeProfileQuality,
+    smoothingMeters: parseDistanceMeters(value.smoothingMeters, `${field}.smoothingMeters`),
+    elevationNoiseMeters: parseDistanceMeters(value.elevationNoiseMeters, `${field}.elevationNoiseMeters`),
+    medianPointSpacingMeters: parseDistanceMeters(value.medianPointSpacingMeters, `${field}.medianPointSpacingMeters`),
+    labelSource: value.labelSource as ActivityGradeProfileLabelSource,
+    movingMeters: parseDistanceMeters(value.movingMeters, `${field}.movingMeters`),
+    movingSeconds: parseDurationSeconds(value.movingSeconds, `${field}.movingSeconds`),
+    bins
+  };
 }
 
 /** Finish (or equivalent) instant for one confidence band. */
@@ -355,6 +458,9 @@ export function parseActivityHistoryRef(value: unknown, field = "activityHistory
       throw new TypeError(`${field}.slowdownSlope must be a finite number`);
     }
     ref.slowdownSlope = value.slowdownSlope;
+  }
+  if (value.gradeProfile !== undefined) {
+    ref.gradeProfile = parseActivityGradeProfile(value.gradeProfile, `${field}.gradeProfile`);
   }
   return ref;
 }

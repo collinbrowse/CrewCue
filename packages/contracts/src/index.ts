@@ -926,6 +926,10 @@ export {
 } from "./designSystems.js";
 
 export {
+  ACTIVITY_GRADE_PROFILE_LABEL_SOURCES,
+  ACTIVITY_GRADE_PROFILE_MAX_PERCENT,
+  ACTIVITY_GRADE_PROFILE_QUALITIES,
+  ACTIVITY_GRADE_PROFILE_VERSION,
   ACTIVITY_HISTORY_SOURCES,
   CUTOFF_WARN_MARGIN_SECONDS,
   CUTOFF_WARNING_STATUSES,
@@ -943,6 +947,10 @@ export {
   parsePacingEstimate,
   parseScheduleStop,
   parseWaypointTags,
+  type ActivityGradeProfile,
+  type ActivityGradeProfileBin,
+  type ActivityGradeProfileLabelSource,
+  type ActivityGradeProfileQuality,
   type ActivityHistoryRef,
   type ActivityHistorySource,
   type CrewScheduleSheet,

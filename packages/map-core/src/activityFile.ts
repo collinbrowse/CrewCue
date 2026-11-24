@@ -205,11 +205,13 @@ export function parseTcxActivity(xml: string): ParsedActivityFile {
     const longitude = tagNumber(trackpoint, "LongitudeDegrees");
     const cumulative = tagNumber(trackpoint, "DistanceMeters");
     if (cumulative !== null && cumulative > lastCumulative) lastCumulative = cumulative;
+    const cadence = tagNumber(trackpoint, "RunCadence") ?? tagNumber(trackpoint, "Cadence");
     points.push({
       latitude: latitude ?? NaN,
       longitude: longitude ?? NaN,
       elevationMeters: tagNumber(trackpoint, "AltitudeMeters"),
-      timestampMs: Number.isFinite(timestampMs) ? timestampMs : null
+      timestampMs: Number.isFinite(timestampMs) ? timestampMs : null,
+      ...(cadence !== null ? { cadence } : {})
     });
   }
 
@@ -323,6 +325,8 @@ type FitRecord = {
   lon: number | null;
   altitude: number | null;
   distance: number | null;
+  /** Strides per minute, fractional part included. */
+  cadence: number | null;
 };
 
 type FitSession = {
@@ -430,7 +434,8 @@ export function parseFitActivity(bytes: Uint8Array): ParsedActivityFile {
           lat: values.get(0) ?? null,
           lon: values.get(1) ?? null,
           altitude: altitude === null ? null : altitude / 5 - 500,
-          distance: values.get(5) == null ? null : values.get(5)! / 100
+          distance: values.get(5) == null ? null : values.get(5)! / 100,
+          cadence: values.get(4) == null ? null : values.get(4)! + (values.get(53) ?? 0) / 128
         });
       } else if (definition.globalNum === MESG_SESSION) {
         const elapsed = values.get(7);
@@ -455,7 +460,8 @@ export function parseFitActivity(bytes: Uint8Array): ParsedActivityFile {
     latitude: record.lat === null ? NaN : record.lat * SEMICIRCLES_TO_DEGREES,
     longitude: record.lon === null ? NaN : record.lon * SEMICIRCLES_TO_DEGREES,
     elevationMeters: record.altitude,
-    timestampMs: record.timestamp === null ? null : toMs(record.timestamp)
+    timestampMs: record.timestamp === null ? null : toMs(record.timestamp),
+    ...(record.cadence !== null ? { cadence: record.cadence } : {})
   }));
 
   const sessionDistance = sessions.reduce((sum, session) => sum + (session.distanceMeters ?? 0), 0);

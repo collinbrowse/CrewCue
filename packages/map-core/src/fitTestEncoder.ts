@@ -13,6 +13,8 @@ export type FitTestRecord = {
   longitude?: number;
   elevationMeters?: number;
   distanceMeters?: number;
+  /** Strides per minute (FIT record field 4). Written only when some record has it. */
+  cadence?: number;
 };
 
 export type FitTestActivity = {
@@ -65,6 +67,8 @@ export function encodeFitActivity(activity: FitTestActivity): Uint8Array {
     [2, 2, 0x84],
     [5, 4, 0x86]
   ];
+  const withCadence = activity.records.some((record) => record.cadence !== undefined);
+  if (withCadence) recordFields.push([4, 1, 0x02]);
   body.define(1, 20, recordFields);
   // Local 2: record without timestamp, for compressed-timestamp headers.
   if (activity.compressedTimestamps) body.define(2, 20, recordFields.slice(1));
@@ -80,6 +84,7 @@ export function encodeFitActivity(activity: FitTestActivity): Uint8Array {
     body.u32(record.longitude === undefined ? 0x7fffffff : Math.round(record.longitude * DEGREES_TO_SEMICIRCLES));
     body.u16(record.elevationMeters === undefined ? 0xffff : Math.round((record.elevationMeters + 500) * 5));
     body.u32(record.distanceMeters === undefined ? 0xffffffff : Math.round(record.distanceMeters * 100));
+    if (withCadence) body.u8(record.cadence === undefined ? 0xff : Math.round(record.cadence));
   });
 
   if (activity.session) {

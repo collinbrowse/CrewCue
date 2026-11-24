@@ -5,6 +5,11 @@ export type GpxTrackPoint = {
   longitude: number;
   elevationMeters: number | null;
   timestampMs: number | null;
+  /**
+   * Step cadence as the file records it. FIT, TCX and Garmin GPX store strides per minute (one
+   * foot), so running reads about 80–95; the grade profile normalizes it. Absent when not recorded.
+   */
+  cadence?: number | null;
 };
 
 export type ParsedGpxTrack = {
@@ -430,12 +435,13 @@ function extractTrackPoints(gpxXml: string, mode: GpxPointTagMode = "all"): GpxT
     const longitude = extractCoordinate(attributes, "lon");
     const elevationMeters = extractOptionalNumericTag(body, "ele");
     const timestampMs = extractOptionalTimestamp(body);
+    const cadence = extractOptionalNumericTag(body, "cad");
 
     if (latitude === null || longitude === null) {
       continue;
     }
 
-    points.push({ latitude, longitude, elevationMeters, timestampMs });
+    points.push({ latitude, longitude, elevationMeters, timestampMs, ...(cadence !== null ? { cadence } : {}) });
   }
 
   return points;
