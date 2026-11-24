@@ -572,6 +572,8 @@ class ShellViewModel(
         when {
             feature == "app-shell" && state == "success" ->
                 if (container.sessionStore.current() != null) showShell(ShellTab.Map) else showSignedOut()
+            // A sheet over the app's own launch (MainActivity), not a screen of its own.
+            feature == "run-share-import" -> routeEntry()
             feature != null && url != null -> openLinkedFeature(feature, url)
             else -> routeEntry()
         }

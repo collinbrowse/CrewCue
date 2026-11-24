@@ -32,6 +32,8 @@ final class ShellModel {
     let profileModel: ProfileModel
     let stravaModel: StravaModel
     let activityImportModel: ActivityImportModel
+    /// A run file shared or opened in CrewCue (run-share-import).
+    let sharedRunImport: SharedRunImportModel
     let accountDeletionModel: AccountDeletionModel
     let membersModel: RoomMembersModel
     /// The runner's invite link and code (Room members → Invite crew).
@@ -98,6 +100,7 @@ final class ShellModel {
         self.profileModel = ProfileModel(client: client)
         self.stravaModel = StravaModel(client: client)
         self.activityImportModel = ActivityImportModel(client: client)
+        self.sharedRunImport = SharedRunImportModel(client: client)
         self.accountDeletionModel = AccountDeletionModel(client: client)
         self.membersModel = RoomMembersModel(client: client)
         self.inviteModel = InviteShareModel(client: client)
@@ -115,6 +118,9 @@ final class ShellModel {
             logger: client.graph.logger
         )
         self.runnerSetup = RunnerSetupModel(client: client, activityImport: activityImportModel, auth: authModel)
+        self.sharedRunImport.onImported = { [activityImportModel] in
+            await activityImportModel.activate()
+        }
         self.racePreview = RacePreviewModel(client: client)
         self.authModel.bindSession { [weak self] session in
             self?.adopt(session)
@@ -412,6 +418,13 @@ final class ShellModel {
     }
 
     func open(_ url: URL) {
+        if url.isFileURL {
+            receiveRunFile { [weak self] in
+                guard let self else { return }
+                sharedRunImport.receive(url: url, signedIn: isSignedIn)
+            }
+            return
+        }
         // Join links open in every build, ahead of the Debug-only dev routes.
         switch InviteLink.route(url.absoluteString) {
         case .invite(let invite):
@@ -424,6 +437,10 @@ final class ShellModel {
             break
         }
         guard url.scheme?.caseInsensitiveCompare("crewcue") == .orderedSame else { return }
+        if DevLinks.enabled, Route.parse(url.absoluteString)?.featureId == "run-share-import" {
+            openRunShareDevLink(url.absoluteString)
+            return
+        }
         // Strava is off in v1 (#652): its return link then opens the shell like any other link.
         if ClientFeatureFlags.stravaEnabled, Self.isStravaReturn(url) {
             fixtureOverlay = false
@@ -445,6 +462,34 @@ final class ShellModel {
         show(next)
         if !fixtureOverlay {
             enterShellIfNeeded()
+        }
+    }
+
+    /// `crewcue://dev/run-share-import?file=<name>`: the import sheet with a file from the app's
+    /// documents folder, as if it had been shared. Without a file, the sheet shows the tip.
+    func openRunShareDevLink(_ raw: String) {
+        let name = URLComponents(string: raw)?.queryItems?.first(where: { $0.name == "file" })?.value
+        receiveRunFile { [weak self] in
+            guard let self else { return }
+            guard let name, let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                sharedRunImport.showTip()
+                return
+            }
+            sharedRunImport.receive(url: documents.appendingPathComponent(name), signedIn: isSignedIn)
+        }
+    }
+
+    /// The import sheet presents from the app's root, so close the shell's own sheets first.
+    private func receiveRunFile(_ start: @escaping @MainActor () -> Void) {
+        guard showsSettings || choosingRace else {
+            start()
+            return
+        }
+        showsSettings = false
+        choosingRace = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            start()
         }
     }
 
@@ -717,6 +762,7 @@ final class ShellModel {
         profileModel.clear()
         stravaModel.clear()
         activityImportModel.clear()
+        sharedRunImport.dismiss()
         accountDeletionModel.clear()
         membersModel.clear()
         inviteModel.clear()

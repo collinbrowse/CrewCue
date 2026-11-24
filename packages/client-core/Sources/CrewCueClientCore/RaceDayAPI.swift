@@ -195,6 +195,31 @@ public enum RaceDayAPI {
         return ActivityImportResult(status: response.status == 201 ? .saved : .duplicate, item: item.displayItem)
     }
 
+    /// `POST /activity-history/preview`: what a shared file (one run or a .zip) holds. Saves nothing.
+    public static func previewActivityUpload(graph: ClientGraph, fileName: String, data: Data) async throws -> ActivityUploadPreview {
+        let response = try await postUpload(graph, "/activity-history/preview", fileName: fileName, data: data)
+        return try JSONDecoder().decode(ActivityUploadPreview.self, from: response.body)
+    }
+
+    /// `POST /activity-history/archive`: import every run in a shared file. Already imported runs count as duplicates.
+    public static func importActivityUpload(graph: ClientGraph, fileName: String, data: Data) async throws -> ActivityUploadResult {
+        let response = try await postUpload(graph, "/activity-history/archive", fileName: fileName, data: data)
+        return try JSONDecoder().decode(ActivityUploadResult.self, from: response.body)
+    }
+
+    private static func postUpload(_ graph: ClientGraph, _ path: String, fileName: String, data: Data) async throws -> HTTPResponse {
+        guard let baseURL = graph.baseURL, let url = APIClient.endpoint(baseURL, path) else {
+            throw ClientHTTPError(status: 0, message: "API base URL is not set.")
+        }
+        let token = await graph.tokenProvider?.accessToken()
+        let body = try JSONSerialization.data(withJSONObject: [
+            "fileName": fileName,
+            "contentBase64": data.base64EncodedString()
+        ])
+        let request = APIClient.authorized(url: url, method: .post, token: token, body: body)
+        return try await APIClient.send(request, transport: graph.transport)
+    }
+
     public static func updateDisplayName(graph: ClientGraph, roomId: String, userId: String, displayName: String) async throws -> RoomEnvelope {
         let body = #"{"displayName":"\#(jsonEscape(displayName))"}"#
         return try await send(graph, "/race-rooms/\(roomId)/members/\(userId)", method: .patch, body: body)

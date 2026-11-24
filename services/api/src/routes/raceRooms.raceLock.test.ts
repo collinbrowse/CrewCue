@@ -2,13 +2,15 @@
  * The race lock and race rename. A Race Pass pays for one race: once the race is used (the runner
  * reaches the first aid station on race pings, or 48 hours after the start), its route line and start are
  * locked so the paid room cannot be reused for another race. Renaming and aid-station edits stay
- * open. See lib/raceLock.ts. Runs in memory and on Postgres (CI).
+ * open. See lib/raceLock.ts. Runs in memory and on Postgres (CI); the restart test runs on Postgres only.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { MapWorkspaceLayer, RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
+import { runStepsInFreshProcess as inFreshProcess } from "../lib/testFreshProcess.js";
 import {
   RACE_LOCK_AFTER_START_MS,
   aidStationLockAt,
@@ -431,3 +433,92 @@ test("PATCH /race-rooms/:roomId renames the race for race-setup editors", async 
     assert.equal(unpaid.statusCode, 200, unpaid.body);
   });
 });
+
+
+test(
+  "a race locked at the first aid station stays locked after an API restart: no new start or route, rename and a start correction still work",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 120_000 },
+  async () => {
+    const runner = "lock-restart-runner";
+    const crew = "lock-restart-crew";
+    const now = wholeSecond(Date.now());
+    const startMs = now - 80 * MINUTE;
+    const start = iso(startMs);
+    let roomId = "";
+    let lockedAt = "";
+    await withApp(async (app) => {
+      roomId = await raceOn50k(app, runner, start);
+      const joinCode = (await readRoom(app, roomId, runner)).joinCode;
+      const joined = await app.inject({
+        method: "POST",
+        url: "/race-rooms/join-by-code",
+        payload: { roomCode: joinCode },
+        headers: auth(app, crew)
+      });
+      assert.equal(joined.statusCode, 200, joined.body);
+      const pastAid = await ping(app, roomId, runner, now, AID_1_METERS + 150);
+      assert.equal(pastAid.statusCode, 201, pastAid.body);
+      lockedAt = (await readRoom(app, roomId, runner)).raceLockedAt ?? "";
+      assert.ok(lockedAt, "locked at the first aid station before the restart");
+    });
+    const lockMs = Date.parse(lockedAt);
+    // Inside the 48-hour window: only the stored lock (not the computed one) can lock it now.
+    assert.ok(now < startMs + RACE_LOCK_AFTER_START_MS);
+
+    const correctedStart = iso(startMs + 30 * MINUTE);
+    const [crewRead, newDay, newRoute, renamed, laterPing, tooLate, corrected] = inFreshProcess([
+      { method: "GET", url: `/race-rooms/${roomId}`, user: crew },
+      // Re-pointing the paid room at another race: refused.
+      { method: "PATCH", url: `/race-rooms/${roomId}/race-start`, user: runner, payload: { raceStartAt: iso(now + 7 * DAY) } },
+      {
+        method: "PUT",
+        url: `/race-rooms/${roomId}/course`,
+        user: runner,
+        payload: {
+          plannedPaceSecondsPerKm: load50kCourseWithAids().plannedPaceSecondsPerKm,
+          course: { checkpoints: load50kCourseWithAids().checkpoints },
+          routeOverlayLayer: otherRoute(),
+          raceStartAt: start
+        }
+      },
+      // Still open: rename, the next race ping, a start correction in the 12 hours before Aid 1.
+      { method: "PATCH", url: `/race-rooms/${roomId}`, user: runner, payload: { name: "Western States 2030" } },
+      {
+        method: "POST",
+        url: `/race-rooms/${roomId}/pings`,
+        user: runner,
+        payload: { ...upRoute(AID_1_METERS + 400), recordedAt: iso(now + 30_000), uploadIntervalSeconds: 30 }
+      },
+      { method: "PATCH", url: `/race-rooms/${roomId}/race-start`, user: runner, payload: { raceStartAt: iso(lockMs + MINUTE) } },
+      { method: "PATCH", url: `/race-rooms/${roomId}/race-start`, user: runner, payload: { raceStartAt: correctedStart } }
+    ]);
+    assert.equal(crewRead!.status, 200, JSON.stringify(crewRead!.body));
+    assert.equal((crewRead!.body as { room: RaceRoom }).room.raceLockedAt, lockedAt, "crew read the stored lock");
+    for (const [label, refused] of [
+      ["a start a week later", newDay],
+      ["another race's route", newRoute],
+      ["a start after the first aid station", tooLate]
+    ] as const) {
+      assert.equal(refused!.status, 409, `${label}: ${JSON.stringify(refused!.body)}`);
+      assert.equal((refused!.body as { code: string }).code, "race_locked", label);
+    }
+    assert.equal(renamed!.status, 200, JSON.stringify(renamed!.body));
+    assert.equal((renamed!.body as RaceRoom).raceLockedAt, lockedAt);
+    assert.equal(laterPing!.status, 201, JSON.stringify(laterPing!.body));
+    assert.equal(corrected!.status, 200, JSON.stringify(corrected!.body));
+
+    // A third process, so what crew read can only come from Postgres.
+    const [after, workspace] = inFreshProcess([
+      { method: "GET", url: `/race-rooms/${roomId}`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/map-workspace`, user: crew }
+    ]);
+    assert.equal(after!.status, 200, JSON.stringify(after!.body));
+    const room = (after!.body as { room: RaceRoom }).room;
+    assert.equal(room.raceLockedAt, lockedAt, "the later ping and the edits did not move or drop the lock");
+    assert.equal(room.name, "Western States 2030");
+    assert.equal(room.raceStartAt, correctedStart);
+    assert.equal(workspace!.status, 200, JSON.stringify(workspace!.body));
+    const layers = (workspace!.body as { mapWorkspace: RaceMapWorkspace }).mapWorkspace.layers;
+    assert.ok(!layers.some((layer) => layer.id === "other-race"), "the refused route never saved");
+  }
+);

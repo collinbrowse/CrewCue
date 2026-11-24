@@ -22,17 +22,25 @@ import com.crewcue.android.nav.AppRouter
 import com.crewcue.android.ui.ConfigurationErrorScreen
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.ShellViewModelFactory
+import com.crewcue.android.nav.DevRoutes
+import com.crewcue.android.ui.activity.SharedRunImportSheet
+import com.crewcue.android.ui.activity.SharedRunImportViewModel
+import com.crewcue.android.ui.activity.SharedRunImportViewModelFactory
 import com.crewcue.android.ui.brand.LaunchSplash
 import com.crewcue.android.ui.chat.CrewPush
 import com.crewcue.android.ui.theme.CrewCueTheme
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { AppContainer(applicationContext) }
     private val shellModel: ShellViewModel by viewModels {
         ShellViewModelFactory(container, intent)
+    }
+    private val sharedRunImport: SharedRunImportViewModel by viewModels {
+        SharedRunImportViewModelFactory(container.raceDay)
     }
 
     @OptIn(ExperimentalComposeUiApi::class)
@@ -54,6 +62,9 @@ class MainActivity : ComponentActivity() {
         if (container.sessionStore.current() != null) {
             lifecycleScope.launch(Dispatchers.IO) { CrewPush.refreshIfAllowed(applicationContext, container.raceDay) }
         }
+        // A run file shared or opened in CrewCue (run-share-import). Not on recreation: the sheet's
+        // state lives in its ViewModel.
+        if (savedInstanceState == null) receiveRunShare(intent)
         // Dev deeplink launches go straight to their fixture.
         val playSplash = savedInstanceState == null && intent?.data == null
         setContent {
@@ -61,6 +72,7 @@ class MainActivity : ComponentActivity() {
             CrewCueTheme {
                 Box(Modifier.semantics { testTagsAsResourceId = true }) {
                     AppRouter(shellModel)
+                    SharedRunImportSheet(sharedRunImport)
                     if (showSplash) {
                         LaunchSplash { showSplash = false }
                     }
@@ -88,7 +100,39 @@ class MainActivity : ComponentActivity() {
             shellModel.openChat(it)
             return
         }
+        val runShareLink = intent.dataString?.let { DevRoutes.inboundFeatureId(it) } == "run-share-import"
+        // The dev link carries a dev session the shell must read first; a shared file doesn't move the shell.
+        if (runShareLink) shellModel.open(intent)
+        if (receiveRunShare(intent)) return
         shellModel.open(intent)
+    }
+
+    /**
+     * A shared (SEND) or opened (VIEW) run file, or the debug link
+     * `crewcue://dev/run-share-import?file=<name>` (a file in the app's files folder). Answers
+     * whether the intent was one of these.
+     */
+    private fun receiveRunShare(intent: Intent?): Boolean {
+        val uri = SharedRunImportViewModel.sharedUri(intent)
+        val devLink = intent?.dataString?.takeIf { DevRoutes.inboundFeatureId(it) == "run-share-import" }
+        if (uri == null && devLink == null) return false
+        // The shell reads a dev session from the launch intent; touch it first so the session is known.
+        val signedIn = shellModel.session != null || container.sessionStore.current() != null
+        lifecycleScope.launch {
+            if (uri != null) {
+                val (name, bytes) = withContext(Dispatchers.IO) { SharedRunImportViewModel.readShared(applicationContext, uri) }
+                sharedRunImport.receive(name, bytes, signedIn)
+                return@launch
+            }
+            val name = android.net.Uri.parse(devLink).getQueryParameter("file")
+            if (name == null) {
+                sharedRunImport.showTip()
+                return@launch
+            }
+            val bytes = withContext(Dispatchers.IO) { runCatching { java.io.File(filesDir, name).readBytes() }.getOrNull() }
+            sharedRunImport.receive(name, bytes, signedIn)
+        }
+        return true
     }
 
     private companion object {

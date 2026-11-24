@@ -41,6 +41,8 @@ struct LaunchConfiguration: Equatable {
     var fakeStore = FakeStoreOptions()
     /// Dev links only: the replay dev route's `?at=&paused=`.
     var racePreviewDevStart: RacePreviewDevStart?
+    /// `--deeplink crewcue://dev/run-share-import…`: opened after launch as a shared file.
+    var runShareDevLink: String?
 
     static func resolve(
         arguments: [String] = CommandLine.arguments,
@@ -70,9 +72,11 @@ struct LaunchConfiguration: Equatable {
                 fakeStore.storeResult = result
             }
         }
+        // The run-share dev link is a sheet over the app's own launch, not a screen of its own.
+        let runShare = deeplink?.route.featureId == "run-share-import"
         return LaunchConfiguration(
-            route: deeplink?.route ?? Route(featureId: "app-shell", state: .success),
-            fixtureOverlay: deeplink?.fixtureOverlay ?? false,
+            route: runShare ? Route(featureId: "app-shell", state: .success) : (deeplink?.route ?? Route(featureId: "app-shell", state: .success)),
+            fixtureOverlay: runShare ? false : (deeplink?.fixtureOverlay ?? false),
             devSession: devLinks ? devSession(arguments: arguments) : nil,
             signedOut: arguments.contains("--signed-out"),
             baseURL: baseURL,
@@ -80,7 +84,8 @@ struct LaunchConfiguration: Equatable {
             configurationProblem: configurationProblem(baseURL: baseURL, auth: auth, localFallback: localFallback),
             revenueCatAPIKey: revenueCatKey,
             fakeStore: fakeStore,
-            racePreviewDevStart: racePreviewDevStart
+            racePreviewDevStart: racePreviewDevStart,
+            runShareDevLink: runShare ? argument(arguments, flag: "--deeplink", offset: 1) : nil
         )
     }
 
