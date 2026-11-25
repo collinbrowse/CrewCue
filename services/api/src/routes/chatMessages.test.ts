@@ -110,8 +110,10 @@ async function registerPush(app: App, token: string, deviceId: string, platform 
   assert.equal(res.statusCode, 201);
 }
 
+/** Polls until `check` holds. The 30 s bound only catches a hang: a busy machine may take a while. */
 async function waitUntil(check: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 200; i += 1) {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
     if (check()) return;
     await new Promise((r) => setTimeout(r, 5));
   }
@@ -396,17 +398,17 @@ test("chat messages: a long-poll wakes when a crew member posts", async () => {
     const roomId = await createRoom(app, owner, "owner-live");
     await addMember(app, roomId, owner, crew, "Ada");
     const start = (await list(app, crew, roomId)).json() as ChatMessagePage;
-    const started = Date.now();
-    const poll = list(app, crew, roomId, `?after=${start.latestCursor || "0"}&wait=20`);
+    const poll = list(app, crew, roomId, `?after=${start.latestCursor || "0"}&wait=25`);
     await waitUntil(() => chatRoomWaiterCount(roomId) > 0, "the poll to park");
     assert.equal((await send(app, owner, roomId, { clientMessageId: "live-1", text: "leaving aid 2" })).statusCode, 201);
+    // The post itself releases the parked poll (no wall clock, so a busy machine can't fail this);
+    // a poll that only woke on its 25 s timeout would still be parked here.
+    assert.equal(chatRoomWaiterCount(roomId), 0, "woke on the post, not the timeout");
     const res = await poll;
     assert.equal(res.statusCode, 200);
     const page = res.json() as ChatMessagePage;
     assert.deepEqual(page.messages.map((m) => m.text), ["leaving aid 2"]);
     assert.equal(page.latestCursor, page.messages[0]!.id);
-    assert.ok(Date.now() - started < 5000, "woke on the post, not the timeout");
-    assert.equal(chatRoomWaiterCount(roomId), 0);
   });
 });
 

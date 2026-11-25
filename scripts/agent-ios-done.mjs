@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { iosSimulatorNames } from "./lib/agentDevice.mjs";
+import { removeOldCheckoutDerivedData } from "./lib/iosBuild.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const deleteSims = process.argv.includes("--delete");
@@ -36,3 +37,5 @@ for (const entry of fs.existsSync(evidence) ? fs.readdirSync(evidence) : []) {
   removed++;
 }
 if (removed) console.log(`agent-ios-done: deleted ${removed} .xcresult bundle(s)`);
+
+removeOldCheckoutDerivedData(repoRoot, (line) => console.log(`agent-ios-done: ${line}`));

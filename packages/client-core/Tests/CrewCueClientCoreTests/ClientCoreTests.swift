@@ -604,11 +604,14 @@ struct SilentLogger: Logger {
     let bare = """
     {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"}}}
     """
+    // Scoped to this test's own host: a fake server for every host would also answer parallel
+    // tests that expect https://example.invalid to be unreachable (ChatRuntimeTests).
+    let base = "https://gpx-import-\(UUID().uuidString.lowercased()).example.invalid"
     let transport = CourseImportTransport(roomJSON: bare)
-    RuntimeCall.setTransportForTests(transport)
-    defer { RuntimeCall.setTransportForTests(nil) }
+    RuntimeCall.setTransportForTests(transport, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
     let response = await RuntimeCall.perform(#"""
-    {"op":"importGpx","baseURL":"https://example.invalid","roomId":"room","fileName":"route.gpx","gpxXml":"<gpx/>","role":"athlete"}
+    {"op":"importGpx","baseURL":"\#(base)","roomId":"room","fileName":"route.gpx","gpxXml":"<gpx/>","role":"athlete"}
     """#)
     let object = try JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any]
     #expect(object?["ok"] as? Bool == true)
@@ -618,9 +621,9 @@ struct SilentLogger: Logger {
     #expect(put?.raceStartAt.isEmpty == false)
 
     let stored = CourseImportTransport()
-    RuntimeCall.setTransportForTests(stored)
+    RuntimeCall.setTransportForTests(stored, baseURL: base)
     let kept = await RuntimeCall.perform(#"""
-    {"op":"importGpx","baseURL":"https://example.invalid","roomId":"room","fileName":"route.gpx","gpxXml":"<gpx/>","role":"athlete"}
+    {"op":"importGpx","baseURL":"\#(base)","roomId":"room","fileName":"route.gpx","gpxXml":"<gpx/>","role":"athlete"}
     """#)
     let keptObject = try JSONSerialization.jsonObject(with: Data(kept.utf8)) as? [String: Any]
     #expect(keptObject?["ok"] as? Bool == true)

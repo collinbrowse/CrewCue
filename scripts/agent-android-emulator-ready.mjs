@@ -9,11 +9,15 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { androidSdkEnv } from "./lib/androidSdkEnv.mjs";
 import { acquireAndroid, androidPort, emulatorGpu, SOFTWARE_GPU, sharedDevice } from "./lib/agentDevice.mjs";
+import { runShowingQueue, slotted } from "./lib/slot.mjs";
 
 const execFile = promisify(execFileCb);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG = path.join(repoRoot, ".android-emulator/config.yaml");
 const APP_ID = "com.crewcue.android";
+const BOOT_POLL_MS = 2000;
+const BOOT_POLLS = 150;
+const EMULATOR_CORES = 2;
 
 function parseArgs(argv) {
   let deeplink = process.env.AGENT_ANDROID_DEEPLINK?.trim() || "crewcue://dev/hello";
@@ -68,18 +72,21 @@ async function bootAvdOnce(name, port, gpu) {
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   const log = fs.openSync(logPath, "w");
   const gpuArgs = gpu ? ["-gpu", gpu] : [];
-  const child = spawn(emulator, ["-avd", name, "-read-only", "-no-snapshot-save", ...portArgs, ...gpuArgs, "-netdelay", "none", "-netspeed", "full"], {
+  // -cores: two virtual CPUs whatever the AVD's config.ini says, so the Mac stays usable for the
+  // other sessions' builds (an emulator at 4 cores keeps about 3 host cores busy).
+  const child = spawn(emulator, ["-avd", name, "-read-only", "-no-snapshot-save", "-cores", String(EMULATOR_CORES), ...portArgs, ...gpuArgs, "-netdelay", "none", "-netspeed", "full"], {
     detached: true,
     stdio: ["ignore", log, log],
     env
   });
   child.unref();
   const wanted = port ? `emulator-${port}` : undefined;
-  for (let attempt = 0; attempt < 90; attempt += 1) {
+  // Up to ~5 minutes: a cold boot on a Mac busy with other sessions' builds can take several.
+  for (let attempt = 0; attempt < BOOT_POLLS; attempt += 1) {
     if (child.exitCode !== null) break;
     const serial = wanted ? ((await isOnline(wanted)) ? wanted : undefined) : await onlineSerial().catch(() => undefined);
     if (serial && (await bootCompleted(serial))) return serial;
-    await sleep(2000);
+    await sleep(BOOT_POLL_MS);
   }
   // Don't leave a half-booted or hung emulator holding the port.
   if (child.exitCode === null) {
@@ -163,7 +170,7 @@ async function main() {
   const gradle = fs.existsSync(path.join(repoRoot, "apps/android/gradlew"))
     ? path.join(repoRoot, "apps/android/gradlew")
     : "gradle";
-  await run(gradle, ["-p", path.join(repoRoot, "apps/android"), ":app:assembleDebug"]);
+  await runShowingQueue(slotted(gradle, ["-p", path.join(repoRoot, "apps/android"), ":app:assembleDebug"], { label: "CrewCue Android app build", kind: "gradle assembleDebug" }), { cwd: repoRoot, env });
   const apk = path.join(repoRoot, "apps/android/app/build/outputs/apk/debug/app-debug.apk");
   if (!fs.existsSync(apk)) throw new Error(`Missing ${apk}`);
   await run("adb", ["-s", serial, "install", "-r", apk]);

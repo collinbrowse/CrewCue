@@ -6,6 +6,7 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { BUILD_JOBS, slotAvailable, slotted } from "./lib/slot.mjs";
 import { swiftForAndroid } from "./lib/swiftAndroidToolchain.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -25,9 +26,8 @@ if (listed.status !== 0 || !text.toLowerCase().includes("android")) {
 }
 
 const swift = swiftForAndroid();
-const build = spawnSync(
-  swift,
-  ["build", "--package-path", path.join(repoRoot, "packages/client-core"), "--build-tests", "--swift-sdk", triple],
-  { stdio: "inherit" }
-);
+const args = ["build", "--package-path", path.join(repoRoot, "packages/client-core"), "--build-tests", "--swift-sdk", triple];
+if (slotAvailable()) args.push("-j", String(BUILD_JOBS));
+const job = slotted(swift, args, { label: "CrewCue client-core Android build", kind: "swift build" });
+const build = spawnSync(job.command, job.args, { stdio: "inherit" });
 process.exit(build.status ?? 1);
