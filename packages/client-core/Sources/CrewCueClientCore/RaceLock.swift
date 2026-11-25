@@ -44,6 +44,8 @@ public enum RaceRenameCopy {
     public static let saved = "Race renamed."
     public static let failed = "Couldn't rename the race."
     public static let offline = "Offline. Race name not changed."
+    /// Under the name field: who sees the name, and how long it may be.
+    public static let hint = "Your crew sees the new name. Up to \(RaceName.maxLength) characters."
 
     /// The line Profile shows after a failed rename.
     public static func message(for error: any Error) -> String {

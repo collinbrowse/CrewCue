@@ -14,6 +14,10 @@ final class RoomMembersModel {
     private(set) var message = ""
     private(set) var working = false
     var nameDraft = ""
+    /// The name on the server. Settings shows it as text until the person taps Edit.
+    private(set) var savedName = ""
+    /// Settings shows the name field. Starts on when there is no saved name yet.
+    var editingName = false
 
     private let client: AppClient
     private var generation = 0
@@ -57,6 +61,7 @@ final class RoomMembersModel {
                 displayName: name
             )
             guard ticket == generation, !Task.isCancelled else { return nil }
+            editingName = false
             apply(envelope.room)
             return name
         } catch {
@@ -64,6 +69,12 @@ final class RoomMembersModel {
             message = Self.failureMessage(error)
             return nil
         }
+    }
+
+    /// Settings' Edit: the field opens on the saved name.
+    func beginNameEdit() {
+        nameDraft = savedName
+        editingName = true
     }
 
     func remove(_ member: RoomMemberLine) async {
@@ -102,6 +113,8 @@ final class RoomMembersModel {
         members = []
         message = ""
         nameDraft = ""
+        savedName = ""
+        editingName = false
         working = false
         userId = nil
         roomId = nil
@@ -126,8 +139,13 @@ final class RoomMembersModel {
         members = room.memberships.map { membership in
             RoomMemberLine(id: membership.userId, displayName: membership.displayName ?? "")
         }
-        if working == false, let userId, let mine = members.first(where: { $0.id == userId }) {
-            nameDraft = mine.displayName
+        if let userId, let mine = members.first(where: { $0.id == userId }) {
+            savedName = mine.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            // A reload while the person types keeps their draft.
+            if working == false, editingName == false {
+                nameDraft = mine.displayName
+            }
+            if savedName.isEmpty { editingName = true }
         }
         message = members.isEmpty ? "No members yet." : "Roster lists members."
     }

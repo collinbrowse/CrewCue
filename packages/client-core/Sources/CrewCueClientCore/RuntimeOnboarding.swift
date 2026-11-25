@@ -296,7 +296,9 @@ extension RuntimeCall {
             "joinButton": InviteCopy.joinButton,
             "previewPlaceholder": InviteCopy.previewPlaceholder,
             "inviteCrewButton": InviteCopy.inviteCrewButton,
-            "backToMembers": InviteCopy.backToMembers
+            "backToMembers": InviteCopy.backToMembers,
+            "invitePill": InviteCopy.invitePill,
+            "raceLockedReason": OnboardingState.raceLockedReason
         ]
     }
 

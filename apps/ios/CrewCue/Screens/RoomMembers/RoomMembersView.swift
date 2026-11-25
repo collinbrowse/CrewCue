@@ -15,32 +15,44 @@ struct RoomMembersView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                ProductTitle(title: "Room members", subtitle: "Your crew for this race. Change your own name in Settings.")
-                if let onInvite, model.isRunner {
-                    Button(action: onInvite) {
-                        Label(InviteCopy.inviteCrewButton, systemImage: "person.badge.plus")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.crewPrimary)
-                    .accessibilityIdentifier("crewcue.room-members.invite")
+                // Back to Profile, at the top where a pushed page's back control sits.
+                Button(action: onProfile) {
+                    Label("Profile", systemImage: "chevron.left")
                 }
-                if model.members.isEmpty == false {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(model.members) { member in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(verbatim: model.visibleName(member))
-                                    .font(CrewFont.button)
-                                if model.canRemove(member) {
-                                    Button("Remove \(model.visibleName(member))") {
-                                        Task { await model.remove(member) }
-                                    }
-                                    .buttonStyle(.crewSecondary)
-                                    .disabled(model.working)
-                                }
+                .buttonStyle(.crewPill)
+                .accessibilityLabel("Back to Profile")
+                .accessibilityIdentifier("crewcue.room-members.back")
+                ProductTitle(title: "Room members", subtitle: "Your crew for this race. Change your own name in Settings.")
+                if model.members.isEmpty == false || (onInvite != nil && model.isRunner) {
+                    CrewSettingsGroup(title: "Crew") {
+                        // Invite sits on the CREW label's row, not among the members. Allowed
+                        // before the race is paid: crew who use it wait for the runner to unlock.
+                        if let onInvite, model.isRunner {
+                            Button(action: onInvite) {
+                                Label(InviteCopy.invitePill, systemImage: "person.badge.plus")
                             }
+                            .buttonStyle(.crewPillProminent)
+                            .accessibilityLabel(InviteCopy.inviteCrewButton)
+                            .accessibilityIdentifier("crewcue.room-members.invite")
+                        }
+                    } content: {
+                        ForEach(model.members) { member in
+                            CrewSettingRow(
+                                systemImage: "person",
+                                title: model.visibleName(member),
+                                trailing: {
+                                    if model.canRemove(member) {
+                                        Button("Remove") {
+                                            Task { await model.remove(member) }
+                                        }
+                                        .buttonStyle(CrewPillButtonStyle(destructive: true))
+                                        .disabled(model.working)
+                                        .accessibilityLabel("Remove \(model.visibleName(member))")
+                                    }
+                                }
+                            )
                         }
                     }
-                    .crewCard()
                 }
                 if let upgradeModel {
                     CrewUpgradeCard(model: upgradeModel)
@@ -50,12 +62,11 @@ struct RoomMembersView: View {
                         .font(CrewFont.bodyLarge)
                         .foregroundStyle(theme.body)
                 }
-                Button("Profile", action: onProfile)
-                    .buttonStyle(.crewSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .crewCueScreen(identifier: "crewcue.room-members", label: "Room members")
+        .accessibilityAction(.escape, onProfile)
         .task(id: activationID) {
             await model.activate(userId: userId, roomId: roomId)
         }

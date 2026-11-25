@@ -2,12 +2,11 @@ import SwiftUI
 import UIKit
 import CrewCueClientCore
 
-/// The runner's invite (Profile → Room members → Invite crew): the join link and the 6-digit code,
-/// with the share sheet and Copy code. Regular width puts the code beside the link and actions.
+/// The runner's invite (Profile → Room members → Invite crew, a sheet closed with its X): the join
+/// link and the 6-digit code, with the share sheet and Copy code. Regular width puts the code beside the link and actions.
 struct InviteShareView: View {
     var model: InviteShareModel
     var roomId: String?
-    var onBack: () -> Void
     @Environment(\.crew) private var theme
     @Environment(\.horizontalSizeClass) private var sizeClass
     @ScaledMetric(relativeTo: .largeTitle) private var codeSize: CGFloat = 40
@@ -15,10 +14,6 @@ struct InviteShareView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Button(InviteCopy.backToMembers, action: onBack)
-                    .font(CrewFont.bodyLarge)
-                    .foregroundStyle(theme.primary)
-                    .accessibilityIdentifier("crewcue.invite-share.back")
                 ProductTitle(title: InviteCopy.shareTitle, subtitle: InviteCopy.shareDetail)
                 content
             }
@@ -97,21 +92,21 @@ struct InviteShareView: View {
             }
             // The share text carries the link and the code, so a crew member without the app (or
             // whose link opens the browser) can still type the code.
-            ShareLink(item: details.shareText, subject: Text(InviteCopy.shareTitle)) {
-                Label(InviteCopy.shareButton, systemImage: "square.and.arrow.up")
-                    .frame(maxWidth: .infinity)
+            HStack(spacing: CrewSpace.base) {
+                ShareLink(item: details.shareText, subject: Text(InviteCopy.shareTitle)) {
+                    Label(InviteCopy.shareButton, systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.crewPillProminent)
+                .accessibilityIdentifier("crewcue.invite-share.share")
+                Button {
+                    UIPasteboard.general.string = details.code
+                    model.noteCopied()
+                } label: {
+                    Label(InviteCopy.copyCode, systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.crewPill)
+                .accessibilityIdentifier("crewcue.invite-share.copy")
             }
-            .buttonStyle(.crewPrimary)
-            .accessibilityIdentifier("crewcue.invite-share.share")
-            Button {
-                UIPasteboard.general.string = details.code
-                model.noteCopied()
-            } label: {
-                Label(InviteCopy.copyCode, systemImage: "doc.on.doc")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.crewSecondary)
-            .accessibilityIdentifier("crewcue.invite-share.copy")
             Text(verbatim: model.notice.isEmpty ? model.message : model.notice)
                 .font(CrewFont.body)
                 .foregroundStyle(details.locked ? theme.danger : theme.body)

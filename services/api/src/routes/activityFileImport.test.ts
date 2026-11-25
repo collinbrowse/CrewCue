@@ -183,3 +183,36 @@ test("re-importing a file stored before grade profiles backfills it on the same 
     assert.ok(stored?.gradeProfile);
   });
 });
+
+test("a named file keeps its name; files without one (FIT fixture) have none", async () => {
+  await withApp(async (app, token) => {
+    const gpx = await post(app, token, { fileName: "run.gpx", contentBase64: base64Fixture("activity-short-road.gpx") });
+    assert.equal(gpx.statusCode, 201);
+    assert.equal(gpx.json().name, "Short road 8k history");
+    const fit = await post(app, token, { fileName: "run.fit", contentBase64: base64Fixture("activity-short-road.fit") });
+    assert.equal(fit.json().name, undefined);
+    const list = await app.inject({ method: "GET", url: "/activity-history", headers: { authorization: `Bearer ${token}` } });
+    const names = list.json().items.map((item: { source: string; name?: string }) => [item.source, item.name ?? null]);
+    assert.deepEqual(names.sort(), [["fit_upload", null], ["gpx_upload", "Short road 8k history"]]);
+  });
+});
+
+test("re-importing a named file stored before names backfills the name on the same row", async () => {
+  await withApp(async (app, token) => {
+    const bytes = readFileSync(resolve(pacingDir, "activity-short-road.gpx"));
+    await upsertActivityHistory("athlete-file", {
+      id: "unnamed-row",
+      source: "gpx_upload",
+      externalId: fingerprintActivityFile(new Uint8Array(bytes)),
+      recordedAt: "2026-05-10T15:30:00.000Z",
+      ingestedAt: "2026-05-11T00:00:00.000Z",
+      distanceMeters: 7991
+    });
+    const res = await post(app, token, { fileName: "road.gpx", contentBase64: bytes.toString("base64") });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().id, "unnamed-row");
+    assert.equal(res.json().name, "Short road 8k history");
+    const [stored] = await listActivityHistoryForAthlete("athlete-file");
+    assert.equal(stored?.name, "Short road 8k history");
+  });
+});

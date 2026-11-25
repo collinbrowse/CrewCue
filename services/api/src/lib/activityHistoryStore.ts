@@ -123,14 +123,20 @@ export type UpsertActivityHistoryResult = {
 };
 
 /**
- * A replayed row keeps its id and fields, but gains a grade profile when it was stored before
- * profiles existed. Re-importing the same file is how runners backfill it. Null when nothing changes.
+ * A replayed row keeps its id and fields, but gains a grade profile or a name when it was stored
+ * before those existed. Re-importing the same file is how runners backfill them. Null when nothing changes.
  */
 function backfilled(existing: ActivityHistoryRef, incoming: ActivityHistoryRef): ActivityHistoryRef | null {
-  if (existing.gradeProfile !== undefined || incoming.gradeProfile === undefined) {
+  const addProfile = existing.gradeProfile === undefined && incoming.gradeProfile !== undefined;
+  const addName = existing.name === undefined && incoming.name !== undefined;
+  if (!addProfile && !addName) {
     return null;
   }
-  return { ...existing, gradeProfile: incoming.gradeProfile };
+  return {
+    ...existing,
+    ...(addProfile ? { gradeProfile: incoming.gradeProfile } : {}),
+    ...(addName ? { name: incoming.name } : {})
+  };
 }
 
 export async function upsertActivityHistory(

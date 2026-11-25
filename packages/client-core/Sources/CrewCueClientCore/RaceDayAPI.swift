@@ -799,6 +799,7 @@ private struct ActivityHistoryList: Decodable {
         var distanceMeters: Double?
         var elapsedSeconds: Double?
         var elevationGainMeters: Double?
+        var name: String?
 
         var displayItem: ActivityHistoryItem {
             ActivityHistoryItem(
@@ -806,7 +807,8 @@ private struct ActivityHistoryList: Decodable {
                 source: source ?? "",
                 recordedAt: recordedAt ?? "",
                 distanceMeters: distanceMeters,
-                elapsedSeconds: elapsedSeconds
+                elapsedSeconds: elapsedSeconds,
+                name: name
             )
         }
     }

@@ -276,7 +276,7 @@ public struct OnboardingState: Equatable, Sendable {
     /// Why the race is locked (`raceLocked` only), for the UI to show.
     public var reason: String?
 
-    public static let raceLockedReason = "The runner hasn't unlocked this race yet."
+    public static let raceLockedReason = "Waiting for the runner to unlock this race."
 
     public static let chooser = OnboardingState(
         flow: .chooser, role: nil, roomId: nil, phase: nil, step: nil,

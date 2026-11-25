@@ -37,6 +37,8 @@ public enum InviteCopy {
     public static let joinButton = "Join"
     public static let previewPlaceholder = "The race appears here once the code is found."
     public static let inviteCrewButton = "Invite crew"
+    /// The small pill on Room members, on the CREW label's row.
+    public static let invitePill = "Invite"
     public static let backToMembers = "Room members"
 
     /// A join that answered after the screen moved on to another code (a link arrived meanwhile).

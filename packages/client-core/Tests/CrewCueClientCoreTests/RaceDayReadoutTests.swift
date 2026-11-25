@@ -99,7 +99,12 @@ private let sheet = CrewScheduleSheet(
 @Test func elevationGainSumsClimbsOnly() {
     let profile = ElevationProfile(samples: [(0, 100), (1000, 150), (2000, 120), (3000, 200), (4000, 50)])
     #expect(profile.gainMeters(from: 0, to: 3000) == 130)
-    #expect(profile.gainMeters(from: 3500, to: 3600) == nil)
+    // No sample between the ends: they're interpolated (200 m down to 50 m: no climb).
+    #expect(profile.gainMeters(from: 3500, to: 3600) == 0)
+    #expect(profile.gainMeters(from: 500, to: 1500) == 25)
+    // Off the profile, or a profile of one sample: no climb, not a made-up 0.
+    #expect(profile.gainMeters(from: 5000, to: 6000) == nil)
+    #expect(ElevationProfile(samples: [(0, 100)]).gainMeters(from: 0, to: 100) == nil)
     #expect(RaceDayReadouts.elevationLabel(meters: 256) == "+840 FT")
 }
 

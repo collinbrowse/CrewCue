@@ -98,6 +98,12 @@ struct CoursePreviewPanel: View {
                 CoursePreviewMap(preview: preview, onRendered: onMapRendered)
                     .frame(maxWidth: .infinity, minHeight: mapHeight, maxHeight: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: CrewRadius.lg, style: .continuous))
+                    // The race map's own info button (map licensing), not MapLibre's older sheet.
+                    .overlay(alignment: .topTrailing) {
+                        MapLicensingButton()
+                            .padding(4)
+                            .accessibilityHidden(concealed)
+                    }
                     .accessibilityLabel(OnboardingCopy.coursePreviewLabel)
                     .accessibilityIdentifier("crewcue.onboarding.course-map")
                     .accessibilityHidden(concealed)
@@ -115,6 +121,15 @@ struct CoursePreviewPanel: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(OnboardingCopy.elevationProfileLabel)
                     .accessibilityIdentifier("crewcue.onboarding.elevation-profile")
+                    .accessibilityHidden(concealed)
+            } else if preview.route.count >= 2 {
+                // The line came back without elevation (a GPX with no <ele>): say so, rather
+                // than a profile that never draws.
+                Text(OnboardingCopy.courseNoElevation)
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("crewcue.onboarding.no-elevation")
                     .accessibilityHidden(concealed)
             }
         }
@@ -149,7 +164,10 @@ private struct CoursePreviewMap: View {
             route: preview.route.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) },
             fitPadding: UIEdgeInsets(top: 36, left: 36, bottom: 36, right: 36),
             refitOnResize: true,
-            shrinksPaddingToFit: true
+            shrinksPaddingToFit: true,
+            // Terrain-style tiles at every appearance, never the black night map.
+            baseStyle: .streets,
+            hidesAttributionButton: true
         )
         #else
         EmptyView()

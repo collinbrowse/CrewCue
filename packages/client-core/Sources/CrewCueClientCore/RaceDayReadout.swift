@@ -30,16 +30,47 @@ public struct ElevationProfile: Equatable, Sendable {
         }
     }
 
-    /// Total climb between two course distances. Nil when the profile has fewer than two samples in range.
+    /// The course's profile for the race readouts: the baseline track when it carries elevation,
+    /// else the saved route line's vertices. The server's baseline track holds distance and time
+    /// only, so on a saved race the climb comes from the route line. Nil when neither has two
+    /// elevations (a GPX without `<ele>`): the readouts then show no climb rather than a made-up 0.
+    public static func course(baseline: [RaceCourseBaselinePoint]?, route: [CourseRoutePoint]) -> ElevationProfile? {
+        if let baseline {
+            let profile = ElevationProfile(points: baseline)
+            if profile.samples.count >= 2 { return profile }
+        }
+        return ElevationProfile(route: route)
+    }
+
+    /// Total climb between two course distances. The ends are interpolated between the samples
+    /// around them, so a sparse line (or an aid just ahead, with no sample in between) still has
+    /// a climb. Nil when the profile has fewer than two samples or doesn't reach the range.
     public func gainMeters(from start: Double, to end: Double) -> Double? {
-        guard start.isFinite, end.isFinite, end > start else { return nil }
-        let inside = samples.filter { $0.distanceMeters >= start && $0.distanceMeters <= end }
-        guard inside.count >= 2 else { return nil }
+        guard start.isFinite, end.isFinite, end > start, samples.count >= 2,
+              let first = samples.first, let last = samples.last else { return nil }
+        let from = max(start, first.distanceMeters)
+        let to = min(end, last.distanceMeters)
+        guard to > from, let startElevation = elevation(at: from), let endElevation = elevation(at: to) else { return nil }
+        let inside = samples.filter { $0.distanceMeters > from && $0.distanceMeters < to }.map(\.elevationMeters)
+        let path = [startElevation] + inside + [endElevation]
         var gain = 0.0
-        for (previous, next) in zip(inside, inside.dropFirst()) where next.elevationMeters > previous.elevationMeters {
-            gain += next.elevationMeters - previous.elevationMeters
+        for (previous, next) in zip(path, path.dropFirst()) where next > previous {
+            gain += next - previous
         }
         return gain
+    }
+
+    /// Elevation at a course distance, linear between the samples around it. Nil off the profile.
+    func elevation(at distance: Double) -> Double? {
+        guard let first = samples.first, let last = samples.last,
+              distance >= first.distanceMeters, distance <= last.distanceMeters else { return nil }
+        guard let upper = samples.firstIndex(where: { $0.distanceMeters >= distance }) else { return nil }
+        let high = samples[upper]
+        if upper == 0 || high.distanceMeters == distance { return high.elevationMeters }
+        let low = samples[upper - 1]
+        let span = high.distanceMeters - low.distanceMeters
+        guard span > 0 else { return high.elevationMeters }
+        return low.elevationMeters + (high.elevationMeters - low.elevationMeters) * (distance - low.distanceMeters) / span
     }
 }
 
@@ -193,6 +224,19 @@ public struct RaceDayReadout: Equatable, Sendable {
         self.finishWindowStartAt = finishWindowStartAt
         self.finishWindowEndAt = finishWindowEndAt
         self.liveEtaStale = liveEtaStale
+    }
+
+    /// The top bar's course strip on Map and Pace: "12.4 of 31.0 mi", from the runner's pings.
+    /// Nil when the race has no course length.
+    public var courseStripLabel: String? {
+        guard totalMilesLabel != "—" else { return nil }
+        return "\(currentMileLabel) of \(totalMilesLabel) mi"
+    }
+
+    /// "Course progress, 12.4 of 31.0 miles".
+    public var courseStripSpoken: String? {
+        guard totalMilesLabel != "—" else { return nil }
+        return "Course progress, \(currentMileLabel) of \(totalMilesLabel) miles"
     }
 }
 

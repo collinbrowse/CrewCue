@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import {
   ActivityFileError,
   MAX_ACTIVITY_FILE_BYTES,
+  MAX_ACTIVITY_NAME_CHARS,
+  cleanActivityName,
   detectActivityFileFormat,
   isFootActivity,
   parseActivityFile,
@@ -105,4 +107,50 @@ test("sport comes from the FIT session, TCX Activity and GPX type", () => {
   assert.equal(isFootActivity(null), true);
   assert.equal(isFootActivity("cycling"), false);
   assert.equal(isFootActivity("walking"), false);
+});
+
+test("activity names come from GPX trk/metadata, TCX Activity Notes and the FIT workout", () => {
+  const gpx = new TextDecoder().decode(fixture("activity-short-road.gpx"));
+  assert.equal(parseActivityFile(fixture("activity-short-road.gpx"), "r.gpx").name, "Short road 8k history");
+  // Strava: <metadata> has only a time; the track carries the title and type.
+  const strava = gpx.replace(
+    /<trk>\s*<name>[^<]*<\/name>/,
+    "<trk>\n    <name>  Morning   Run &amp; Coffee </name>\n    <type>running</type>"
+  ).replace("<trk>", "<metadata><time>2026-05-10T15:30:00Z</time></metadata>\n  <trk>");
+  assert.equal(parseActivityFile(new TextEncoder().encode(strava), "s.gpx").name, "Morning Run & Coffee");
+  const metadataOnly = gpx
+    .replace(/<trk>\s*<name>[^<]*<\/name>/, "<trk>")
+    .replace("<trk>", "<metadata><name>Lunch Run</name><link href=\"x\"><text>Garmin</text></link></metadata>\n  <trk>");
+  assert.equal(parseActivityFile(new TextEncoder().encode(metadataOnly), "m.gpx").name, "Lunch Run");
+  const unnamed = gpx.replace(/<trk>\s*<name>[^<]*<\/name>/, "<trk>");
+  assert.equal(parseActivityFile(new TextEncoder().encode(unnamed), "u.gpx").name, null);
+
+  const tcx = new TextDecoder().decode(fixture("activity-short-road.tcx"));
+  assert.equal(parseActivityFile(fixture("activity-short-road.tcx"), "r.tcx").name, null);
+  const notedTcx = tcx
+    .replace(/<Id>/, "<Notes>Tempo Tuesday</Notes>\n      <Id>")
+    .replace(/<Intensity>/, "<Notes>lap note</Notes><Intensity>");
+  assert.equal(parseActivityFile(new TextEncoder().encode(notedTcx), "n.tcx").name, "Tempo Tuesday");
+  const lapNoteOnly = tcx.replace(/<Intensity>/, "<Notes>lap note</Notes><Intensity>");
+  assert.equal(parseActivityFile(new TextEncoder().encode(lapNoteOnly), "l.tcx").name, null);
+
+  const records = [0, 1, 2].map((i) => ({ timestampMs: Date.parse("2026-05-10T15:30:00Z") + i * 60_000, latitude: 45 + i * 0.001, longitude: -120, distanceMeters: i * 111 }));
+  const session = { startMs: records[0]!.timestampMs, elapsedSeconds: 120, distanceMeters: 222 };
+  assert.equal(parseActivityFile(encodeFitActivity({ records, session, workoutName: "6x800 m" }), "w.fit").name, "6x800 m");
+  assert.equal(parseActivityFile(encodeFitActivity({ records, session }), "c.fit").name, null);
+  assert.equal(parseActivityFile(fixture("activity-short-road.fit"), "r.fit").name, null);
+});
+
+test("activity names are trimmed, decoded and capped", () => {
+  assert.equal(cleanActivityName("  \n  "), null);
+  assert.equal(cleanActivityName(undefined), null);
+  assert.equal(cleanActivityName("<![CDATA[Hill <repeats>]]>"), "Hill <repeats>");
+  // Unterminated CDATA repeated many times stays linear (CodeQL polynomial regex).
+  const hostile = "<![CDATA[" + "<![CDATA[a".repeat(50_000);
+  const started = Date.now();
+  assert.ok(cleanActivityName(hostile) !== undefined);
+  assert.ok(Date.now() - started < 500);
+  assert.equal(cleanActivityName("Caf&#233; loop &#x1F3C3;"), "Café loop 🏃");
+  const long = "x".repeat(MAX_ACTIVITY_NAME_CHARS + 30);
+  assert.equal(cleanActivityName(long)!.length, MAX_ACTIVITY_NAME_CHARS);
 });

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 import CrewCueClientCore
 
 @MainActor
@@ -19,6 +20,9 @@ final class JoinCrewModel {
     private(set) var joining = false
     /// The last join answered that the race's crew is full.
     private(set) var raceFull = false
+    /// The last join answered that the runner hasn't unlocked the race yet (402 `room_unpaid`):
+    /// a waiting state, not an error. The code stays, so Join works once the race is unlocked.
+    private(set) var waitingForUnlock = false
     /// How a join the screen moved on from ended (a link arrived while it was out). The status
     /// line follows the code on screen; this keeps the earlier join's answer in view.
     private(set) var notice = ""
@@ -102,6 +106,7 @@ final class JoinCrewModel {
         isWorking = true
         joining = true
         raceFull = false
+        waitingForUnlock = false
         notice = ""
         Task {
             await runJoin(requested)
@@ -137,6 +142,7 @@ final class JoinCrewModel {
     func show(_ outcome: PendingJoinOutcome) {
         joining = false
         raceFull = outcome == .raceFull
+        waitingForUnlock = outcome == .raceLocked
         if let message = outcome.message {
             statusMessage = message
         }
@@ -147,6 +153,7 @@ final class JoinCrewModel {
         code = ""
         clearPreview()
         raceFull = false
+        waitingForUnlock = false
         joining = false
         statusMessage = InviteCopy.joinEmpty
     }
@@ -166,6 +173,7 @@ final class JoinCrewModel {
         guard code != previous else { return }
         clearPreview()
         raceFull = false
+        waitingForUnlock = false
         if code.isEmpty {
             statusMessage = InviteCopy.joinEmpty
         }
@@ -200,15 +208,49 @@ final class JoinCrewModel {
             onJoined(envelope.room.id, envelope.assignedRole, requested)
         } catch {
             let full = BillingErrors.isCrewLimit(error)
-            let message = full ? PendingJoinOutcome.raceFullMessage : Self.message(for: error)
+            // The same reading the pending invite's join uses: an unpaid race waits for the
+            // runner, it isn't "not found".
+            let outcome = PendingJoinOutcome.outcome(for: error)
+            let message = full ? PendingJoinOutcome.raceFullMessage : (outcome.message.flatMap { outcome == .failed || outcome == .invalidCode ? nil : $0 } ?? Self.message(for: error))
             guard code == requested else {
                 // Another code is on screen now: say which join this was.
                 notice = InviteCopy.joinFailed(code: requested, message: message)
                 return
             }
             raceFull = full
+            waitingForUnlock = outcome == .raceLocked
             statusMessage = message
         }
+    }
+
+    /// The clipboard holds something an invite code could be in (digits or a link). Read from
+    /// the kinds of content only, never the content itself, so no paste prompt shows; the Paste
+    /// invite code line is hidden otherwise.
+    private(set) var clipboardMayHaveCode = false
+
+    func refreshClipboard() async {
+        let board = UIPasteboard.general
+        guard board.hasStrings || board.hasURLs else {
+            clipboardMayHaveCode = false
+            return
+        }
+        clipboardMayHaveCode = await Self.detectCodeLikeContent(on: board)
+    }
+
+    /// UIKit calls the detection handler on a background queue. Kept off the main actor so the
+    /// handler isn't inferred @MainActor (that traps on the isolation check).
+    private nonisolated static func detectCodeLikeContent(on board: UIPasteboard) async -> Bool {
+        await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            board.detectPatterns(for: [.number, .probableWebURL]) { @Sendable result in
+                done.resume(returning: (try? result.get())?.isEmpty == false)
+            }
+        }
+    }
+
+    /// The status line under the code repeats the prompt above it while nothing is typed: shown
+    /// only once it says something new.
+    var showsStatus: Bool {
+        !statusMessage.isEmpty && !(code.isEmpty && statusMessage == InviteCopy.joinEmpty)
     }
 
     private static func message(for error: Error) -> String {

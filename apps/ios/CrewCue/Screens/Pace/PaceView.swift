@@ -3,7 +3,9 @@ import UniformTypeIdentifiers
 
 import CrewCueClientCore
 
-private let paceToolFocuses: Set<String> = ["check-in", "gpx-import", "crew-sheet-export", "course-settings", "outbox-status"]
+private let paceToolFocuses: Set<String> = [
+    "check-in", "gpx-import", "crew-sheet-export", "course-settings", "outbox-status", "pace-estimate", "cold-start"
+]
 
 struct PaceView: View {
     @Bindable var model: PaceModel
@@ -31,10 +33,12 @@ struct PaceView: View {
                 PaceProgressHeader(raceName: model.raceName, readout: readout)
                     .padding(.horizontal, CrewSpace.gutter)
                     .fullWidthClearOfOcclusions()
-                PaceEstimateSection(model: model)
-                    .padding(.horizontal, CrewSpace.gutter)
-                    .fullWidthClearOfOcclusions()
-                if !readOnly, model.canEditStops || model.stopsMessage.isEmpty == false {
+                if readOnly {
+                    // The replay has no race tools, so its estimate stays on the page.
+                    PaceEstimateSection(model: model)
+                        .padding(.horizontal, CrewSpace.gutter)
+                        .fullWidthClearOfOcclusions()
+                } else if model.canEditStops || model.stopsMessage.isEmpty == false {
                     PaceStopEditBar(model: model)
                         .padding(.horizontal, CrewSpace.gutter)
                         .fullWidthClearOfOcclusions()
@@ -58,7 +62,8 @@ struct PaceView: View {
         }
         .scrollIndicators(.hidden)
         .overlay(alignment: .bottomTrailing) {
-            if !readOnly {
+            // Hidden while editing stops: it would cover the last stepper.
+            if !readOnly, !model.isEditingStops {
                 // As wide as the page, so below a camera column it keeps to the edge the
                 // timeline runs to.
                 raceToolsButton
@@ -140,15 +145,14 @@ struct PaceProgressHeader: View {
                         .crewKicker()
                         .foregroundStyle(theme.primary)
                     Text(verbatim: raceName.isEmpty ? "Your race" : raceName)
-                        .font(CrewFont.display)
+                        .font(CrewFont.headline)
                         .foregroundStyle(theme.ink)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.7)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(verbatim: readout.totalMilesLabel)
-                        .font(CrewFont.metricLarge)
+                        .font(CrewFont.metric)
                         .foregroundStyle(theme.primary)
                     Text("Total miles")
                         .crewKicker()
@@ -212,7 +216,7 @@ struct PaceTimeline: View {
                         .foregroundStyle(theme.body)
                     if showsActions {
                         Button("Import a course", action: onImport)
-                            .buttonStyle(.crewPrimary)
+                            .buttonStyle(.crewPillProminent)
                     }
                 }
                 .crewGlassCard()
@@ -225,25 +229,42 @@ struct PaceTimeline: View {
                         .timelineRow()
                 }
                 ForEach(rows) { row in
-                    VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-                        PaceCheckpointCard(
-                            row: row,
-                            stop: stops.first { $0.checkpointId == row.checkpointId },
-                            liveStale: liveStale,
-                            onCheckIn: showsActions ? { onCheckIn(row.checkpointId) } : nil
-                        )
-                        if let draftRow = draft?.row(row.checkpointId), draftRow.editable {
-                            PaceStopEditor(
-                                row: draftRow,
+                    Group {
+                        if let draft {
+                            PaceStopEditCard(
+                                row: row,
+                                stop: stops.first { $0.checkpointId == row.checkpointId },
+                                draft: draft.row(row.checkpointId),
                                 onMinutes: { onStopMinutes($0, row.checkpointId) },
                                 onStep: { onStepStop(row.checkpointId, $0) }
                             )
+                        } else {
+                            PaceCheckpointCard(
+                                row: row,
+                                stop: stops.first { $0.checkpointId == row.checkpointId },
+                                liveStale: liveStale,
+                                onCheckIn: showsActions ? { onCheckIn(row.checkpointId) } : nil
+                            )
                         }
                     }
-                    .timelineRow()
+                    .timelineRow(inset: draft == nil ? 0 : CrewSpace.base)
                 }
             }
         }
+        // Edit mode steps the cards back inside a dashed frame, so it reads as a different mode.
+        .padding(.vertical, draft == nil ? 0 : CrewSpace.stackSm)
+        .background {
+            if draft != nil {
+                RoundedRectangle(cornerRadius: CrewRadius.card + 4, style: .continuous)
+                    .fill(theme.primarySoft.opacity(0.22))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: CrewRadius.card + 4, style: .continuous)
+                            .stroke(theme.primary.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [7, 5]))
+                    }
+                    .padding(.horizontal, CrewSpace.base)
+            }
+        }
+        .animation(.snappy, value: draft != nil)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.schedule-sheet")
         .accessibilityLabel("Schedule")
@@ -254,9 +275,9 @@ private extension View {
     /// A timeline row decides its own width: scrolled up beside a camera column (iPhone Duo's
     /// outer display) it keeps clear of it, so its ETA stays readable, while the rows below run to
     /// the display's edge.
-    func timelineRow() -> some View {
+    func timelineRow(inset: CGFloat = 0) -> some View {
         frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, CrewSpace.gutter)
+            .padding(.horizontal, CrewSpace.gutter + inset)
             .fullWidthClearOfOcclusions()
     }
 }
@@ -279,7 +300,12 @@ struct PaceCheckpointCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(stop?.line ?? row.title)
-        .accessibilityValue(row.locked ? OnboardingCopy.lockedAidExplanation : liveAccessibility)
+        .accessibilityValue(row.locked ? OnboardingCopy.lockedAidExplanation : spokenTimes)
+    }
+
+    /// The planned arrival and race time in words, then the live arrival when there is one.
+    private var spokenTimes: String {
+        [stop?.spokenArrival, liveAccessibility].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ". ")
     }
 
     /// Live arrival from the server's projection, when the room has one.
@@ -310,11 +336,10 @@ struct PaceCheckpointCard: View {
                     .tracking(0.6)
                     .foregroundStyle(row.isFinish ? theme.primary : theme.body)
                 Text(verbatim: row.title)
-                    .font(CrewFont.title)
-                    .tracking(0.8)
+                    .font(.system(.headline, weight: .bold))
+                    .tracking(0.6)
                     .foregroundStyle(row.state == .done ? theme.body : theme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
             if row.locked {
@@ -325,17 +350,19 @@ struct PaceCheckpointCard: View {
             } else {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(verbatim: liveClock.map { "ETA \($0)" } ?? CrewClock.short(row.clockArrivalAt) ?? "—")
-                        .font(CrewFont.metric)
+                        .font(.system(.headline, weight: .heavy).monospacedDigit())
                         .foregroundStyle(row.isFinish ? theme.primary : (row.state == .done ? theme.body : theme.ink))
                     Text(verbatim: caption)
                         .font(CrewFont.kicker)
                         .tracking(0.6)
                         .foregroundStyle(theme.body)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
-        .padding(.horizontal, CrewSpace.margin - 4)
-        .padding(.vertical, CrewSpace.gutter + 2)
+        .padding(.horizontal, CrewSpace.gutter)
+        .padding(.vertical, CrewSpace.stackSm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             let shape = RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous)
@@ -349,7 +376,7 @@ struct PaceCheckpointCard: View {
     }
 
     private var current: some View {
-        VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+        VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
             HStack(alignment: .top, spacing: CrewSpace.stackSm) {
                 marker
                 VStack(alignment: .leading, spacing: 4) {
@@ -358,9 +385,9 @@ struct PaceCheckpointCard: View {
                         .tracking(0.6)
                         .foregroundStyle(theme.primary)
                     Text(verbatim: row.title)
-                        .font(CrewFont.headline)
-                        .tracking(0.8)
-                        .lineLimit(2)
+                        .font(CrewFont.title)
+                        .tracking(0.6)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
                 StatusChip(text: "IN PROGRESS", style: .filled)
@@ -368,17 +395,19 @@ struct PaceCheckpointCard: View {
             Divider().overlay(theme.divider)
             HStack(alignment: .top, spacing: 0) {
                 MetricColumn(
-                    label: liveClock == nil ? "Est. arrival" : (liveStale ? "Live ETA (old ping)" : "Live ETA"),
+                    label: liveClock == nil ? "Est. arrival" : "Live ETA",
                     value: liveClock ?? CrewClock.short(row.clockArrivalAt) ?? "—",
                     alignment: .leading,
-                    valueColor: theme.primary
+                    valueColor: theme.primary,
+                    compact: true
                 )
                 MetricColumn(
                     label: "Cutoff",
                     value: CrewClock.short(row.cutoffAt) ?? "—",
-                    valueColor: cutoffColor
+                    valueColor: cutoffColor,
+                    compact: true
                 )
-                MetricColumn(label: "Dist. to", value: row.distanceToLabel, alignment: .trailing)
+                MetricColumn(label: "Dist. to", value: row.distanceToLabel, alignment: .trailing, compact: true)
             }
             if liveClock != nil {
                 Text(verbatim: caption)
@@ -392,11 +421,14 @@ struct PaceCheckpointCard: View {
                     .foregroundStyle(theme.body)
             }
             if let onCheckIn {
-                Button("Check in", action: onCheckIn)
-                    .buttonStyle(.crewSecondary)
+                Button(action: onCheckIn) {
+                    Label("Check in", systemImage: "checkmark.circle")
+                }
+                .buttonStyle(.crewPill)
+                .accessibilityLabel("Check in")
             }
         }
-        .padding(CrewSpace.margin)
+        .padding(CrewSpace.gutter + 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
         .overlay {
@@ -434,10 +466,14 @@ struct PaceCheckpointCard: View {
             return parts.joined(separator: " · ")
         }
         if row.isFinish { return "TARGET" }
-        // Every stop shows its local clock and elapsed time; projected stops add the planned stop.
+        // The clock above is the planned arrival; under it, the planned race time at that aid
+        // ("RACE 1:10:00"), and on stops still ahead the planned stop.
         if let stop {
-            let times = "\(stop.arrival) · \(stop.elapsed)"
-            return row.state != .done && stop.stopLabel != "NO STOP" ? "\(times) · \(stop.stopLabel)" : times
+            // Each part keeps its words together, so a narrow row wraps at the dot, never inside
+            // "2 MIN STOP".
+            let race = stop.raceTime.replacingOccurrences(of: " ", with: "\u{00A0}")
+            let planned = stop.stopLabel.replacingOccurrences(of: " ", with: "\u{00A0}")
+            return row.state != .done && stop.stopLabel != "NO STOP" ? "\(race) · \(planned)" : stop.raceTime
         }
         return row.state == .done ? "PLANNED" : "PROJECTED"
     }
@@ -450,42 +486,58 @@ struct PaceCheckpointCard: View {
     }
 }
 
-/// #250 Pace edit: enter/leave planned-stop editing and save the draft.
+/// #250 Pace edit: the timeline's header. A small Edit stops pill; while editing, Cancel and Save
+/// sit on the same line and the cards below turn into editors.
 struct PaceStopEditBar: View {
     @Bindable var model: PaceModel
     @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-            if model.isEditingStops {
-                Text("Planned stops")
+        VStack(alignment: .leading, spacing: CrewSpace.base) {
+            HStack(alignment: .center, spacing: CrewSpace.base) {
+                Text(model.isEditingStops ? "Editing planned stops" : "Aid stations")
                     .crewKicker()
-                    .foregroundStyle(theme.primary)
-                Text("Minutes at each aid. Later arrivals move with your changes; nothing is saved until you tap Save.")
-                    .font(CrewFont.body)
-                    .foregroundStyle(theme.body)
-                HStack(spacing: CrewSpace.stackSm) {
+                    .foregroundStyle(model.isEditingStops ? theme.primary : theme.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if model.isEditingStops {
                     Button("Cancel") { model.cancelStopEdit() }
-                        .buttonStyle(.crewGhost)
+                        .buttonStyle(.crewPill)
+                        .fixedSize()
                         .disabled(model.stopsBusy)
                         .accessibilityIdentifier("crewcue.pace.cancel-stops")
-                    Button("Save stops") {
+                    Button("Save") {
                         Task { await model.saveStopEdit() }
                     }
-                    .buttonStyle(.crewPrimary)
+                    .buttonStyle(.crewPillProminent)
+                    .fixedSize()
                     .crewBusy(model.stopsBusy)
                     .disabled(model.stopDraft?.canSave != true)
+                    .accessibilityLabel("Save stops")
                     .accessibilityIdentifier("crewcue.pace.save-stops")
-                }
-            } else if model.canEditStops {
-                Button("Edit planned stops") { model.beginStopEdit() }
-                    .buttonStyle(.crewSecondary)
+                } else if model.canEditStops {
+                    Button {
+                        model.beginStopEdit()
+                    } label: {
+                        Label("Edit stops", systemImage: "pencil")
+                    }
+                    .buttonStyle(.crewPill)
+                    .fixedSize()
+                    .accessibilityLabel("Edit planned stops")
                     .accessibilityIdentifier("crewcue.pace.edit-stops")
+                }
+            }
+            if model.isEditingStops {
+                Text("Set the minutes at each aid ahead. Later arrivals move as you change them. Nothing saves until you tap Save.")
+                    .font(CrewFont.hint)
+                    .foregroundStyle(theme.body)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if model.stopsMessage.isEmpty == false {
                 Text(verbatim: model.stopsMessage)
-                    .font(CrewFont.label)
+                    .font(CrewFont.hint)
                     .foregroundStyle(theme.body)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("crewcue.pace.stops-message")
             }
         }
@@ -496,62 +548,127 @@ struct PaceStopEditBar: View {
     }
 }
 
-/// Minutes field with − / + for one checkpoint's planned stop.
-struct PaceStopEditor: View {
+/// One checkpoint while planned stops are being edited. Aids ahead of the runner get a dashed
+/// outline and a minutes stepper; the start, the finish and passed aids are dimmed and locked.
+struct PaceStopEditCard: View {
+    let row: CheckpointTimelineRow
+    let stop: PaceStop?
+    let draft: StopPlanDraft.Row?
+    let onMinutes: (String) -> Void
+    let onStep: (Int) -> Void
+    @Environment(\.crew) private var theme
+
+    private var editable: Bool { draft?.editable == true }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.base) {
+            HStack(alignment: .center, spacing: CrewSpace.stackSm) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: row.kicker)
+                        .font(CrewFont.kicker)
+                        .tracking(0.6)
+                        .foregroundStyle(theme.body)
+                    Text(verbatim: row.title)
+                        .font(.system(.headline, weight: .bold))
+                        .foregroundStyle(theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(verbatim: stop?.arrival ?? CrewClock.short(row.clockArrivalAt) ?? "—")
+                        .font(.system(.headline, weight: .bold).monospacedDigit())
+                        .foregroundStyle(theme.ink)
+                    Text(editable ? "ARRIVE" : lockedCaption)
+                        .font(CrewFont.kicker)
+                        .tracking(0.6)
+                        .foregroundStyle(theme.body)
+                }
+            }
+            if let draft, editable {
+                HStack(spacing: CrewSpace.base) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Planned stop")
+                            .font(CrewFont.label)
+                            .foregroundStyle(theme.ink)
+                        if let error = draft.error {
+                            Text(verbatim: error)
+                                .font(CrewFont.hint)
+                                .foregroundStyle(theme.danger)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else if draft.isChanged {
+                            Text("Was \(StopPlanDraft.stopLabel(seconds: Double(draft.savedSeconds)).lowercased())")
+                                .font(CrewFont.hint)
+                                .foregroundStyle(theme.body)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    PaceMinutesStepper(row: draft, onMinutes: onMinutes, onStep: onStep)
+                }
+            }
+        }
+        .padding(.horizontal, CrewSpace.gutter)
+        .padding(.vertical, CrewSpace.stackSm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.card.opacity(editable ? 1 : 0.6), in: RoundedRectangle(cornerRadius: CrewRadius.lg, style: .continuous))
+        .overlay {
+            if editable {
+                RoundedRectangle(cornerRadius: CrewRadius.lg, style: .continuous)
+                    .stroke(theme.primary.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+            }
+        }
+        .opacity(editable ? 1 : 0.6)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(row.title)
+    }
+
+    private var lockedCaption: String {
+        if row.state == .done { return "PASSED" }
+        return row.isFinish ? "FINISH" : "LOCKED"
+    }
+}
+
+/// − minutes + for one checkpoint's planned stop.
+struct PaceMinutesStepper: View {
     let row: StopPlanDraft.Row
     let onMinutes: (String) -> Void
     let onStep: (Int) -> Void
     @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: CrewSpace.stackSm) {
-                Text("Stop at \(row.title.capitalized)")
-                    .font(CrewFont.label)
-                    .foregroundStyle(theme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer(minLength: 4)
-                Button {
-                    onStep(-1)
-                } label: {
-                    Image(systemName: "minus")
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.crewGhost)
-                .accessibilityLabel("One minute less at \(row.title.capitalized)")
+        HStack(spacing: 6) {
+            stepButton("minus", delta: -1, label: "One minute less at \(row.title.capitalized)")
+            HStack(spacing: 3) {
                 TextField("0", text: Binding(get: { row.minutesText }, set: onMinutes))
                     .keyboardType(.numberPad)
-                    .multilineTextAlignment(.center)
-                    .textFieldStyle(.crew)
-                    .frame(width: 64)
+                    .multilineTextAlignment(.trailing)
+                    .font(.system(.body, weight: .semibold).monospacedDigit())
+                    .frame(width: 34)
                     .accessibilityLabel("Planned stop minutes at \(row.title.capitalized)")
                     .accessibilityIdentifier("crewcue.pace.stop-minutes.\(row.checkpointId)")
                 Text("min")
-                    .font(CrewFont.label)
-                    .foregroundStyle(theme.body)
-                Button {
-                    onStep(1)
-                } label: {
-                    Image(systemName: "plus")
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.crewGhost)
-                .accessibilityLabel("One minute more at \(row.title.capitalized)")
-            }
-            if let error = row.error {
-                Text(verbatim: error)
-                    .font(CrewFont.label)
-                    .foregroundStyle(theme.danger)
-            } else if row.isChanged {
-                Text("Was \(StopPlanDraft.stopLabel(seconds: Double(row.savedSeconds)).lowercased())")
-                    .font(CrewFont.label)
+                    .font(CrewFont.hint)
                     .foregroundStyle(theme.body)
             }
+            .padding(.horizontal, 8)
+            .frame(minHeight: 32)
+            .background(theme.well.opacity(0.7), in: RoundedRectangle(cornerRadius: CrewRadius.sm, style: .continuous))
+            stepButton("plus", delta: 1, label: "One minute more at \(row.title.capitalized)")
         }
-        .padding(.horizontal, CrewSpace.margin - 4)
-        .padding(.vertical, CrewSpace.stackSm)
-        .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
+    }
+
+    private func stepButton(_ symbol: String, delta: Int, label: String) -> some View {
+        Button {
+            onStep(delta)
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(.footnote, weight: .bold))
+                .foregroundStyle(theme.ink)
+                .frame(width: 32, height: 32)
+                .background(theme.secondaryButton, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }
 
@@ -568,6 +685,10 @@ struct PaceToolsSheet: View {
                         PaceCheckInSection(model: model)
                             .id("check-in")
                     }
+                    CrewSettingsGroup(title: "Pace") {
+                        PaceEstimateRow(model: model)
+                    }
+                    .id("pace-estimate")
                     CrewSettingsGroup(title: "Course") {
                         PaceGpxSection(model: model)
                         PaceCourseSection(model: model)
@@ -583,7 +704,7 @@ struct PaceToolsSheet: View {
                     }
                     .id("outbox-status")
                 }
-                .onAppear { proxy.scrollTo(focus, anchor: .top) }
+                .onAppear { proxy.scrollTo(focus == "cold-start" ? "pace-estimate" : focus, anchor: .top) }
                 // The crew sheet loads after the sheet opens and pushes later tools down; keep the focus in view.
                 .onChange(of: model.exportText) { proxy.scrollTo(focus, anchor: .top) }
             }
@@ -613,6 +734,7 @@ struct PaceEstimateSection: View {
                         .crewKicker()
                         .foregroundStyle(theme.primary)
                     PaceEstimateMessage(message: model.estimateMessage, coldStart: model.showColdStart)
+                        .font(CrewFont.body)
                 }
             }
             if model.canRecalculate || model.canSeedColdStart {
@@ -634,6 +756,38 @@ struct PaceEstimateSection: View {
     }
 }
 
+/// Race tools → Pace: the estimate as the row's text, with a small Recalculate beside it.
+struct PaceEstimateRow: View {
+    @Bindable var model: PaceModel
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        CrewSettingRow(
+            systemImage: model.showColdStart ? "snowflake" : "chart.line.uptrend.xyaxis",
+            title: "Pace estimate",
+            trailing: {
+                if model.canRecalculate {
+                    PaceRecalculateButton(isBusy: model.estimateBusy, action: model.recalculate)
+                }
+            },
+            below: {
+                VStack(alignment: .leading, spacing: CrewSpace.base) {
+                    PaceEstimateMessage(message: model.estimateMessage, coldStart: model.showColdStart)
+                        .font(CrewFont.hint)
+                        .foregroundStyle(theme.outline)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if model.canSeedColdStart {
+                        PaceSeedButton(isBusy: model.estimateBusy, action: model.seedColdStart)
+                    }
+                }
+            }
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("crewcue.pace-estimate")
+        .accessibilityLabel("Pace estimate")
+    }
+}
+
 struct PaceEstimateMessage: View {
     let message: String
     let coldStart: Bool
@@ -641,7 +795,6 @@ struct PaceEstimateMessage: View {
     var body: some View {
         // VoiceOver reads the estimate itself; the card is already labelled "Pace estimate".
         Text(verbatim: message)
-            .font(CrewFont.body)
             .modifier(PaceColdStartIdentifier(enabled: coldStart))
     }
 }
@@ -664,10 +817,13 @@ struct PaceRecalculateButton: View {
     let action: () async -> Void
 
     var body: some View {
-        Button("Recalculate") {
+        Button {
             Task { await action() }
+        } label: {
+            Label("Recalculate", systemImage: "arrow.clockwise")
         }
-        .buttonStyle(.crewPrimary)
+        .buttonStyle(.crewPillProminent)
+        .accessibilityLabel("Recalculate")
         .crewBusy(isBusy)
     }
 }
@@ -680,7 +836,7 @@ struct PaceSeedButton: View {
         Button("Starting estimate") {
             Task { await action() }
         }
-        .buttonStyle(.crewSecondary)
+        .buttonStyle(.crewPill)
         .crewBusy(isBusy)
     }
 }
@@ -715,6 +871,7 @@ struct PaceCheckInSection: View {
                     .font(CrewFont.bodyLarge)
             }
             PaceCheckInButton(isBusy: model.checkInBusy, action: model.submitCheckIn)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .crewCard()
         .accessibilityElement(children: .contain)
@@ -731,7 +888,7 @@ struct PaceCheckInButton: View {
         Button("Check in") {
             Task { await action() }
         }
-        .buttonStyle(.crewPrimary)
+        .buttonStyle(.crewPillProminent)
         .crewBusy(isBusy)
     }
 }
@@ -759,6 +916,7 @@ struct PaceGpxSection: View {
                     // The race has started: say so instead of offering a file the server would refuse.
                     Text(verbatim: RaceLock.message)
                         .font(CrewFont.hint)
+                        .foregroundStyle(theme.outline)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("crewcue.course-locked")
                 } else {

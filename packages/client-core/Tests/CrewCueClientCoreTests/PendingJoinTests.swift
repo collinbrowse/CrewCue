@@ -335,7 +335,7 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
 
     (outcome, kept, _) = try await resolve(join: .unpaid)
     #expect(outcome == .raceLocked && kept?.code == "123456")
-    #expect(outcome.message == "The runner hasn't unlocked this race yet.")
+    #expect(outcome.message == "Waiting for the runner to unlock this race.")
     #expect(outcome.message == OnboardingState.raceLockedReason)
 
     (outcome, kept, _) = try await resolve(join: .notFound)

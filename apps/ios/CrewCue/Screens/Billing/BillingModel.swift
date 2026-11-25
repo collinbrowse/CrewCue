@@ -60,7 +60,7 @@ final class BillingPurchaseModel {
             let state = try await RaceDayAPI.billing(graph: client.graph, roomId: trimmed)
             guard ticket == generation else { return }
             billing = state
-            status = state.isPaid ? PurchasePhase.unlocked(state).message : state.summary
+            status = state.paywallStatus
         } catch {
             guard ticket == generation else { return }
             let offline = BillingErrors.userFacing(error) == BillingErrors.offline

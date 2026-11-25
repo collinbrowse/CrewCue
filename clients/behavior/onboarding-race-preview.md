@@ -12,6 +12,8 @@ While the replay plays, the dot glides along the course from one ping to the nex
 
 The path chip (`crewcue.runner-track`) counts the runner's pings, as on a race, not the points the replay adds along the course between them: on the fixture race it reaches PATH · 25 POINTS by the last step.
 
+Each beat says where to look: a bold line under the caption (`OnboardingCopy.replayFocus`, `crewcue.onboarding-race-preview.focus`) and a pulsing accent ring around the view it is about (held still under Reduce Motion / animations off). The replay's map draws terrain-style tiles in both appearances and keeps its camera on the runner's dot at street zoom, recentring when the dot nears the edge, so the dot is seen moving instead of under aid station names.
+
 ## API
 GET /race-rooms/:roomId (once, to build the replay on the runner's own course; the app may pass the saved room body instead). Everything after that uses local demo data only.
 

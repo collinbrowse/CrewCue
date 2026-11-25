@@ -94,3 +94,50 @@ private func runtime(_ fields: [String: Any]) async throws -> [String: Any] {
         _ = try await RaceDayAPI.activityHistoryItems(graph: graph(NoNetwork()))
     }
 }
+
+@Test func importedRunLabelsForTheRunsSheet() {
+    let item = ActivityHistoryItem(id: "a", source: "gpx_upload", recordedAt: "2026-05-10T12:00:00.000Z", distanceMeters: 16_093.44, elapsedSeconds: 6000)
+    #expect(item.dateLabel == "May 10, 2026")
+    #expect(item.sourceLabel == "GPX")
+    #expect(item.distanceLabel == "10.0 mi")
+    #expect(item.durationLabel == ScheduleFormat.formatDurationSeconds(6000))
+    #expect(item.paceLabel == "10'00\" / mi")
+    let bare = ActivityHistoryItem(id: "b", source: "fit_upload", recordedAt: "bad")
+    #expect(bare.dateLabel == "bad")
+    #expect(bare.distanceLabel == nil)
+    #expect(bare.paceLabel == nil)
+    #expect(ActivityImport.countLabel(0) == "No runs imported yet")
+    #expect(ActivityImport.countLabel(1) == "1 run imported")
+    #expect(ActivityImport.countLabel(12) == "12 runs imported")
+}
+
+@Test func importedRunTitleIsTheActivityNameElseTheDate() async throws {
+    let list = #"{"items":[{"id":"a","source":"gpx_upload","recordedAt":"2026-05-10T12:00:00.000Z","name":"Morning Run"},{"id":"b","source":"fit_upload","recordedAt":"2026-05-11T12:00:00.000Z"},{"id":"c","source":"tcx_upload","recordedAt":"2026-05-09T12:00:00.000Z","name":"   "}]}"#
+    let items = try await RaceDayAPI.activityHistoryItems(graph: graph(ImportTransport(status: 200, body: list)))
+    let named = try #require(items.first { $0.id == "a" })
+    #expect(named.name == "Morning Run")
+    #expect(named.titleLabel == "Morning Run")
+    #expect(named.subtitleDateLabel == "May 10, 2026")
+    let unnamed = try #require(items.first { $0.id == "b" })
+    #expect(unnamed.name == nil)
+    #expect(unnamed.titleLabel == "May 11, 2026")
+    #expect(unnamed.subtitleDateLabel == nil)
+    let blank = try #require(items.first { $0.id == "c" })
+    #expect(blank.name == nil)
+    #expect(blank.titleLabel == "May 9, 2026")
+
+    let namedRow = #"{"id":"h2","source":"gpx_upload","externalId":"x","recordedAt":"2026-05-10T15:30:00.000Z","ingestedAt":"2026-11-09T00:00:00.000Z","name":"Hill repeats"}"#
+    let saved = try await RaceDayAPI.importActivityFile(graph: graph(ImportTransport(status: 201, body: namedRow)), fileName: "a.gpx", data: Data([1]))
+    #expect(saved.item.titleLabel == "Hill repeats")
+}
+
+@Test func runtimeActivityItemCarriesNameAndTitle() {
+    let named = RuntimeCall.activityItemJSON(ActivityHistoryItem(id: "a", source: "gpx_upload", recordedAt: "2026-05-10T12:00:00.000Z", name: "Morning Run"))
+    #expect(named["name"] as? String == "Morning Run")
+    #expect(named["titleLabel"] as? String == "Morning Run")
+    #expect(named["subtitleDateLabel"] as? String == "May 10, 2026")
+    let unnamed = RuntimeCall.activityItemJSON(ActivityHistoryItem(id: "b", source: "fit_upload", recordedAt: "2026-05-10T12:00:00.000Z"))
+    #expect(unnamed["name"] == nil)
+    #expect(unnamed["titleLabel"] as? String == "May 10, 2026")
+    #expect(unnamed["subtitleDateLabel"] == nil)
+}

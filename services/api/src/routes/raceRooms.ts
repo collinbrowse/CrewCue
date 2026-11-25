@@ -4402,11 +4402,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(404).send({ error: "Race room not found" });
       }
       if (!existingMembership && !isRunnerSeat(room, userId)) {
-        // Only a paid race takes someone new. The runner still joins their own.
-        const unpaid = roomUnpaidError(room);
-        if (unpaid) {
-          return reply.code(402).send(unpaid);
-        }
+        // Crew may join before the runner pays (they wait on the locked race; GET answers 402
+        // until it is unlocked). An unpaid race holds only the base crew cap, so joining early
+        // never yields seats the runner didn't buy: existing members stay through any tier.
         // Under the room lock: of two crew joining at once, only one can take the last seat.
         const limit = crewLimitError(room);
         if (limit) {
