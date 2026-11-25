@@ -668,6 +668,11 @@ class ShellViewModel(
         startLineRequest += 1
     }
 
+    /** The Map moved to the start line: the request is spent, so opening Map later never jumps there. */
+    fun startLineShown() {
+        startLineRequest = 0
+    }
+
     /** Opens a Map tool (`pick`, `location`) on the Map tab: the setup checklist's items. */
     fun openMapTool(tool: String) {
         selectTab(ShellTab.Map)
@@ -763,6 +768,7 @@ class ShellViewModel(
 
     fun selectTab(tab: ShellTab) {
         mapToolRequest = null
+        startLineRequest = 0
         if (tab == ShellTab.Profile) profilePane = "profile"
         if (tab == ShellTab.Pace) paceFocus = "schedule-sheet"
         paywallOpen = false

@@ -101,7 +101,8 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         trackTimes: List<Long>,
         glide: (() -> RunnerGlideFrame?)?,
         onRendered: (line: List<CoursePoint>, points: List<MapCheckpoint>) -> Unit,
-        startLineRequest: Int
+        startLineRequest: Int,
+        onStartLineShown: () -> Unit
     ) {
         val context = LocalContext.current
         val dark = context.isDarkMode()
@@ -113,6 +114,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         val failed = rememberUpdatedState(onStyleFailed)
         val tilesUnavailable = rememberUpdatedState(onTilesUnavailable)
         val rendered = rememberUpdatedState(onRendered)
+        val startLineShown = rememberUpdatedState(onStartLineShown)
         val pointState = rememberUpdatedState(points)
         val lineState = rememberUpdatedState(line)
         val trackState = rememberUpdatedState(track)
@@ -265,6 +267,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
             mapView.getMapAsync { map ->
                 showStartLine(map, mapView, lineState.value, pointState.value, framingState.value)
             }
+            startLineShown.value()
         }
     }
 }

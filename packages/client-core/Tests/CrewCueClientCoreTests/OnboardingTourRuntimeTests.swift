@@ -66,7 +66,7 @@ private func storage() -> String {
     #expect(location["secondaryOutcome"] as? String == "deferred")
 
     // The location test's outcome: running is refused, sent saves done.
-    var test = try await runtime(["op": "locationTest", "event": "start", "alreadyTracking": false, "now": "2026-08-01T10:00:00Z"])
+    var test = try await runtime(["op": "locationTest", "event": "start", "session": ["active": false], "roomId": "r1", "now": "2026-08-01T10:00:00Z"])
     let running = test["test"] as Any
     #expect(try await failure(ada.merging(["op": "onboardingTourAnswer", "step": "location", "locationTest": running]) { $1 })
         .contains("still running"))
@@ -159,48 +159,126 @@ private func storage() -> String {
     #expect(try await failure(["op": "onboardingTour", "storageDir": dir, "dev": ["role": "pacer"]]).contains("role"))
 }
 
+private func locationStep(_ test: Any?, _ event: String, _ extra: [String: Any] = [:]) async throws -> [String: Any] {
+    var fields: [String: Any] = ["op": "locationTest", "event": event]
+    if let test { fields["test"] = test }
+    return try await runtime(fields.merging(extra) { $1 })
+}
+
+private func cardView(_ step: String, role: String = "runner", _ extra: [String: Any] = [:]) async throws -> [String: Any] {
+    try await runtime(["op": "tourCardView", "step": step, "role": role].merging(extra) { $1 })
+}
+
+private var notTracking: [String: Any] { ["active": false] }
+
 @Test func runtimeLocationTestFollowsTheStateMachine() async throws {
-    func step(_ test: Any?, _ event: String, _ extra: [String: Any] = [:]) async throws -> [String: Any] {
-        var fields: [String: Any] = ["op": "locationTest", "event": event]
-        if let test { fields["test"] = test }
-        return try await runtime(fields.merging(extra) { $1 })
-    }
-    let idle = try await step(nil, "read")
+    let idle = try await locationStep(nil, "read")
     #expect(idle["phase"] as? String == "idle")
-    #expect(idle["primaryLabel"] as? String == "Test tracking now")
     #expect(idle["outcome"] as? String == "deferred")
 
-    var answer = try await step(nil, "start", ["alreadyTracking": false, "now": "2026-08-01T10:00:00Z"])
+    var answer = try await locationStep(nil, "start", ["session": notTracking, "roomId": "r1", "now": "2026-08-01T10:00:00Z"])
     #expect(answer["phase"] as? String == "asking")
     #expect(answer["isRunning"] as? Bool == true)
-    #expect(answer["primaryLabel"] is NSNull)
     #expect(answer["message"] as? String == LocationTestCopy.asking)
-    answer = try await step(answer["test"], "permission", ["permission": "whenInUse"])
+    answer = try await locationStep(answer["test"], "permission", ["permission": "whenInUse"])
     #expect(answer["message"] as? String == LocationTestCopy.waitingWhenInUse)
-    answer = try await step(answer["test"], "pingSent", ["now": "2026-08-01T10:00:10Z"])
+    answer = try await locationStep(answer["test"], "pingSent", ["now": "2026-08-01T10:00:10Z"])
     #expect(answer["phase"] as? String == "sent")
     #expect(answer["outcome"] as? String == "done")
     #expect(answer["stopsTracking"] as? Bool == true)
     #expect((answer["test"] as? [String: Any])?["sentAt"] as? String != nil)
     // With When In Use only, tracking stays on for the Always prompt, then stops.
-    #expect(try await step(answer["test"], "read", ["now": "2026-08-01T10:00:20Z"])["waitsForAlways"] as? Bool == true)
-    #expect(try await step(answer["test"], "read", ["now": "2026-08-01T10:00:31Z"])["waitsForAlways"] as? Bool == false)
-    let always = try await step(answer["test"], "permission", ["permission": "always"])
+    #expect(try await locationStep(answer["test"], "read", ["now": "2026-08-01T10:00:20Z"])["waitsForAlways"] as? Bool == true)
+    #expect(try await locationStep(answer["test"], "read", ["now": "2026-08-01T10:00:31Z"])["waitsForAlways"] as? Bool == false)
+    let always = try await locationStep(answer["test"], "permission", ["permission": "always"])
     #expect(always["message"] as? String == LocationTestCopy.sent)
 
-    // Timeout, denial and offline wait for race morning, with Try again.
-    let started = try await step(nil, "start", ["now": "2026-08-01T10:00:00Z"])
-    let late = try await step(started["test"], "tick", ["now": "2026-08-01T10:00:46Z"])
+    // Timeout, denial and offline wait for race morning.
+    let started = try await locationStep(nil, "start", ["session": notTracking, "roomId": "r1", "now": "2026-08-01T10:00:00Z"])
+    let late = try await locationStep(started["test"], "tick", ["now": "2026-08-01T10:00:46Z"])
     #expect(late["phase"] as? String == "failed")
-    #expect(late["primaryLabel"] as? String == "Try again")
-    #expect(try await step(started["test"], "permission", ["permission": "denied"])["message"] as? String == LocationTestCopy.denied)
-    #expect(try await step(started["test"], "pingQueuedOffline")["message"] as? String == LocationTestCopy.offline)
-    // Race-day tracking already on: the test leaves it on.
-    let tracking = try await step(nil, "start", ["alreadyTracking": true])
-    let sent = try await step(tracking["test"], "pingSent")
+    #expect(try await locationStep(started["test"], "permission", ["permission": "denied"])["message"] as? String == LocationTestCopy.denied)
+    #expect(try await locationStep(started["test"], "pingQueuedOffline")["message"] as? String == LocationTestCopy.offline)
+    #expect(try await failure(["op": "locationTest", "event": "jump"]).contains("jump"))
+}
+
+@Test func runtimeLocationTestLeavesTrackingThatWasAlreadyOn() async throws {
+    // Race-day tracking on for this race: the test leaves it on.
+    let same = try await locationStep(nil, "start", ["session": ["active": true, "roomId": "r1"], "roomId": "r1"])
+    let sent = try await locationStep(same["test"], "pingSent")
     #expect(sent["stopsTracking"] as? Bool == false)
     #expect(sent["message"] as? String == LocationTestCopy.sentStillTracking)
-    #expect(try await failure(["op": "locationTest", "event": "jump"]).contains("jump"))
+    // The session couldn't be read: assume tracking is on, so the test never stops it.
+    let unknown = try await locationStep(nil, "start", ["roomId": "r1"])
+    #expect((unknown["test"] as? [String: Any])?["wasTracking"] as? Bool == true)
+    // Tracking on for another race: no test, the race-morning path.
+    let other = try await locationStep(nil, "start", ["session": ["active": true, "roomId": "r9"], "roomId": "r1"])
+    #expect(other["blocked"] as? Bool == true)
+    #expect(other["isRunning"] as? Bool == false)
+    #expect(other["stopsTracking"] as? Bool == false)
+    #expect(other["message"] as? String == LocationTestCopy.otherRaceTracking)
+    let view = try await cardView("location", ["test": other["test"] as Any])
+    #expect(view["primaryLabel"] is NSNull)
+    #expect(view["secondaryLabel"] as? String == "On race morning")
+}
+
+@Test func runtimeLocationTestWaitsForAPingNewerThanTheBaseline() async throws {
+    let baseline: [String: Any] = ["ping": ["pingId": "p1", "receivedAt": "2026-08-01T09:00:00Z"]]
+    var answer = try await locationStep(nil, "start", ["session": notTracking, "roomId": "r1", "latest": baseline, "now": "2026-08-01T10:00:00Z"])
+    answer = try await locationStep(answer["test"], "permission", ["permission": "always"])
+    // The ping the API had before the test isn't this test's, whatever the phone's clock says.
+    answer = try await locationStep(answer["test"], "poll", ["latest": baseline, "now": "2026-08-01T10:00:05Z"])
+    #expect(answer["phase"] as? String == "waitingForPing")
+    // Offline with nothing waiting in the outbox stays waiting.
+    answer = try await locationStep(answer["test"], "poll", ["offline": true, "now": "2026-08-01T10:00:07Z"])
+    #expect(answer["phase"] as? String == "waitingForPing")
+    let newer: [String: Any] = ["ping": ["pingId": "p2", "receivedAt": "2026-08-01T08:00:00Z"]]
+    answer = try await locationStep(answer["test"], "poll", ["latest": newer, "now": "2026-08-01T10:00:09Z"])
+    #expect(answer["phase"] as? String == "sent")
+    // The poll also ticks the clock.
+    let first = try await locationStep(nil, "start", ["session": notTracking, "roomId": "r1", "now": "2026-08-01T10:00:00Z"])
+    #expect(try await locationStep(first["test"], "poll", ["now": "2026-08-01T10:01:00Z"])["phase"] as? String == "failed")
+}
+
+@Test func runtimeTourCardViewFollowsThePhone() async throws {
+    let invites = try await cardView("invites")
+    #expect(invites["secondaryLabel"] as? String == "Later")
+    #expect(invites["secondaryOutcome"] as? String == "skipped")
+    let shared = try await cardView("invites", ["inviteShared": true])
+    #expect(shared["primaryLabel"] as? String == "Share invite")
+    #expect(shared["secondaryLabel"] as? String == "Next")
+    #expect(shared["secondaryOutcome"] as? String == "done")
+
+    let off = try await cardView("notifications")
+    #expect(off["primaryLabel"] as? String == "Turn on notifications")
+    #expect(off["secondaryLabel"] as? String == "Not now")
+    let on = try await cardView("notifications", role: "crew", ["notificationsOn": true])
+    #expect(on["primaryLabel"] as? String == "Next")
+    #expect(on["primaryAction"] as? String == "enableNotifications")
+    #expect(on["secondaryLabel"] is NSNull)
+    #expect(on["status"] as? String == "Notifications are on.")
+
+    let before = try await cardView("location")
+    #expect(before["primaryLabel"] as? String == "Test tracking now")
+    #expect(before["secondaryLabel"] as? String == "On race morning")
+    var test = try await locationStep(nil, "start", ["session": notTracking, "roomId": "r1"])
+    let running = try await cardView("location", ["test": test["test"] as Any])
+    #expect(running["primaryLabel"] is NSNull)
+    #expect(running["secondaryLabel"] as? String == "On race morning")
+    #expect(running["status"] as? String == LocationTestCopy.asking)
+    test = try await locationStep(test["test"], "pingSent")
+    let sent = try await cardView("location", ["test": test["test"] as Any])
+    #expect(sent["primaryLabel"] as? String == "Next")
+    #expect(sent["primaryAction"] as? String == "next")
+    // Sent: race morning no longer applies.
+    #expect(sent["secondaryLabel"] is NSNull)
+    let timedOut = try await locationStep(nil, "start", ["session": notTracking, "roomId": "r1", "now": "2026-08-01T10:00:00Z"])
+    let failed = try await locationStep(timedOut["test"], "tick", ["now": "2026-08-01T10:01:00Z"])
+    let retry = try await cardView("location", ["test": failed["test"] as Any])
+    #expect(retry["primaryLabel"] as? String == "Try again")
+    #expect(retry["primaryAction"] as? String == "testTracking")
+    #expect(retry["secondaryLabel"] as? String == "On race morning")
+    #expect(try await failure(["op": "tourCardView", "step": "location", "role": "crew"]).contains("card"))
 }
 
 @Test func runtimeTourCopyAndNotificationsOutcome() async throws {

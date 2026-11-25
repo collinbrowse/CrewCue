@@ -86,6 +86,7 @@ fun MapScreen(
     toolRequest: MapToolRequest? = null,
     /** Bumped to zoom to the course's start (the tour's start-line card). */
     startLineRequest: Int = 0,
+    onStartLineShown: () -> Unit = {},
     /** A card under the top bar, above the chips (the setup checklist). */
     topCard: (@Composable () -> Unit)? = null
 ) {
@@ -97,7 +98,7 @@ fun MapScreen(
     MapContent(
         model, roomId, focus, modifier,
         bottomInset = bottomInset, onLocked = onLocked, toolRequest = toolRequest,
-        startLineRequest = startLineRequest, topCard = topCard
+        startLineRequest = startLineRequest, onStartLineShown = onStartLineShown, topCard = topCard
     )
 }
 
@@ -127,6 +128,7 @@ fun MapContent(
     pathPings: Int? = null,
     toolRequest: MapToolRequest? = null,
     startLineRequest: Int = 0,
+    onStartLineShown: () -> Unit = {},
     topCard: (@Composable () -> Unit)? = null
 ) {
     LaunchedEffect(roomId) { model.load() }
@@ -186,7 +188,8 @@ fun MapContent(
                 framing = framing,
                 trackTimes = if (glide != null) model.trackTimes else emptyList(),
                 glide = glide,
-                startLineRequest = startLineRequest
+                startLineRequest = startLineRequest,
+                onStartLineShown = onStartLineShown
             )
             MapOverlay(
                 model,
@@ -493,7 +496,8 @@ private fun CourseMapHost(
     framing: CourseFraming = CourseFraming.Screen,
     trackTimes: List<Long> = emptyList(),
     glide: (() -> RunnerGlideFrame?)? = null,
-    startLineRequest: Int = 0
+    startLineRequest: Int = 0,
+    onStartLineShown: () -> Unit = {}
 ) {
     val renderer = CourseMaps.renderer
     if (BuildConfig.MAP_LIBRE && renderer != null) {
@@ -514,7 +518,8 @@ private fun CourseMapHost(
                 trackTimes,
                 glide,
                 onRendered = { _, _ -> },
-                startLineRequest = startLineRequest
+                startLineRequest = startLineRequest,
+                onStartLineShown = onStartLineShown
             )
             if (!settled) {
                 CairnLoader(

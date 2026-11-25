@@ -177,6 +177,7 @@ private fun AppShell(viewModel: ShellViewModel) {
                             onLocked = onLocked,
                             toolRequest = viewModel.mapToolRequest,
                             startLineRequest = viewModel.startLineRequest,
+                            onStartLineShown = viewModel::startLineShown,
                             topCard = tour?.checklist?.takeIf { tour.card == null }?.let { checklist ->
                                 { SetupChecklistSlot(viewModel, tour, checklist) }
                             }

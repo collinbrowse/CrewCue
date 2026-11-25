@@ -22,10 +22,14 @@ import Foundation
 /// - `setupChecklistOpen`: `item` (a `SetupChecklistItemKind`): saves the step the item names, if any.
 /// - `setupChecklistHide`: Hide, for this race.
 /// - `tourNotificationsOutcome`: `allowed` → `outcome`.
-/// - `locationTest`: `test` (the last answer's `test`, or null), `event` (start, permission, pingSent,
-///   pingQueuedOffline, tick, read), `alreadyTracking` (start), `permission` (notDetermined, denied,
-///   whenInUse, always), `now?` (ISO, tests) → `test` plus `phase`, `message`, `primaryLabel`,
-///   `secondaryLabel`, `isRunning`, `stopsTracking`, `waitsForAlways`, `outcome`.
+/// - `locationTest`: `test` (the last answer's `test`, or null), `event`, `now?` (ISO, tests) ->
+///   `test` plus `phase`, `blocked`, `message`, `isRunning`, `stopsTracking`, `waitsForAlways`,
+///   `outcome`. Events: `start` with `roomId`, `session` (the `trackingSession` answer; left out
+///   when the read failed, which counts as tracking on) and `latest` (the `latestPing` answer's
+///   `latest`, the baseline); `permission` with `permission` (notDetermined, denied, whenInUse,
+///   always); `poll` with `latest` or `offline: true` (and the outbox read for a waiting ping);
+///   `tick`, `read`, and `pingSent` / `pingQueuedOffline` (the dev route).
+/// - `tourCardView`: the card's buttons and status for the phone's facts (`OnboardingTour.view`).
 /// - `onboardingTourCopy`: `tour`, `locationTest` and `checklist` copy by name.
 extension RuntimeCall {
     /// The dev route's race: the example race, paid, with a course.
@@ -74,27 +78,83 @@ extension RuntimeCall {
         ["outcome": OnboardingTour.notificationsOutcome(allowed: boolValue(object["allowed"]) ?? false).rawValue]
     }
 
-    static func locationTestStep(_ object: [String: Any]) throws -> Any {
+    static func locationTestStep(_ object: [String: Any]) async throws -> Any {
         let now = text(object, "now").flatMap(ScheduleFormat.parseISO8601) ?? SystemClock().now()
-        var (test, sentAt) = locationTest(object["test"] as? [String: Any])
-        let before = test.phase
+        var saved = locationTest(object["test"] as? [String: Any])
+        let before = saved.test.phase
         switch text(object, "event") ?? "read" {
         case "start":
-            test.start(alreadyTracking: boolValue(object["alreadyTracking"]) ?? false, at: now)
-            sentAt = nil
+            // Tracking already on for this race (or unknown: the read failed) stays on; tracking on
+            // for another race isn't replaced by a test of this one.
+            let session = object["session"] as? [String: Any]
+            let active = session.map { boolValue($0["active"]) ?? false }
+            let sessionRoom = session.flatMap { text($0, "roomId") }
+            let blocked = active == true && sessionRoom != nil && sessionRoom != text(object, "roomId")
+            saved = SavedLocationTest(test: LocationTest(), sentAt: nil, baselinePingId: nil, blocked: blocked)
+            if !blocked {
+                saved.test.start(alreadyTracking: active ?? true, at: now)
+                // The ping the API already has: only a newer one is this test's.
+                saved.baselinePingId = latestPingId(object["latest"])
+            }
         case "permission":
             guard let raw = text(object, "permission"), let permission = LocationTest.Permission(rawValue: raw) else {
                 throw ClientHTTPError(status: 400, message: "Unknown location permission.")
             }
-            test.permission(permission)
-        case "pingSent": test.pingSent()
-        case "pingQueuedOffline": test.pingQueuedOffline()
-        case "tick": test.tick(now: now)
+            saved.test.permission(permission)
+        case "poll":
+            // One read of `pings/latest` (`latest`, or `offline`): a ping newer than the baseline
+            // ends the test; offline with a ping waiting in the outbox is the offline outcome.
+            saved.test.tick(now: now)
+            if let id = latestPingId(object["latest"]), id != saved.baselinePingId {
+                saved.test.pingSent()
+            } else if boolValue(object["offline"]) == true, saved.test.isRunning, try await pingWaiting(object) {
+                saved.test.pingQueuedOffline()
+            }
+        case "pingSent": saved.test.pingSent()
+        case "pingQueuedOffline": saved.test.pingQueuedOffline()
+        case "tick": saved.test.tick(now: now)
         case "read": break
         case let other: throw ClientHTTPError(status: 400, message: "Unknown location test event \(other).")
         }
-        if test.phase == .sent, before != .sent { sentAt = now }
-        return locationTestJSON(test, sentAt: sentAt, now: now)
+        if saved.test.phase == .sent, before != .sent { saved.sentAt = now }
+        return locationTestJSON(saved, now: now)
+    }
+
+    /// `tourCardView`: `step` and `role` (the card), `notificationsOn`, `inviteShared` and `test`
+    /// (the location test, if started) -> the card's buttons and status line (`OnboardingTour.view`).
+    static func tourCardView(_ object: [String: Any]) throws -> Any {
+        guard let step = text(object, "step").flatMap(OnboardingStep.init(rawValue:)),
+              let role = text(object, "role").flatMap(OnboardingChoice.init(rawValue:)),
+              let card = OnboardingTour.card(step: step, role: role, demo: .placeholder) else {
+            throw ClientHTTPError(status: 400, message: "Unknown tour card.")
+        }
+        let saved = (object["test"] as? [String: Any]).map(locationTest)
+        let view = OnboardingTour.view(
+            card,
+            notificationsOn: boolValue(object["notificationsOn"]) ?? false,
+            inviteShared: boolValue(object["inviteShared"]) ?? false,
+            test: saved?.test,
+            testBlocked: saved?.blocked ?? false
+        )
+        return [
+            "primaryLabel": view.primaryLabel ?? NSNull(),
+            "primaryAction": view.primaryAction.rawValue,
+            "secondaryLabel": view.secondaryLabel ?? NSNull(),
+            "secondaryOutcome": view.secondaryOutcome?.rawValue ?? NSNull(),
+            "status": view.status ?? NSNull()
+        ] as [String: Any]
+    }
+
+    private static func latestPingId(_ latest: Any?) -> String? {
+        guard let latest = latest as? [String: Any], let ping = latest["ping"] as? [String: Any] else { return nil }
+        return text(ping, "pingId") ?? text(ping, "receivedAt")
+    }
+
+    /// A ping from this phone is still in the outbox, waiting for service.
+    private static func pingWaiting(_ object: [String: Any]) async throws -> Bool {
+        guard text(object, "storageDir") != nil else { return false }
+        let operations = try await store(object).operations()
+        return operations.contains { $0.type == "ping" && $0.status == "pending" }
     }
 
     static func onboardingTourCopy(_ object: [String: Any]) -> Any {
@@ -252,7 +312,7 @@ extension RuntimeCall {
         // Only the crew tour shows the example race; its clock times are formatted on demand.
         let demo = state.phase == .tour && state.role == .crew
             ? CrewTourDemo.fixture(timeZone: zone)
-            : CrewTourDemo(runnerName: "", mileText: "", lastUpdateAge: "", nextAid: "", nextAidAheadText: "", etaClock: "", planClock: "")
+            : CrewTourDemo.placeholder
         return [
             "state": onboardingJSON(state),
             "card": OnboardingTour.card(for: state, demo: demo).map(cardJSON) ?? NSNull(),
@@ -318,10 +378,19 @@ extension RuntimeCall {
         }
     }
 
-    /// A `test` object back into the test, and when its ping was sent.
-    private static func locationTest(_ object: [String: Any]?) -> (test: LocationTest, sentAt: Date?) {
+    /// A location test as the app keeps it between ops.
+    struct SavedLocationTest {
+        var test: LocationTest
+        var sentAt: Date?
+        /// The latest ping's id when the test began.
+        var baselinePingId: String?
+        /// Tracking is on for another race: this test didn't start.
+        var blocked: Bool
+    }
+
+    private static func locationTest(_ object: [String: Any]?) -> SavedLocationTest {
         guard let object, let phase = text(object, "phase").flatMap(LocationTest.Phase.init(rawValue:)) else {
-            return (LocationTest(), nil)
+            return SavedLocationTest(test: LocationTest(), sentAt: nil, baselinePingId: nil, blocked: boolValue(object?["blocked"]) ?? false)
         }
         let test = LocationTest(
             phase: phase,
@@ -329,26 +398,33 @@ extension RuntimeCall {
             wasTracking: boolValue(object["wasTracking"]) ?? false,
             startedAt: text(object, "startedAt").flatMap(ScheduleFormat.parseISO8601)
         )
-        return (test, text(object, "sentAt").flatMap(ScheduleFormat.parseISO8601))
+        return SavedLocationTest(
+            test: test,
+            sentAt: text(object, "sentAt").flatMap(ScheduleFormat.parseISO8601),
+            baselinePingId: text(object, "baselinePingId"),
+            blocked: boolValue(object["blocked"]) ?? false
+        )
     }
 
-    private static func locationTestJSON(_ test: LocationTest, sentAt: Date?, now: Date) -> [String: Any] {
+    private static func locationTestJSON(_ saved: SavedLocationTest, now: Date) -> [String: Any] {
         func iso(_ date: Date?) -> Any { date.map(RaceDayReadouts.iso8601) ?? NSNull() }
+        let test = saved.test
         return [
             "test": [
                 "phase": test.phase.rawValue,
                 "whenInUseOnly": test.whenInUseOnly,
                 "wasTracking": test.wasTracking,
                 "startedAt": iso(test.startedAt),
-                "sentAt": iso(sentAt)
+                "sentAt": iso(saved.sentAt),
+                "baselinePingId": saved.baselinePingId ?? NSNull(),
+                "blocked": saved.blocked
             ] as [String: Any],
             "phase": test.phase.rawValue,
-            "message": test.message ?? NSNull(),
-            "primaryLabel": test.primaryLabel ?? NSNull(),
-            "secondaryLabel": OnboardingTourCopy.onRaceMorning,
+            "blocked": saved.blocked,
+            "message": saved.blocked ? LocationTestCopy.otherRaceTracking : (test.message ?? NSNull()),
             "isRunning": test.isRunning,
             "stopsTracking": test.stopsTracking,
-            "waitsForAlways": sentAt.map { test.waitsForAlways(sentAt: $0, now: now) } ?? false,
+            "waitsForAlways": saved.sentAt.map { test.waitsForAlways(sentAt: $0, now: now) } ?? false,
             "outcome": test.outcome?.rawValue ?? NSNull(),
             "timeoutSeconds": LocationTest.timeoutSeconds,
             "alwaysPromptSeconds": LocationTest.alwaysPromptSeconds

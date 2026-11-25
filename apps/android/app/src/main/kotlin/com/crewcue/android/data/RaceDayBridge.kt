@@ -709,6 +709,19 @@ class RaceDayBridge private constructor(
         fill()
     }
 
+    /**
+     * client-core `OnboardingTour.view`: the buttons and status line of the card [step] of the
+     * [role]'s tour, for this phone's [notificationsOn], [inviteShared] and location [test].
+     */
+    fun tourCardView(step: String, role: String, notificationsOn: Boolean, inviteShared: Boolean, test: JSONObject?): RuntimeResult =
+        call("tourCardView") {
+            put("step", step)
+            put("role", role)
+            put("notificationsOn", notificationsOn)
+            put("inviteShared", inviteShared)
+            if (test != null) put("test", test)
+        }
+
     /** client-core `OnboardingTourCopy`, `LocationTestCopy` and the checklist's labels. Pure and quick. */
     fun onboardingTourCopy(): RuntimeResult = call("onboardingTourCopy")
 

@@ -32,7 +32,7 @@ import Dispatch
 /// (`RuntimeRunnerSetup.swift`),
 /// pushTapReceive, pushTapTake, unpaidExpiry (`RuntimePushTap.swift`),
 /// onboardingTour, onboardingTourAnswer, onboardingTourSkip, setupChecklistOpen, setupChecklistHide,
-/// tourNotificationsOutcome, locationTest, onboardingTourCopy (`RuntimeOnboardingTour.swift`).
+/// tourNotificationsOutcome, locationTest, tourCardView, onboardingTourCopy (`RuntimeOnboardingTour.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -376,7 +376,9 @@ enum RuntimeCall {
         case "tourNotificationsOutcome":
             return tourNotificationsOutcome(object)
         case "locationTest":
-            return try locationTestStep(object)
+            return try await locationTestStep(object)
+        case "tourCardView":
+            return try tourCardView(object)
         case "onboardingTourCopy":
             return onboardingTourCopy(object)
         default:

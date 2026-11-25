@@ -23,10 +23,13 @@ import com.crewcue.android.ui.invite.InviteShare
 import com.crewcue.android.ui.invite.shareInviteIntent
 import com.crewcue.android.ui.map.RaceTrackingService
 import com.crewcue.android.ui.map.isOnline
-import java.time.Instant
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -67,6 +70,9 @@ class OnboardingTourViewModel(
         private set
     var busy by mutableStateOf(false)
         private set
+    /** The card's buttons and line for this phone now (`tourCardView`), null until read. */
+    var buttons by mutableStateOf<TourButtons?>(null)
+        private set
     /** The tour lines not on a card, read off the main thread once. */
     var text by mutableStateOf(TourText())
         private set
@@ -81,6 +87,10 @@ class OnboardingTourViewModel(
     }
     private var polling = false
     private var trackingStarted = saved.get<Boolean>(KEY_TRACKING_STARTED) ?: false
+    /** One location-test step at a time, so the poll loop and the prompts' answers don't race. */
+    private val testMutex = Mutex()
+    /** Bumped when a test ends or starts again: a step answered for an older test is dropped. */
+    private var testGeneration = 0
 
     val isDev: Boolean get() = devRole != null
     val card: TourCard? get() = (uiState as? TourUiState.Showing)?.card
@@ -124,8 +134,10 @@ class OnboardingTourViewModel(
     }
 
     fun skipTour() {
-        stopTestIfRunning()
-        run("onboardingTourSkip")
+        viewModelScope.launch {
+            testMutex.withLock { endTestLocked(stop = true) }
+            run("onboardingTourSkip")
+        }
     }
 
     fun openChecklistItem(kind: String) = run("setupChecklistOpen") { put("item", kind) }
@@ -154,20 +166,34 @@ class OnboardingTourViewModel(
     fun noteInviteShared() {
         inviteShared = true
         saved[KEY_INVITE_SHARED] = true
+        refreshView()
     }
 
     // MARK: Location test (Test tracking now)
 
-    /** Test tracking now (or Try again): starts the test, then [onStarted] asks for location. */
+    /**
+     * Test tracking now (or Try again): client-core starts the test from this phone's tracking
+     * session (another race's tracking blocks it; an unknown session counts as tracking on) and
+     * the latest ping the API already has (the baseline), then [onStarted] asks for location.
+     */
     fun startLocationTest(onStarted: () -> Unit = {}) {
         viewModelScope.launch {
-            val alreadyTracking = !isDev && withContext(Dispatchers.IO) {
-                val session = (runCatching { raceDay.trackingSession() }.getOrNull() as? RuntimeResult.Success)?.result
-                session?.optBoolean("active") == true && session.optText("roomId") == (roomId ?: context.activeRoomId)
+            testMutex.withLock {
+                endTestLocked(stop = true)
+                val room = roomId ?: context.activeRoomId
+                val session = if (isDev) JSONObject().put("active", false) else withContext(Dispatchers.IO) {
+                    (runCatching { raceDay.trackingSession() }.getOrNull() as? RuntimeResult.Success)?.result
+                }
+                val latest = if (isDev || room == null) null else withContext(Dispatchers.IO) {
+                    (runCatching { raceDay.latestPing(room) }.getOrNull() as? RuntimeResult.Success)?.result?.optJSONObject("latest")
+                }
+                stepLocked("start", allowStart = true) {
+                    if (room != null) put("roomId", room)
+                    if (session != null) put("session", session)
+                    if (latest != null) put("latest", latest)
+                }
             }
-            trackingStarted = false
-            saved[KEY_TRACKING_STARTED] = false
-            step("start") { put("alreadyTracking", alreadyTracking) }
+            if (location?.blocked == true) return@launch
             onStarted()
             if (isDev) {
                 // The dev tour sends nothing: the test plays its copy with Always and a ping.
@@ -178,51 +204,66 @@ class OnboardingTourViewModel(
         }
     }
 
-    /** What the location prompts answered: whenInUse, always or denied. */
-    fun locationPermission(permission: String) {
+    /**
+     * What the location prompts answered: whenInUse, always or denied. With location allowed,
+     * tracking (the session and the foreground service) starts here, with the app in front, and
+     * only then [onTracking] runs: the screen asks for background location after it, since on
+     * Android 11+ that request opens Settings and a service can't start from the background.
+     */
+    fun locationPermission(permission: String, onTracking: () -> Unit = {}) {
         viewModelScope.launch {
             step("permission") { put("permission", permission) }
             val test = location ?: return@launch
             if (isDev || test.phase != "waitingForPing") return@launch
-            if (!test.wasTracking && !trackingStarted) startTracking()
+            if (!test.wasTracking && !trackingStarted && !startTracking()) return@launch
+            onTracking()
             pollLocationTest()
         }
     }
 
-    /** On race morning: the test waits for race day, and a running test stops. */
-    fun locationRaceMorning(step: String) {
-        stopTestIfRunning()
-        clearLocation()
-        answer(step, outcome = card?.secondaryOutcome ?: "deferred")
+    /** On race morning: the test waits for race day; tracking the test started stops. */
+    fun locationRaceMorning(step: String, outcome: String?) {
+        viewModelScope.launch {
+            testMutex.withLock { endTestLocked(stop = true) }
+            answer(step, outcome = outcome ?: "deferred")
+        }
     }
 
-    /** Next after the test: its outcome (done after the ping). */
+    /** Next after the test: its outcome (done after the ping); tracking the test started stops. */
     fun locationNext(step: String) {
-        val test = location?.test
-        clearLocation()
-        answer(step, test = test)
+        viewModelScope.launch {
+            val test = testMutex.withLock {
+                val ended = location?.test
+                endTestLocked(stop = true)
+                ended
+            }
+            answer(step, test = test)
+        }
     }
 
-    private fun clearLocation() {
+    /**
+     * Ends the test: a new generation, so a step still on its way is dropped, and the tracking
+     * the test started (never tracking that was on before it) stops. Call with [testMutex] held.
+     */
+    private suspend fun endTestLocked(stop: Boolean) {
+        testGeneration += 1
         location = null
         saved.remove<String>(KEY_LOCATION)
+        refreshView()
+        if (stop) stopTracking()
     }
 
-    private fun stopTestIfRunning() {
-        val test = location ?: return
-        if (isDev || test.wasTracking || !trackingStarted) return
-        viewModelScope.launch { stopTracking() }
-    }
-
-    private suspend fun startTracking() {
-        val room = roomId ?: context.activeRoomId ?: return
+    private suspend fun startTracking(): Boolean {
+        val room = roomId ?: context.activeRoomId ?: return false
         val started = withContext(Dispatchers.IO) { runCatching { raceDay.startTrackingSession(room) }.getOrNull() }
-        if (started !is RuntimeResult.Success) return
+        if (started !is RuntimeResult.Success) return false
         trackingStarted = true
         saved[KEY_TRACKING_STARTED] = true
         RaceTrackingService.start(appContext)
+        return true
     }
 
+    /** Stops tracking only when this test started it. */
     private suspend fun stopTracking() {
         if (!trackingStarted) return
         trackingStarted = false
@@ -232,10 +273,11 @@ class OnboardingTourViewModel(
     }
 
     /**
-     * Until the test ends: the clock ticks, Always chosen later counts, and the first ping this
-     * phone gets to the server (read back from `pings/latest`, received after the test began)
-     * ends it. With When In Use only, tracking stays on a little for the Always answer. Then
-     * tracking stops unless it was on before. One loop at a time; nothing is cancelled mid-request.
+     * Until the test ends: Always chosen later counts, and each poll hands client-core the latest
+     * ping (or offline); a ping newer than the baseline ends the test. With When In Use only,
+     * tracking stays on a little for the Always answer. Then tracking stops unless it was on
+     * before. One loop at a time; it never steps from a cleared test, and nothing is cancelled
+     * mid-request.
      */
     private fun pollLocationTest() {
         if (polling || isDev) return
@@ -246,55 +288,79 @@ class OnboardingTourViewModel(
                     val test = location ?: break
                     if (!test.isRunning && !test.waitsForAlways) break
                     delay(POLL_MS)
+                    if (location == null) break
                     if (locationAlways()) step("permission") { put("permission", "always") }
-                    if (location?.isRunning == true) {
-                        step("tick")
-                        readPing()
-                    } else {
-                        step("read")
-                    }
+                    if (location?.isRunning == true) poll() else step("read")
                 }
-                if (location?.stopsTracking == true) stopTracking()
+                testMutex.withLock { if (location?.stopsTracking == true) stopTracking() }
             } finally {
                 polling = false
             }
         }
     }
 
-    private suspend fun readPing() {
-        val test = location ?: return
-        if (!test.isRunning) return
+    private suspend fun poll() {
         val room = roomId ?: context.activeRoomId ?: return
         val result = withContext(Dispatchers.IO) { runCatching { raceDay.latestPing(room) }.getOrNull() }
-        val answer = (result as? RuntimeResult.Success)?.result ?: return
-        val ping = answer.optJSONObject("latest")?.optJSONObject("ping")
-        val received = ping?.optText("receivedAt")?.let { runCatching { Instant.parse(it) }.getOrNull() }
-        val started = runCatching { Instant.parse(test.startedAt) }.getOrNull()
-        if (received != null && started != null && !received.isBefore(started)) {
-            step("pingSent")
-            return
-        }
-        if ((answer.optBoolean("offline") || !appContext.isOnline()) && pingQueued()) step("pingQueuedOffline")
-    }
-
-    private suspend fun pingQueued(): Boolean {
-        val result = withContext(Dispatchers.IO) { runCatching { raceDay.listOutbox() }.getOrNull() }
-        val rows = (result as? RuntimeResult.Success)?.result?.optJSONArray("operations") ?: return false
-        return (0 until rows.length()).any { index ->
-            val row = rows.optJSONObject(index)
-            row?.optString("type") == "ping" && row.optString("status") == "pending"
+        val answer = (result as? RuntimeResult.Success)?.result
+        val offline = answer?.optBoolean("offline") == true || !appContext.isOnline()
+        val latest = answer?.optJSONObject("latest")
+        step("poll") {
+            if (latest != null) put("latest", latest)
+            if (offline) put("offline", true)
         }
     }
 
     private suspend fun step(event: String, fill: JSONObject.() -> Unit = {}) {
+        testMutex.withLock { stepLocked(event, allowStart = false, fill) }
+    }
+
+    /** One `locationTest` op. Never from a cleared test, and dropped if the test ended meanwhile. */
+    private suspend fun stepLocked(event: String, allowStart: Boolean, fill: JSONObject.() -> Unit) {
         val previous = location?.test
-        val result = withContext(Dispatchers.IO) { raceDay.locationTest(previous, event, fill) }
+        if (previous == null && !allowStart) return
+        val generation = testGeneration
+        val result = withContext(Dispatchers.IO) { runCatching { raceDay.locationTest(previous, event, fill) }.getOrNull() }
+        if (generation != testGeneration) return
         val next = LocationTestAnswer.from((result as? RuntimeResult.Success)?.result) ?: return
         location = next
         saved[KEY_LOCATION] = (result as RuntimeResult.Success).result.toString()
+        refreshView()
+    }
+
+    override fun onCleared() {
+        // The screen went away mid-test: stop the tracking the test started, outside this scope.
+        if (trackingStarted) {
+            trackingStarted = false
+            val bridge = raceDay
+            val context = appContext
+            CoroutineScope(Dispatchers.IO + NonCancellable).launch {
+                runCatching { bridge.stopTrackingSession() }
+                RaceTrackingService.stop(context)
+            }
+        }
+        super.onCleared()
     }
 
     // MARK: Ops
+
+    /** The card's buttons and line for this phone now (client-core `OnboardingTour.view`). */
+    fun refreshView() {
+        val shown = card ?: run {
+            buttons = null
+            return
+        }
+        val test = location?.test?.takeIf { shown.step == "location" }
+        val shared = inviteShared
+        viewModelScope.launch {
+            val notificationsOn = notificationsAllowed()
+            val result = withContext(Dispatchers.IO) {
+                runCatching { raceDay.tourCardView(shown.step, shown.role, notificationsOn, shared, test) }.getOrNull()
+            }
+            if (card?.step != shown.step) return@launch
+            buttons = TourButtons.from((result as? RuntimeResult.Success)?.result)
+        }
+    }
 
     private fun run(op: String, report: Boolean = true, fill: JSONObject.() -> Unit = {}) {
         viewModelScope.launch {
@@ -319,10 +385,12 @@ class OnboardingTourViewModel(
                     inviteShared = false
                     saved[KEY_INVITE_SHARED] = false
                 }
-                if (location != null && nextCard?.step != "location") clearLocation()
+                if (location != null && nextCard?.step != "location") testMutex.withLock { endTestLocked(stop = true) }
+                buttons = null
             }
             uiState = nextCard?.let { TourUiState.Showing(it) } ?: TourUiState.Hidden
             checklist = SetupChecklistCard.from(answer.optJSONObject("checklist"))
+            refreshView()
             if (report && !isDev && state != null) onState?.invoke(state)
         }
     }

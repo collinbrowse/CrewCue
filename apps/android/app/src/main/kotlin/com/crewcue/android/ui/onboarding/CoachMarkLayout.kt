@@ -103,7 +103,19 @@ object CoachMarkLayout {
             }
             val width = min(placed.width, half.width)
             val x = clamp(focus.x - width / 2, half.left, half.right - width)
-            placed.copy(x = x, width = width)
+            // A narrower card is taller: place it again for its height at the new width.
+            val height = min(heightFor(width), half.height)
+            val y = when (placed.side) {
+                Side.Above -> clamp((anchor?.top ?: half.bottom) - gap - height, half.top, half.bottom - height)
+                Side.Below -> clamp((anchor?.bottom ?: half.top) + gap, half.top, half.bottom - height)
+                else -> clamp((anchor?.center?.y ?: half.center.y) - height / 2, half.top, half.bottom - height)
+            }
+            val room = when (placed.side) {
+                Side.Above -> (anchor?.top ?: half.bottom) - gap - half.top
+                Side.Below -> half.bottom - ((anchor?.bottom ?: half.top) + gap)
+                else -> half.height
+            }
+            placed.copy(x = x, y = y, width = width, maxHeight = room.coerceAtLeast(0f))
         } else {
             // A horizontal fold (tabletop): the card stays on the anchor's half.
             val half = if (focus.y < hinge.center.y) {

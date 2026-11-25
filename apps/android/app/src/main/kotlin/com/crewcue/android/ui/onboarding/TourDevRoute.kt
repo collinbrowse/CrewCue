@@ -24,6 +24,11 @@ import com.crewcue.android.ui.FeatureScreen
 import com.crewcue.android.ui.ShellTab
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.UiState
+import com.crewcue.android.ui.ScreenCopy
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * `crewcue://dev/onboarding-runner-tour` and `crewcue://dev/onboarding-crew`: the tour's cards
@@ -68,9 +73,11 @@ fun TourDevRoute(shell: ShellViewModel, role: String) {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
-            // Read once per tab: a fixture's copy is a client-core call, not something to repeat per frame.
-            val screen = remember(tab) { shell.fixtureScreen(tab.url) }
-            FeatureScreen(UiState.Success(screen), Modifier.weight(1f))
+            // A fixture's copy is a client-core call: read once per tab, off the main thread.
+            val screen by produceState<ScreenCopy?>(null, tab) {
+                value = withContext(Dispatchers.IO) { runCatching { shell.fixtureScreen(tab.url) }.getOrNull() }
+            }
+            screen?.let { FeatureScreen(UiState.Success(it), Modifier.weight(1f)) } ?: Spacer(Modifier.weight(1f))
         }
         CrewTabBar(
             selected = tab,

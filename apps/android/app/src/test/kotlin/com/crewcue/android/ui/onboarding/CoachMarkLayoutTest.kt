@@ -63,6 +63,23 @@ class CoachMarkLayoutTest {
     }
 
     @Test
+    fun aCardNarrowedOffAVerticalHingeIsPlacedForItsNewHeight() {
+        // Text wraps: the narrower the card, the taller it is.
+        val open = Rect(16f, 40f, 1060f, 860f)
+        val hinge = Rect(430f, 0f, 446f, 900f)
+        val map = Rect(300f, 800f, 400f, 850f)
+        val heightFor = { width: Float -> 120_000f / width }
+        val placed = CoachMarkLayout.place(open, map, maxCardWidth = 600f, gap = 12f, minBesideWidth = 240f, avoid = listOf(hinge), heightFor = heightFor)
+        assertTrue(placed.x + placed.width <= hinge.left)
+        val height = heightFor(placed.width)
+        assertTrue(height > heightFor(600f))
+        // Still above the tab, with its bottom a gap above it, at the taller height.
+        assertEquals(CoachMarkLayout.Side.Above, placed.side)
+        assertEquals(800f - 12f - height, placed.y, 0.01f)
+        assertEquals(800f - 12f - open.top, placed.maxHeight, 0.01f)
+    }
+
+    @Test
     fun aTallCardWithNoRoomScrollsInTheRoomierSpace() {
         val placed = place(phone, Rect(100f, 450f, 180f, 500f), height = 2_000f)
         assertEquals(CoachMarkLayout.Side.Above, placed.side)

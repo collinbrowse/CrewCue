@@ -135,17 +135,15 @@ data class SetupChecklistCard(
 data class LocationTestAnswer(
     val test: JSONObject,
     val phase: String,
+    /** Tracking is on for another race: the test didn't start. */
+    val blocked: Boolean,
     val message: String?,
-    /** Null while the test runs: the card shows no main button then. */
-    val primaryLabel: String?,
-    val secondaryLabel: String,
     val isRunning: Boolean,
     val stopsTracking: Boolean,
     val waitsForAlways: Boolean,
     val outcome: String?
 ) {
     val wasTracking: Boolean get() = test.optBoolean("wasTracking")
-    val startedAt: String get() = test.optText("startedAt")
 
     companion object {
         fun from(json: JSONObject?): LocationTestAnswer? {
@@ -154,13 +152,36 @@ data class LocationTestAnswer(
             return LocationTestAnswer(
                 test = test,
                 phase = json.optText("phase"),
+                blocked = json.optBoolean("blocked"),
                 message = json.optText("message").ifBlank { null },
-                primaryLabel = json.optText("primaryLabel").ifBlank { null },
-                secondaryLabel = json.optText("secondaryLabel"),
                 isRunning = json.optBoolean("isRunning"),
                 stopsTracking = json.optBoolean("stopsTracking"),
                 waitsForAlways = json.optBoolean("waitsForAlways"),
                 outcome = json.optText("outcome").ifBlank { null }
+            )
+        }
+    }
+}
+
+/** client-core `TourCardView`: the card's buttons and status line for this phone now. */
+data class TourButtons(
+    /** Null while the location test runs: no main button then. */
+    val primaryLabel: String?,
+    /** shareInvite, enableNotifications, testTracking, showStartLine, next. */
+    val primaryAction: String,
+    val secondaryLabel: String?,
+    val secondaryOutcome: String?,
+    val status: String?
+) {
+    companion object {
+        fun from(json: JSONObject?): TourButtons? {
+            json ?: return null
+            return TourButtons(
+                primaryLabel = json.optText("primaryLabel").ifBlank { null },
+                primaryAction = json.optText("primaryAction"),
+                secondaryLabel = json.optText("secondaryLabel").ifBlank { null },
+                secondaryOutcome = json.optText("secondaryOutcome").ifBlank { null },
+                status = json.optText("status").ifBlank { null }
             )
         }
     }

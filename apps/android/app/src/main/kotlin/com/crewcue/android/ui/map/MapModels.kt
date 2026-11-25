@@ -190,7 +190,9 @@ interface CourseMapRenderer {
          */
         onRendered: (line: List<CoursePoint>, points: List<MapCheckpoint>) -> Unit,
         /** Bumped to move the camera to the course's start (the tour's start-line card); 0 never moves. */
-        startLineRequest: Int
+        startLineRequest: Int,
+        /** The start-line move ran: the caller spends the request so it runs once. */
+        onStartLineShown: () -> Unit
     )
 }
 

@@ -108,12 +108,11 @@ fun TourOverlayHost(
         card.anchorTab?.let(onSelectTab)
         if (card.action == "showStartLine") onStartLine()
     }
-    // Notifications allowed in Settings meanwhile: the card says so when the app comes back.
-    var notificationsOn by remember(card.step) { mutableStateOf(tour.notificationsAllowed()) }
+    // Notifications allowed in Settings meanwhile: client-core reads the card again on return.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     androidx.compose.runtime.DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) notificationsOn = tour.notificationsAllowed()
+            if (event == Lifecycle.Event.ON_RESUME) tour.refreshView()
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
@@ -124,34 +123,21 @@ fun TourOverlayHost(
     val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) tour.locationPermission("always")
     }
+    // Background location is asked only once tracking runs (see locationPermission).
+    val askBackground = { askBackground(background) }
     val fine = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) {
-            tour.locationPermission("denied")
-            return@rememberLauncherForActivityResult
-        }
-        tour.locationPermission("whenInUse")
-        askBackground(background)
+        if (granted) tour.locationPermission("whenInUse", onTracking = askBackground) else tour.locationPermission("denied")
     }
-    val location = tour.location.takeIf { card.step == "location" }
-    val primaryLabel: String? = when {
-        card.action == "enableNotifications" && notificationsOn -> tour.text.next
-        card.action == "testTracking" && location != null -> location.primaryLabel
-        else -> card.primaryLabel
-    }
-    val secondaryLabel: String? = when {
-        card.action == "enableNotifications" && notificationsOn -> null
-        card.action == "shareInvite" && tour.inviteShared -> tour.text.next
-        card.action == "testTracking" && location != null -> location.secondaryLabel
-        else -> card.secondaryLabel
-    }
+    // client-core decides the buttons and the line (`tourCardView`); until it answers, the card's own.
+    val view = tour.buttons ?: TourButtons(card.primaryLabel, card.action, card.secondaryLabel, card.secondaryOutcome, null)
     val status: Pair<String, String>? = when {
-        card.action == "enableNotifications" && notificationsOn -> TOUR_NOTIFICATIONS_STATUS_TAG to tour.text.notificationsOn
-        card.action == "testTracking" -> location?.message?.let { TOUR_LOCATION_STATUS_TAG to it }
         card.action == "shareInvite" && tour.busy -> TOUR_INVITE_STATUS_TAG to tour.text.inviteLoading
-        else -> null
+        view.status == null -> null
+        card.action == "enableNotifications" -> TOUR_NOTIFICATIONS_STATUS_TAG to view.status
+        else -> TOUR_LOCATION_STATUS_TAG to view.status
     }
     fun primary() {
-        when (card.action) {
+        when (view.primaryAction) {
             "shareInvite" -> {
                 if (tour.isDev) {
                     tour.noteInviteShared()
@@ -161,48 +147,40 @@ fun TourOverlayHost(
                     val intent = tour.inviteIntent(card.title) ?: return@launch
                     try {
                         context.startActivity(intent)
-                        tour.noteInviteShared()
                     } catch (_: ActivityNotFoundException) {
-                        tour.noteInviteShared()
+                        // No app can share text; the step still moves on with Next.
                     }
+                    tour.noteInviteShared()
                 }
             }
-            "enableNotifications" -> when {
-                notificationsOn -> tour.notificationsAnswered(card.step, true)
-                Build.VERSION.SDK_INT >= 33 -> notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-                else -> tour.notificationsAnswered(card.step, true)
-            }
-            "testTracking" -> {
-                if (location?.phase == "sent") {
-                    tour.locationNext(card.step)
-                    return
+            // Already allowed, the prompt answers at once without showing.
+            "enableNotifications" ->
+                if (Build.VERSION.SDK_INT >= 33) {
+                    notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    tour.notificationsAnswered(card.step, true)
                 }
-                tour.startLocationTest {
-                    if (tour.isDev) return@startLocationTest
-                    if (tour.fineGranted()) {
-                        tour.locationPermission(if (tour.locationAlways()) "always" else "whenInUse")
-                        if (!tour.locationAlways()) askBackground(background)
-                    } else {
-                        fine.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                    }
+            "testTracking" -> tour.startLocationTest {
+                if (tour.isDev) return@startLocationTest
+                when {
+                    !tour.fineGranted() -> fine.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    tour.locationAlways() -> tour.locationPermission("always")
+                    else -> tour.locationPermission("whenInUse", onTracking = askBackground)
                 }
             }
-            else -> tour.answer(card.step)
+            else -> if (card.step == "location") tour.locationNext(card.step) else tour.answer(card.step)
         }
     }
     fun secondary() {
-        when {
-            card.action == "shareInvite" && tour.inviteShared -> tour.answer(card.step, outcome = "done")
-            card.action == "testTracking" -> tour.locationRaceMorning(card.step)
-            else -> tour.answer(card.step, outcome = card.secondaryOutcome ?: "skipped")
-        }
+        val outcome = view.secondaryOutcome ?: "skipped"
+        if (card.step == "location") tour.locationRaceMorning(card.step, outcome) else tour.answer(card.step, outcome = outcome)
     }
     CoachMarkOverlay(
         card = card,
         anchor = card.anchorTag?.let { anchors.frames[it] },
         rootTag = if (card.role == "crew") CREW_TOUR_TAG else RUNNER_TOUR_TAG,
-        primaryLabel = primaryLabel,
-        secondaryLabel = secondaryLabel,
+        primaryLabel = view.primaryLabel,
+        secondaryLabel = view.secondaryLabel,
         status = status,
         busy = tour.busy,
         onPrimary = ::primary,
