@@ -3,7 +3,7 @@
 
 Environment variables read by the API and shared packages, and where. Values live in Railway; templates in `*.env.example`. Secret-shaped names are marked so a reviewer notices a new one.
 
-**45 variables.**
+**47 variables.**
 
 | Variable | Secret-shaped | Read in |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ Environment variables read by the API and shared packages, and where. Values liv
 | `CHAT_PHOTO_SECRET_ACCESS_KEY` | yes | [services/api/src/lib/chatPhotoStore.ts](../../../services/api/src/lib/chatPhotoStore.ts) |
 | `CHAT_PHOTO_URL_STYLE` |  | [services/api/src/lib/chatPhotoStore.ts](../../../services/api/src/lib/chatPhotoStore.ts) |
 | `COURSE_HISTORY_PRODUCT_SOURCES` |  | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) |
-| `DATABASE_URL` | yes | [services/api/scripts/apply-sql-migrations.mjs](../../../services/api/scripts/apply-sql-migrations.mjs), [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts), [services/api/src/lib/chatMessageStore.ts](../../../services/api/src/lib/chatMessageStore.ts), [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts), [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts) |
+| `DATABASE_URL` | yes | [services/api/scripts/apply-sql-migrations.mjs](../../../services/api/scripts/apply-sql-migrations.mjs), [services/api/scripts/test-pg.mjs](../../../services/api/scripts/test-pg.mjs), [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts), [services/api/src/lib/chatMessageStore.ts](../../../services/api/src/lib/chatMessageStore.ts), [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts), [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts) |
 | `FCM_SERVICE_ACCOUNT_JSON` |  | [services/api/src/lib/chatPushTransports.ts](../../../services/api/src/lib/chatPushTransports.ts) |
 | `HOST` |  | [services/api/src/server.ts](../../../services/api/src/server.ts) |
 | `INIT_CWD` |  | [services/api/scripts/pacing-eval-import.ts](../../../services/api/scripts/pacing-eval-import.ts) |
@@ -39,6 +39,8 @@ Environment variables read by the API and shared packages, and where. Values liv
 | `OSRM_ROUTER_BASE_URL` |  | [services/api/src/routes/routingRoutes.ts](../../../services/api/src/routes/routingRoutes.ts) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` |  | [services/api/src/telemetry.ts](../../../services/api/src/telemetry.ts) |
 | `PERSISTENCE_MODE` |  | [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts), [services/api/src/lib/chatMessageStore.ts](../../../services/api/src/lib/chatMessageStore.ts), [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts), [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) |
+| `PERSONAL_TERRAIN_FACTORS` |  | [services/api/src/lib/pacingEstimate/microModel/personalTerrain.ts](../../../services/api/src/lib/pacingEstimate/microModel/personalTerrain.ts) |
+| `PG_URL_BASE` |  | [services/api/scripts/test-pg.mjs](../../../services/api/scripts/test-pg.mjs) |
 | `PORT` |  | [services/api/src/server.ts](../../../services/api/src/server.ts) |
 | `PROJECTION_STALE_AFTER_SECONDS` |  | [services/api/src/lib/projectionTimeliness.ts](../../../services/api/src/lib/projectionTimeliness.ts) |
 | `PROJECTION_TUNED_CONSTANTS` |  | [services/api/scripts/projection-backtest/parity.ts](../../../services/api/scripts/projection-backtest/parity.ts), [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) |
@@ -72,6 +74,8 @@ Templates: [.env.example](../../../.env.example), [.env.local.example](../../../
 - `INIT_CWD`
 - `NODE_ENV`
 - `OSRM_ROUTER_BASE_URL`
+- `PERSONAL_TERRAIN_FACTORS`
+- `PG_URL_BASE`
 - `PROJECTION_STALE_AFTER_SECONDS`
 - `PROJECTION_TUNED_CONSTANTS`
 - `RAILWAY_ENVIRONMENT_NAME`
