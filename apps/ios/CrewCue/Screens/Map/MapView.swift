@@ -54,6 +54,8 @@ struct MapView: View {
     /// points along the course between pings, so the path chip counts the pings, as on a race,
     /// where every path point is a ping. Nil on the race map.
     var pathPings: Int? = nil
+    /// The runner's setup checklist, under the top bar until it is done or hidden.
+    var checklist: SetupChecklistCardConfig? = nil
     @State private var tool = MapTool.none
     /// The map style has loaded or failed. Until then a loader sits over the map.
     @State private var styleSettled = false
@@ -87,6 +89,8 @@ struct MapView: View {
                 runnerCoordinate: readOnly ? nil : model.runnerCoordinate,
                 runnerFocusRequest: model.runnerFocusRequest,
                 focusAnchor: crosshair,
+                startLine: readOnly ? nil : model.startLineCoordinate,
+                startLineRequest: model.startLineRequest,
                 hidesAttributionButton: !readOnly,
                 onStyleFailure: { offline in
                     styleSettled = true
@@ -132,6 +136,8 @@ struct MapView: View {
             MapOverlayControls(
                 model: model, tool: $tool, title: title, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {},
                 readOnly: readOnly, pathPings: pathPings, part: .bar,
+                checklist: readOnly ? nil : checklist,
+                checklistListHeight: sheetTop - barBottom - 140,
                 onBarBottom: { barBottom = $0 }
             )
             .avoidsReservedRegions(when: readOnly)
@@ -214,6 +220,8 @@ private struct MapOverlayControls: View {
     /// The top bar (and race banner) sits in the top safe area; the chips and map buttons sit
     /// on the map, under the aid sheet when it opens all the way.
     var part: Part
+    var checklist: SetupChecklistCardConfig? = nil
+    var checklistListHeight: CGFloat = .infinity
     var onBarBottom: (CGFloat) -> Void
     @Environment(\.crew) private var theme
 
@@ -237,6 +245,11 @@ private struct MapOverlayControls: View {
             if let access {
                 RaceAccessBanner(access: access, onUnlock: onUnlock)
                     .padding(.horizontal, CrewSpace.gutter)
+            }
+            if let checklist {
+                SetupChecklistCard(config: checklist, maxListHeight: checklistListHeight)
+                    .padding(.horizontal, CrewSpace.gutter)
+                    .transition(.opacity)
             }
         }
         // The replay has no bar: report its top edge so the crosshair math still has one.
@@ -918,6 +931,8 @@ struct MapCanvas: View {
     var runnerCoordinate: CLLocationCoordinate2D? = nil
     var runnerFocusRequest = 0
     var focusAnchor: CGPoint? = nil
+    var startLine: CLLocationCoordinate2D? = nil
+    var startLineRequest = 0
     var hidesAttributionButton = false
     var onTap: (Double, Double) -> Void = { _, _ in }
     @Environment(\.crew) private var theme
@@ -968,6 +983,8 @@ struct MapCanvas: View {
             focusAnchor: focusAnchor
         )
         map.hidesAttributionButton = hidesAttributionButton
+        map.startLine = startLine
+        map.startLineRequest = startLineRequest
         return map
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityLabel("Course map")

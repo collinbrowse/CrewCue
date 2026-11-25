@@ -67,6 +67,8 @@ public struct Route: Equatable, Hashable, Sendable {
         case "dev/billing-redeem": "billing-redeem"
         case "dev/onboarding-runner-setup": "onboarding-runner-setup"
         case "dev/onboarding-race-preview": "onboarding-race-preview"
+        case "dev/onboarding-runner-tour": "onboarding-runner-tour"
+        case "dev/onboarding-crew": "onboarding-crew"
         case "dev/race-rename": "race-rename"
         case "dev/course-locked": "course-locked"
         case "dev/invite-share": "invite-share"

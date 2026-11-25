@@ -54,6 +54,8 @@ final class ShellModel {
     let runnerSetup: RunnerSetupModel
     /// Runner phase 2: the race-day replay and the paywall after it.
     let racePreview: RacePreviewModel
+    /// Runner phase 3 and the crew tour: the tab-bar tour's state on this phone.
+    let tour: OnboardingTourModel
     /// The dev route's `?at=&paused=` (dev links only): where its fixture replay opens.
     var racePreviewDevStart: RacePreviewDevStart?
 
@@ -122,6 +124,7 @@ final class ShellModel {
             await activityImportModel.activate()
         }
         self.racePreview = RacePreviewModel(client: client)
+        self.tour = OnboardingTourModel(clock: client.graph.clock)
         self.authModel.bindSession { [weak self] session in
             self?.adopt(session)
         }
@@ -337,6 +340,136 @@ final class ShellModel {
         fixtureOverlay = false
         show(Route(featureId: "app-shell", state: .success))
         enterShellIfNeeded()
+    }
+
+    // MARK: Tour
+
+    /// The tab-bar tour's card over the shell: the runner's once the race is unlocked, the crew's
+    /// once they joined a paid race. Nil on dev fixture links and outside the tour.
+    var tourCard: TourCard? {
+        guard isSignedIn, !fixtureOverlay, onboarding.entry == .shell else { return nil }
+        return OnboardingTour.card(for: onboarding.state)
+    }
+
+    private var tourRole: OnboardingChoice { onboarding.state.role ?? .runner }
+
+    /// A new card is on screen: its tab opens, so the highlight and the explanation match what's
+    /// behind them, and the card's own setup runs (the invite loads, the map moves to the start).
+    func tourCardAppeared(_ card: TourCard) {
+        if let anchor = card.anchor, let tab = ShellTab(rawValue: anchor.rawValue), selectedTab != tab {
+            selectedTab = tab
+        }
+        switch card.action {
+        case .shareInvite:
+            tour.inviteShared = false
+            Task { await inviteModel.activate(roomId: signedInRoomId) }
+        case .showStartLine:
+            mapModel.showStartLine()
+        case .enableNotifications:
+            Task { await tour.refreshNotifications() }
+        case .testTracking, .next:
+            break
+        }
+    }
+
+    /// The invites card's share text, once the race's invite loaded.
+    var tourInviteShareText: String? {
+        if case .ready(let details) = inviteModel.state { return details.shareText }
+        return nil
+    }
+
+    func tourPrimary(_ card: TourCard) {
+        switch card.action {
+        case .shareInvite:
+            markTour(card, .done)
+        case .enableNotifications:
+            Task {
+                let allowed = await tour.enableNotifications(push: pushModel, role: signedInRole)
+                markTour(card, OnboardingTour.notificationsOutcome(allowed: allowed))
+            }
+        case .testTracking:
+            if tour.locationTest.phase == .sent {
+                let outcome = tour.locationTest.outcome ?? .done
+                tour.endLocationTest(map: mapModel)
+                markTour(card, outcome)
+            } else {
+                tour.startLocationTest(map: mapModel)
+            }
+        case .showStartLine, .next:
+            markTour(card, .done)
+        }
+    }
+
+    func tourSecondary(_ card: TourCard) {
+        if card.action == .testTracking {
+            tour.endLocationTest(map: mapModel)
+        }
+        markTour(card, card.secondaryOutcome ?? .skipped)
+    }
+
+    /// Skip tour: everything left is skipped, and the location test waits for race morning.
+    func skipTour() {
+        tour.endLocationTest(map: mapModel)
+        let role = tourRole
+        let roomId = onboarding.state.roomId
+        for item in OnboardingTour.skipAll(onboarding.state) {
+            onboarding.mark(item.step, outcome: item.outcome, roomId: roomId, role: role)
+        }
+        syncOnboarding()
+    }
+
+    private func markTour(_ card: TourCard, _ outcome: OnboardingOutcome) {
+        onboarding.mark(card.step, outcome: outcome, roomId: onboarding.state.roomId, role: card.role)
+        syncOnboarding()
+    }
+
+    /// Leaves the tour's dev link (Skip tour or its last card) for the app's own launch.
+    func leaveTourDevRoute() {
+        fixtureOverlay = false
+        show(Route(featureId: "app-shell", state: .success))
+        enterShellIfNeeded()
+    }
+
+    // MARK: Setup checklist
+
+    /// The runner's setup checklist on Map, nil once it is done, hidden, or not theirs.
+    var setupChecklist: SetupChecklist? {
+        guard isSignedIn, !fixtureOverlay, onboarding.entry == .shell else { return nil }
+        let facts = SetupChecklistFacts(notificationsOn: tour.notificationsOn, locationAlways: mapModel.locationPermission == .always)
+        return SetupChecklistPolicy.make(state: onboarding.state, progress: onboarding.progress, facts: facts)
+    }
+
+    /// An item opens where it is done: the invite, Edit planned stops on Pace, Place checkpoint on
+    /// Map, the notification prompt, or the location test. Opening an optional item marks it done.
+    func openChecklistItem(_ kind: SetupChecklistItemKind) {
+        let roomId = onboarding.state.roomId
+        // The item opens over the map; the card folds back to the next item.
+        tour.checklistExpanded = false
+        switch kind {
+        case .invites:
+            onboarding.mark(.invites, outcome: .done, roomId: roomId, role: .runner)
+            show(Route(featureId: "invite-share", state: .success))
+            enterShellIfNeeded()
+        case .etaEdits:
+            onboarding.mark(.etaEdits, outcome: .done, roomId: roomId)
+            show(Route(featureId: "pace-stop-edit", state: .success))
+            enterShellIfNeeded()
+        case .checkpointDetails:
+            onboarding.mark(.checkpointDetails, outcome: .done, roomId: roomId)
+            show(Route(featureId: "map-checkpoint-pick", state: .success))
+            enterShellIfNeeded()
+        case .notifications:
+            Task { _ = await tour.enableNotifications(push: pushModel, role: signedInRole) }
+        case .location:
+            show(Route(featureId: "location-heartbeat", state: .success))
+            enterShellIfNeeded()
+        }
+        syncOnboarding()
+    }
+
+    func hideChecklist() {
+        onboarding.mark(.setupChecklist, outcome: .skipped, roomId: onboarding.state.roomId)
+        syncOnboarding()
     }
 
     // MARK: Sign-in
@@ -815,6 +948,7 @@ final class ShellModel {
         upgradeModel.clear()
         runnerSetup.clear()
         racePreview.clear()
+        tour.clear()
         joinModel.clear()
         syncOnboarding()
         showsSettings = false

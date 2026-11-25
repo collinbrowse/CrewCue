@@ -10,7 +10,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Source files ≥ 800 lines | 20 |
 | In-process timers in the API | 4 |
 | API lib modules with no same-named test | 45 |
-| Native features not passing on both platforms | 17 |
+| Native features not passing on both platforms | 19 |
 | Files with TODO/FIXME/HACK | 0 |
 
 ## Routes with no auth guard detected
@@ -47,13 +47,13 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1447 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1435 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1274 |
-| [apps/ios/CrewCue/Screens/Map/MapView.swift](../../../apps/ios/CrewCue/Screens/Map/MapView.swift) | 1228 |
+| [apps/ios/CrewCue/Screens/Map/MapView.swift](../../../apps/ios/CrewCue/Screens/Map/MapView.swift) | 1245 |
 | [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift) | 1143 |
+| [apps/ios/CrewCue/App/ShellModel.swift](../../../apps/ios/CrewCue/App/ShellModel.swift) | 1056 |
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 1014 |
-| [apps/ios/CrewCue/App/ShellModel.swift](../../../apps/ios/CrewCue/App/ShellModel.swift) | 922 |
+| [apps/ios/CrewCue/Screens/Map/MapModel.swift](../../../apps/ios/CrewCue/Screens/Map/MapModel.swift) | 933 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 919 |
 | [services/api/src/routes/raceRoomSchedule.ts](../../../services/api/src/routes/raceRoomSchedule.ts) | 914 |
-| [apps/ios/CrewCue/Screens/Map/MapModel.swift](../../../apps/ios/CrewCue/Screens/Map/MapModel.swift) | 907 |
 | [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 899 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RacePreviewScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RacePreviewScreen.kt) | 861 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt) | 838 |
@@ -142,6 +142,8 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `push-registration` | v1 | fail | fail |
 | `tracking-reminder` | v1 | fail | fail |
 | `unlock-reminder` | v1 | fail | fail |
+| `onboarding-crew` | v1 | pass | fail |
+| `onboarding-runner-tour` | v1 | pass | fail |
 | `race-rename` | v1 | fail | fail |
 | `course-locked` | v1 | fail | fail |
 | `race-delete` | v1 | fail | fail |

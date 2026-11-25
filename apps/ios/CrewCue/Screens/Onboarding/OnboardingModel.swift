@@ -28,6 +28,8 @@ final class OnboardingModel {
     private let clock: any Clock
     private let logger: any Logger
     private(set) var state: OnboardingState = .chooser
+    /// The saved progress this state was read from (the setup checklist reads whether it was hidden).
+    private(set) var progress: OnboardingProgress = .empty
     /// The race list this state was read with (this read's, else the saved one).
     private(set) var races: [OnboardingRace] = []
     /// The signed-in list read failed and nothing was saved before: the shell shows its own
@@ -100,11 +102,12 @@ final class OnboardingModel {
         read()
     }
 
-    /// Marks a step so a relaunch resumes after it.
-    func mark(_ step: OnboardingStep, outcome: OnboardingOutcome = .done, roomId: String?) {
+    /// Marks a step so a relaunch resumes after it. `role` names whose tour a shared tour step
+    /// (`notifications`) belongs to.
+    func mark(_ step: OnboardingStep, outcome: OnboardingOutcome = .done, roomId: String?, role: OnboardingChoice = .runner) {
         guard let store else { return }
         do {
-            try store.mark(step, outcome: outcome, roomId: roomId, role: .runner, userId: signedIn ? userId : nil)
+            try store.mark(step, outcome: outcome, roomId: roomId, role: role, userId: signedIn ? userId : nil)
         } catch {
             logger.log("onboarding step \(step.rawValue) not saved")
         }
@@ -249,6 +252,7 @@ final class OnboardingModel {
             )
             races = signedIn ? (lastRaces ?? result.progress.knownRaces ?? []) : []
             pendingJoin = result.pendingJoin
+            progress = result.progress
             state = result.state
         } catch {
             logger.log("onboarding read failed")

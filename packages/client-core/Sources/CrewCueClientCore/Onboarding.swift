@@ -11,6 +11,8 @@ public enum OnboardingStep: String, CaseIterable, Codable, Sendable {
     case invites, notifications, location, mapStartLine, chat
     // Runner setup checklist. Optional: never blocks the flow.
     case etaEdits, checkpointDetails
+    /// The setup checklist card on Map was hidden for this race. Not a step of any flow.
+    case setupChecklist
     // Crew: join by link or code, then `account`, then the tour.
     case join
     case runnerLocation, lastUpdateAge, etaVsPlan, editCheckpointDetails, checkInWhenNoService, directionsToNextAid, chatAndAlerts

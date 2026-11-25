@@ -44,6 +44,7 @@
 		A10000000000000000000072 /* Exceptions for "CrewCue" folder in "CrewCueTests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Design/CoachMarkLayout.swift,
 				Design/OcclusionLayout.swift,
 				Screens/Map/GlideLayout.swift,
 			);
