@@ -24,12 +24,13 @@ import com.google.firebase.messaging.RemoteMessage
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-/** Crew chat push on Android: FCM token registration, the notification channel, and tap routing. */
+/** CrewCue push on Android: FCM token registration, the notification channel, and the tapped payload. */
 object CrewPush {
     /** Matches `FCM_CHAT_CHANNEL_ID` in the API. */
     const val CHANNEL_ID = "crew_chat"
     const val EXTRA_TYPE = "type"
     const val EXTRA_ROOM_ID = "roomId"
+    private const val DEV_SESSION_EXTRA = "devSession"
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -80,25 +81,35 @@ object CrewPush {
         register(context, raceDay, token)
     }
 
-    /** Room id a tapped chat notification carries, or null. */
-    fun chatRoomFrom(intent: Intent?): String? {
+    /**
+     * The push payload a tapped notification carries in [intent]'s extras: the API's FCM `data`
+     * keys (the system copies them into the launch intent for a notification it showed) or the
+     * ones [show] puts in its PendingIntent. Null for any other launch.
+     */
+    fun tapPayloadFrom(intent: Intent?): PushTapPayload? {
         val extras = intent?.extras ?: return null
-        val type = extras.getString(EXTRA_TYPE)
-        if (type != null && type != "chat") return null
-        return extras.getString(EXTRA_ROOM_ID)?.takeIf { it.isNotBlank() }
+        // A debug dev-session launch carries its own `roomId` extra (DevSession); it isn't a tap.
+        if (extras.containsKey(DEV_SESSION_EXTRA)) return null
+        @Suppress("DEPRECATION")
+        return PushTapPayload.from { key -> if (extras.containsKey(key)) extras.get(key) else null }
     }
 
-    fun show(context: Context, title: String, body: String, roomId: String, messageId: String?) {
+    /**
+     * A notification for a push that arrived in the foreground. A tap opens MainActivity with the
+     * same `type` and `roomId` extras a system-shown FCM notification carries.
+     */
+    fun show(context: Context, title: String, body: String, payload: PushTapPayload, messageId: String?) {
         if (!notificationsAllowed(context)) return
+        val roomId = payload.roomId as? String ?: return
         ensureChannel(context)
         val tap = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_TYPE, "chat")
-            putExtra(EXTRA_ROOM_ID, roomId)
+            putExtras(payload.extras())
         }
+        // One PendingIntent per kind and race, so an unlock tap never reuses a chat tap's extras.
         val pending = PendingIntent.getActivity(
             context,
-            roomId.hashCode(),
+            "${payload.type}:$roomId".hashCode(),
             tap,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -112,8 +123,34 @@ object CrewPush {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
         runCatching {
-            NotificationManagerCompat.from(context).notify(roomId, (messageId ?: roomId).hashCode(), notification)
+            NotificationManagerCompat.from(context).notify(roomId, (messageId ?: "${payload.type}:$roomId").hashCode(), notification)
         }
+    }
+}
+
+/**
+ * The `type` and `roomId` a tapped notification carries, as read from its extras. Values stay
+ * as found: client-core `PushTapRoute` (the `pushTapReceive` op) decides what routes, including
+ * a value that isn't a string.
+ */
+data class PushTapPayload(val type: Any?, val roomId: Any?) {
+    /** The extras a locally built notification's tap carries. */
+    fun extras(): android.os.Bundle = android.os.Bundle().apply {
+        (type as? String)?.let { putString(CrewPush.EXTRA_TYPE, it) }
+        (roomId as? String)?.let { putString(CrewPush.EXTRA_ROOM_ID, it) }
+    }
+
+    companion object {
+        /** Null unless [get] has a `roomId` or `type`: an ordinary launch, not a notification tap. */
+        fun from(get: (String) -> Any?): PushTapPayload? {
+            val type = get(CrewPush.EXTRA_TYPE)
+            val roomId = get(CrewPush.EXTRA_ROOM_ID)
+            if (type == null && roomId == null) return null
+            return PushTapPayload(type, roomId)
+        }
+
+        /** An FCM message's `data` map (all strings). */
+        fun from(data: Map<String, String>): PushTapPayload? = from { data[it] }
     }
 }
 
@@ -129,10 +166,12 @@ class CrewCueMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        val roomId = message.data[CrewPush.EXTRA_ROOM_ID] ?: return
-        if (message.data[CrewPush.EXTRA_TYPE] != "chat") return
-        val title = message.notification?.title ?: "Crew chat"
-        val body = message.notification?.body ?: "New Message in Crew Chat"
-        CrewPush.show(applicationContext, title, body, roomId, message.data["messageId"])
+        // Every kind the API sends (chat, tracking, unlock, schedule) shows; the tap decides what opens.
+        val payload = PushTapPayload.from(message.data) ?: return
+        if (payload.roomId == null) return
+        val chat = (payload.type ?: "chat") == "chat"
+        val title = message.notification?.title ?: if (chat) "Crew chat" else "CrewCue"
+        val body = message.notification?.body ?: if (chat) "New Message in Crew Chat" else return
+        CrewPush.show(applicationContext, title, body, payload, message.data["messageId"])
     }
 }

@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.crewcue.android.BuildConfig
+import com.crewcue.android.ui.MapToolRequest
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.brand.CairnLoader
 import com.crewcue.android.ui.theme.ChipStyle
@@ -80,14 +81,16 @@ fun MapScreen(
     modifier: Modifier = Modifier,
     bottomInset: Dp = 16.dp,
     /** Set on an unpaid race: Start tracking opens the paywall instead. */
-    onLocked: (() -> Unit)? = null
+    onLocked: (() -> Unit)? = null,
+    /** A tool the shell opens (a tracking push opens Location, at Start tracking). */
+    toolRequest: MapToolRequest? = null
 ) {
     val role = shell.session?.role.orEmpty()
     val model: MapViewModel = viewModel(
         key = "map-$roomId-$role",
         factory = MapViewModelFactory(shell.container.raceDay, roomId, role)
     )
-    MapContent(model, roomId, focus, modifier, bottomInset = bottomInset, onLocked = onLocked)
+    MapContent(model, roomId, focus, modifier, bottomInset = bottomInset, onLocked = onLocked, toolRequest = toolRequest)
 }
 
 /**
@@ -113,7 +116,8 @@ fun MapContent(
     underTopBar: Boolean = true,
     framing: CourseFraming = CourseFraming.Screen,
     glide: (() -> RunnerGlideFrame?)? = null,
-    pathPings: Int? = null
+    pathPings: Int? = null,
+    toolRequest: MapToolRequest? = null
 ) {
     LaunchedEffect(roomId) { model.load() }
     // Back from the lock screen or another app: read the runner now, not at the next tick.
@@ -136,7 +140,9 @@ fun MapContent(
             PackageManager.PERMISSION_GRANTED
         if (model.trackingActive && granted && !model.readOnly) RaceTrackingService.start(context)
     }
-    var tool by remember(focus) { mutableStateOf(if (model.readOnly) "none" else mapTool(focus)) }
+    var tool by remember(focus, toolRequest) {
+        mutableStateOf(if (model.readOnly) "none" else toolRequest?.tool ?: mapTool(focus))
+    }
     val rootTag = when (focus) {
         "map-checkpoint-pick" -> "crewcue.map-checkpoint-pick"
         "map-navigate" -> "crewcue.map-navigate"

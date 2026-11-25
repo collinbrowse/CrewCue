@@ -10,6 +10,63 @@ private struct FixedTransport: HTTPTransport {
     }
 }
 
+/// The job flow: the upload answers 202 `{jobId}`, the job polls 202 twice, then the result.
+private actor JobServer: HTTPTransport {
+    let result: (status: Int, body: String)
+    private(set) var requests: [String] = []
+    private var polls = 0
+    init(result: (status: Int, body: String)) { self.result = result }
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        requests.append("\(request.method.rawValue) \(request.url.path)")
+        if request.url.path.hasSuffix("/activity-history/upload") {
+            return HTTPResponse(status: 202, body: Data(#"{"jobId":"job-1"}"#.utf8))
+        }
+        polls += 1
+        if polls < 3 { return HTTPResponse(status: 202, body: Data(#"{"state":"running"}"#.utf8)) }
+        return HTTPResponse(status: result.status, body: Data(result.body.utf8))
+    }
+}
+
+private let fastPoll = RaceDayAPI.UploadPoll(intervalSeconds: 0.001, maxWaitSeconds: 5)
+
+@Test func uploadWaitsOnTheBackgroundJob() async throws {
+    let server = JobServer(result: (200, previewBody))
+    let preview = try await RaceDayAPI.previewActivityUpload(graph: graph(server), fileName: "export.zip", data: Data([1]), poll: fastPoll)
+    #expect(preview.runs.count == 2)
+    #expect(await server.requests == [
+        "POST /activity-history/upload",
+        "GET /activity-history/upload-jobs/job-1",
+        "GET /activity-history/upload-jobs/job-1",
+        "GET /activity-history/upload-jobs/job-1"
+    ])
+    let saved = JobServer(result: (201, #"{"saved":174,"duplicates":0,"unreadable":[],"items":[]}"#))
+    let done = try await RaceDayAPI.importActivityUpload(graph: graph(saved), fileName: "export.zip", data: Data([1]), poll: fastPoll)
+    #expect(done.message == "174 runs imported.")
+}
+
+@Test func uploadJobFailuresAreClear() async {
+    let corrupt = JobServer(result: (400, #"{"error":"Couldn't read this .zip file.","code":"file_corrupt"}"#))
+    await #expect(throws: ClientHTTPError.self) {
+        _ = try await RaceDayAPI.previewActivityUpload(graph: graph(corrupt), fileName: "x.zip", data: Data([1]), poll: fastPoll)
+    }
+    let lost = JobServer(result: (404, #"{"error":"Upload not found. Share the file again.","code":"upload_not_found"}"#))
+    do {
+        _ = try await RaceDayAPI.previewActivityUpload(graph: graph(lost), fileName: "x.zip", data: Data([1]), poll: fastPoll)
+        Issue.record("expected a failure")
+    } catch {
+        #expect(SharedRunImport.message(for: error) == SharedRunImport.uploadLostMessage)
+    }
+    let slow = JobServer(result: (202, #"{"state":"running"}"#))
+    do {
+        _ = try await RaceDayAPI.previewActivityUpload(
+            graph: graph(slow), fileName: "x.zip", data: Data([1]),
+            poll: RaceDayAPI.UploadPoll(intervalSeconds: 0.001, maxWaitSeconds: 0.01))
+        Issue.record("expected a timeout")
+    } catch {
+        #expect(SharedRunImport.message(for: error) == SharedRunImport.uploadTimeoutMessage)
+    }
+}
+
 private struct NoNetwork: HTTPTransport {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         throw URLError(.notConnectedToInternet)
@@ -43,7 +100,16 @@ private let previewBody = #"""
     #expect(preview.title == "Import this run?")
     #expect(preview.confirmLabel == "Import")
     #expect(preview.unreadableLine == "1 file can't be read")
-    #expect(preview.runs[0].summary == "2026-11-19 · 14.6 km · 1:43:12 · 604 m climb")
+    #expect(preview.runs[0].dateLabel == "Thu, Nov 19, 2026")
+    #expect(preview.runs[0].details == [
+        ActivityRunDetail(label: "Distance", value: "14.6 km"),
+        ActivityRunDetail(label: "Time", value: "1:43:12"),
+        ActivityRunDetail(label: "Climb", value: "604 m")
+    ])
+    #expect(preview.runs[0].spokenSummary == "Thu, Nov 19, 2026. Distance 14.6 km. Time 1:43:12. Climb 604 m.")
+    #expect(preview.runs[1].dateLabel == "Sun, May 10, 2026")
+    #expect(preview.runs[1].details.map(\.value) == ["8.0 km", "–", "–"])
+    #expect(preview.runs[1].spokenSummary == "Sun, May 10, 2026. Distance 8.0 km. Already imported.")
     #expect(SharedRunImport.afterPreview(.success(preview)) == .preview(preview))
 
     let many = ActivityUploadPreview(runs: (0..<41).map { ActivityPreviewRun(fileName: "\($0).fit", source: "fit_upload", recordedAt: "2026-01-01", distanceMeters: 1000) })
@@ -89,8 +155,12 @@ private let previewBody = #"""
     #expect(preview.title == "Import 180 runs?")
     #expect(preview.skippedLine == "1,905 files skipped: 847 older than a year, 344 not runs or hikes, 714 unreadable")
     #expect(preview.unreadableLine == nil)
-    #expect(preview.listedRuns.count == 50)
-    #expect(preview.moreRunsLine == "and 130 more")
+    #expect(preview.listedRuns(showingAll: false).count == 10)
+    #expect(preview.showMoreLabel(showingAll: false) == "Show 170 more")
+    #expect(preview.listedRuns(showingAll: true).count == 180)
+    #expect(preview.showMoreLabel(showingAll: true) == nil)
+    let few = ActivityUploadPreview(runs: Array(preview.runs.prefix(10)))
+    #expect(few.showMoreLabel(showingAll: false) == nil)
     #expect(SharedRunImport.count(1_234_567) == "1,234,567")
     #expect(SharedRunImport.count(999) == "999")
     #expect(SharedRunImport.start(signedIn: true, fileName: "export.zip", byteCount: 128 * 1024 * 1024) == .reading(fileName: "export.zip"))

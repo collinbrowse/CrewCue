@@ -24,6 +24,7 @@ import {
   parseActivityFileMetrics
 } from "../lib/activityFileHistory.js";
 import { looksLikeZip, zipEntries, ZipArchiveError } from "../lib/zipArchive.js";
+import { startUploadJob, uploadJobFor } from "../lib/uploadJobs.js";
 import {
   getActivityHistoryForAthlete,
   initActivityHistoryStore,
@@ -88,6 +89,8 @@ export const MAX_RAW_UPLOAD_UNPACKED_BYTES = 1024 * 1024 * 1024;
 export const BULK_WINDOW_DAYS = 365;
 /** Unreadable files listed by name in a response; the rest are only counted. */
 export const MAX_UNREADABLE_LISTED = 50;
+/** A background upload lets the event loop run at least this often (ms). */
+const UPLOAD_YIELD_EVERY_MS = 20;
 const ACTIVITY_EXTENSIONS = /\.(gpx|fit|tcx)$/i;
 
 /** Metrics-only ingest (preferred for mobile — avoids multi‑MB JSON GPX bodies). */
@@ -187,7 +190,13 @@ type UploadSummary = {
  * reads stats only, which is several times faster on a large export.
  * @throws {ZipArchiveError}
  */
-function readUpload(fileName: string, bytes: Uint8Array, limits: UploadLimits, withProfiles: boolean): UploadSummary {
+async function readUpload(
+  fileName: string,
+  bytes: Uint8Array,
+  limits: UploadLimits,
+  withProfiles: boolean,
+  yieldNow: () => Promise<void> = async () => {}
+): Promise<UploadSummary> {
   const isZip = looksLikeZip(bytes);
   const parsedRuns: Array<{ fileName: string; ref: ActivityHistoryRef; track?: number[][]; startMs: number | null }> = [];
   const unreadable: Unreadable[] = [];
@@ -196,7 +205,13 @@ function readUpload(fileName: string, bytes: Uint8Array, limits: UploadLimits, w
     skipped.unreadable += 1;
     if (unreadable.length < MAX_UNREADABLE_LISTED) unreadable.push(row);
   };
+  let lastYieldMs = Date.now();
   for (const file of filesInUpload(fileName, bytes, limits)) {
+    // Parsing is synchronous CPU work: give other requests (location pings) a turn every few files.
+    if (Date.now() - lastYieldMs >= UPLOAD_YIELD_EVERY_MS) {
+      await yieldNow();
+      lastYieldMs = Date.now();
+    }
     if (file.bytes === null) {
       unread({ fileName: file.fileName, error: ("error" in file && file.error) || "Not a .gpx, .fit or .tcx file." });
       continue;
@@ -438,7 +453,7 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       return reply.code(decoded.status).send({ error: decoded.error, ...(decoded.code ? { code: decoded.code } : {}) });
     }
     try {
-      const upload = readUpload(decoded.fileName, decoded.bytes, JSON_UPLOAD_LIMITS, false);
+      const upload = await readUpload(decoded.fileName, decoded.bytes, JSON_UPLOAD_LIMITS, false);
       return reply.code(200).send(await previewResponse(request.identity.sub, upload));
     } catch (err) {
       if (err instanceof ZipArchiveError) return reply.code(400).send({ error: err.message, code: "file_corrupt" });
@@ -456,7 +471,7 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       return reply.code(decoded.status).send({ error: decoded.error, ...(decoded.code ? { code: decoded.code } : {}) });
     }
     try {
-      const upload = readUpload(decoded.fileName, decoded.bytes, JSON_UPLOAD_LIMITS, true);
+      const upload = await readUpload(decoded.fileName, decoded.bytes, JSON_UPLOAD_LIMITS, true);
       const body = await importResponse(request.identity.sub, upload);
       return reply.code(body.saved > 0 ? 201 : 200).send(body);
     } catch (err) {
@@ -468,6 +483,8 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
   /**
    * Raw upload of a whole export (bulk import): the file's bytes as the body (`application/zip` or
    * `application/octet-stream`), `?fileName=` and `?mode=preview|import`. Up to 200 MB and 5,000 files.
+   * Returns 202 `{ jobId }` at once; `GET /activity-history/upload-jobs/:jobId` has the result,
+   * which is the same body and status the preview and archive routes send.
    */
   app.post<{ Querystring: { fileName?: string; mode?: string } }>(
     "/activity-history/upload",
@@ -476,25 +493,49 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       if (!request.identity) {
         return reply.code(401).send({ error: "Unauthorized" });
       }
+      const athleteUserId = request.identity.sub;
       const body = request.body;
       const fileName = (request.query.fileName ?? "").trim() || "activity";
       const mode = request.query.mode === "import" ? "import" : request.query.mode === "preview" ? "preview" : null;
       if (!Buffer.isBuffer(body) || body.length === 0 || mode === null || fileName.length > 255) {
         return reply.code(400).send({ error: "Invalid activity upload" });
       }
-      try {
-        const upload = readUpload(fileName, new Uint8Array(body), RAW_UPLOAD_LIMITS, mode === "import");
-        if (mode === "preview") {
-          return reply.code(200).send(await previewResponse(request.identity.sub, upload));
+      const bytes = new Uint8Array(body);
+      const jobId = startUploadJob(
+        athleteUserId,
+        async ({ yieldNow }) => {
+          const upload = await readUpload(fileName, bytes, RAW_UPLOAD_LIMITS, mode === "import", yieldNow);
+          if (mode === "preview") {
+            return { status: 200, body: await previewResponse(athleteUserId, upload) };
+          }
+          const result = await importResponse(athleteUserId, upload);
+          return { status: result.saved > 0 ? 201 : 200, body: result };
+        },
+        (err) => {
+          if (err instanceof ZipArchiveError) return { status: 400, body: { error: err.message, code: "file_corrupt" } };
+          request.log.error({ err }, "activity upload job failed");
+          return { status: 500, body: { error: "Internal Server Error" } };
         }
-        const result = await importResponse(request.identity.sub, upload);
-        return reply.code(result.saved > 0 ? 201 : 200).send(result);
-      } catch (err) {
-        if (err instanceof ZipArchiveError) return reply.code(400).send({ error: err.message, code: "file_corrupt" });
-        throw err;
-      }
+      );
+      return reply.code(202).send({ jobId });
     }
   );
+
+  /**
+   * A bulk upload's progress: 202 `{ state: "running" }` while it reads, then the finished
+   * preview or import with its own status. 404 once it's gone (expired, a restart, someone else's).
+   */
+  app.get<{ Params: { jobId: string } }>("/activity-history/upload-jobs/:jobId", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const job = uploadJobFor(request.identity.sub, request.params.jobId);
+    if (!job) {
+      return reply.code(404).send({ error: "Upload not found. Share the file again.", code: "upload_not_found" });
+    }
+    if (job.state === "running") return reply.code(202).send({ state: "running" });
+    return reply.code(job.status).send(job.body);
+  });
 
   app.get("/activity-history", async (request, reply) => {
     if (!request.identity) {

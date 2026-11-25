@@ -29,7 +29,8 @@ import Dispatch
 /// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceSeek, demoRaceRunner, demoRaceCleanup
 /// (`RuntimeDemoRace.swift`),
 /// raceStartInput, gpxPreview, raceAccess, suggestedDisplayName, runnerSetupStep, updateRaceStart
-/// (`RuntimeRunnerSetup.swift`).
+/// (`RuntimeRunnerSetup.swift`),
+/// pushTapReceive, pushTapTake, unpaidExpiry (`RuntimePushTap.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -354,6 +355,12 @@ enum RuntimeCall {
             return try runnerSetupStep(object)
         case "updateRaceStart":
             return try await updateRaceStart(object)
+        case "pushTapReceive":
+            return pushTapReceive(object)
+        case "pushTapTake":
+            return pushTapTake(object)
+        case "unpaidExpiry":
+            return unpaidExpiry(object)
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }
@@ -1579,13 +1586,23 @@ enum RuntimeCall {
                 "title": preview.title,
                 "confirmLabel": preview.confirmLabel,
                 "canImport": preview.canImport,
-                "runs": preview.listedRuns.map { run -> [String: Any] in
-                    ["fileName": run.fileName, "summary": run.summary, "alreadyImported": run.alreadyImported, "track": run.track]
-                }
+                // Every run; the app lists `firstListedRuns` until the runner taps `showMoreLabel`.
+                "runs": preview.runs.map { run -> [String: Any] in
+                    [
+                        "fileName": run.fileName,
+                        "dateLabel": run.dateLabel,
+                        "details": run.details.map { ["label": $0.label, "value": $0.value] },
+                        "spokenSummary": run.spokenSummary,
+                        "alreadyImported": run.alreadyImported,
+                        "track": run.track
+                    ]
+                },
+                "firstListedRuns": ActivityUploadPreview.firstListedRuns,
+                "alreadyImportedBadge": SharedRunImport.alreadyImportedBadge
             ]
+            if let label = preview.showMoreLabel(showingAll: false) { json["showMoreLabel"] = label }
             if let line = preview.unreadableLine { json["unreadableLine"] = line }
             if let line = preview.skippedLine { json["skippedLine"] = line }
-            if let line = preview.moreRunsLine { json["moreRunsLine"] = line }
             json["unreadable"] = preview.unreadable.map { ["fileName": $0.fileName, "error": $0.error] }
             return json
         }

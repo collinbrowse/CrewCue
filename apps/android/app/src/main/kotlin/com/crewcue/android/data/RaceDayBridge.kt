@@ -572,6 +572,38 @@ class RaceDayBridge private constructor(
     }
 
     /**
+     * client-core `PushTapRoute.parse` on a tapped notification's FCM `data` keys. Answers `inbox`,
+     * the held tap to hand back to [pushTapTake], or null for a payload this build doesn't route.
+     * Pure and quick: safe on the calling thread.
+     */
+    fun pushTapReceive(type: Any?, roomId: Any?): JSONObject? {
+        val result = call("pushTapReceive") {
+            if (type != null) put("type", type)
+            if (roomId != null) put("roomId", roomId)
+        }
+        return (result as? RuntimeResult.Success)?.result?.optJSONObject("inbox")
+    }
+
+    /**
+     * client-core `PushTapInbox.take`: resolves the held [inbox] against [races] (the last
+     * `myRaces` rows, null while unknown). [racesListed] is true right after the race list answered.
+     * Answers `resolution`, `roomId`, `destination` and the `inbox` still held. Pure and quick.
+     */
+    fun pushTapTake(inbox: JSONObject?, signedIn: Boolean, races: JSONArray?, racesListed: Boolean): RuntimeResult = call("pushTapTake") {
+        if (inbox != null) put("inbox", inbox)
+        put("signedIn", signedIn)
+        if (races != null) put("races", races)
+        put("racesListed", racesListed)
+    }
+
+    /** client-core `OnboardingCopy.unpaidExpiry`: "Expires in N days" for [expiresAt], or null. Pure and quick. */
+    fun unpaidExpiry(expiresAt: String?): String? {
+        if (expiresAt.isNullOrBlank()) return null
+        val result = call("unpaidExpiry") { put("expiresAt", expiresAt) }
+        return (result as? RuntimeResult.Success)?.result?.optText("text")?.ifBlank { null }
+    }
+
+    /**
      * client-core `RaceAccess` for the active race: [billing] is the last billing read for it
      * (`paid`, `unpaid`, or null while unknown) and [onboarding] the state `readOnboarding`
      * answered. Answers `unpaid`, `loadsRace`, `samplesLocation`, `gatesActions`, `lockedReason`.

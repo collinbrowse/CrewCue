@@ -21,7 +21,7 @@ Which `lib/` modules each route file imports directly.
 | Route file | Imports |
 | --- | --- |
 | [services/api/src/routes/accountRoutes.ts](../../../services/api/src/routes/accountRoutes.ts) | `accountDeletion.ts`, `activityHistoryStore.ts`, `pacingEstimateStore.ts`, `raceTeaser.ts`, `stravaConnectionStore.ts` |
-| [services/api/src/routes/activityHistory.ts](../../../services/api/src/routes/activityHistory.ts) | `activityFileHistory.ts`, `activityHistoryStore.ts`, `gpxActivityHistory.ts`, `gpxLimits.ts`, `zipArchive.ts` |
+| [services/api/src/routes/activityHistory.ts](../../../services/api/src/routes/activityHistory.ts) | `activityFileHistory.ts`, `activityHistoryStore.ts`, `gpxActivityHistory.ts`, `gpxLimits.ts`, `uploadJobs.ts`, `zipArchive.ts` |
 | [services/api/src/routes/analyticsRoutes.ts](../../../services/api/src/routes/analyticsRoutes.ts) | — |
 | [services/api/src/routes/billingRoutes.ts](../../../services/api/src/routes/billingRoutes.ts) | `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts` |
 | [services/api/src/routes/chatRoutes.ts](../../../services/api/src/routes/chatRoutes.ts) | `billingEntitlement.ts`, `chatLive.ts`, `chatMessageStore.ts`, `chatPersistence.ts`, `chatPhotoStore.ts`, `chatPushDispatch.ts` |
@@ -192,12 +192,13 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift) | `RuntimeChatThreads` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeDemoRace.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeDemoRace.swift) | `DemoRuntimes` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeOnboarding.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeOnboarding.swift) |  |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimePushTap.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimePushTap.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeRunnerSetup.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeRunnerSetup.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift) | `ScheduleStopFixture`, `ScheduleFixture` |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift) | `ScheduleFormat` |
 | [packages/client-core/Sources/CrewCueClientCore/Session.swift](../../../packages/client-core/Sources/CrewCueClientCore/Session.swift) | `ClientSession`, `UserDataStore`, `SessionController`, `SessionFile` |
 | [packages/client-core/Sources/CrewCueClientCore/SessionVault.swift](../../../packages/client-core/Sources/CrewCueClientCore/SessionVault.swift) | `SessionVault`, `SessionVaultUnavailable`, `InMemorySessionVault`, `SessionVaultLaunch` |
-| [packages/client-core/Sources/CrewCueClientCore/SharedRunImport.swift](../../../packages/client-core/Sources/CrewCueClientCore/SharedRunImport.swift) | `ActivityPreviewRun`, `ActivityUnreadableFile`, `ActivityUploadSkipped`, `ActivityUploadPreview`, `ActivityUploadResult`, `SharedRunImportState`, `SharedRunImport` |
+| [packages/client-core/Sources/CrewCueClientCore/SharedRunImport.swift](../../../packages/client-core/Sources/CrewCueClientCore/SharedRunImport.swift) | `ActivityPreviewRun`, `ActivityRunDetail`, `ActivityUnreadableFile`, `ActivityUploadSkipped`, `ActivityUploadPreview`, `ActivityUploadResult`, `SharedRunImportState`, `SharedRunImport` |
 | [packages/client-core/Sources/CrewCueClientCore/StopPlanDraft.swift](../../../packages/client-core/Sources/CrewCueClientCore/StopPlanDraft.swift) | `PlannedStopEdit`, `StopPlanCopy`, `StopMinutesInput`, `StopPlanDraft` |
 | [packages/client-core/Sources/CrewCueClientCore/SuggestedDisplayName.swift](../../../packages/client-core/Sources/CrewCueClientCore/SuggestedDisplayName.swift) | `SuggestedDisplayName` |
 | [packages/client-core/Sources/CrewCueClientCore/UserFacingError.swift](../../../packages/client-core/Sources/CrewCueClientCore/UserFacingError.swift) | `UserFacingError` |
@@ -207,11 +208,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-118 files under `packages/client-core/Sources/`.
+119 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 68 | 14868 |
+| `CrewCueClientCore` | 69 | 15089 |
 | `CrewCueClientCore/Generated` | 50 | 984 |
 
 ### iOS app (SwiftUI)
@@ -221,11 +222,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 15 | 1967 |
+| `App` | 15 | 1973 |
 | `Brand` | 1 | 184 |
 | `Design` | 7 | 1869 |
 | `Logging` | 2 | 18 |
-| `Screens/ActivityImport` | 4 | 433 |
+| `Screens/ActivityImport` | 4 | 487 |
 | `Screens/AthleteSetup` | 2 | 146 |
 | `Screens/Auth` | 2 | 222 |
 | `Screens/Billing` | 2 | 457 |
@@ -250,32 +251,32 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `kotlin/com/crewcue/android` | 2 | 169 |
+| `kotlin/com/crewcue/android` | 2 | 171 |
 | `kotlin/com/crewcue/android/auth` | 3 | 201 |
 | `kotlin/com/crewcue/android/billing` | 3 | 252 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 797 |
+| `kotlin/com/crewcue/android/data` | 3 | 829 |
 | `kotlin/com/crewcue/android/di` | 1 | 107 |
 | `kotlin/com/crewcue/android/generated` | 50 | 517 |
 | `kotlin/com/crewcue/android/invite` | 1 | 123 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
 | `kotlin/com/crewcue/android/nav` | 2 | 145 |
 | `kotlin/com/crewcue/android/session` | 4 | 284 |
-| `kotlin/com/crewcue/android/ui` | 5 | 1924 |
-| `kotlin/com/crewcue/android/ui/activity` | 2 | 540 |
+| `kotlin/com/crewcue/android/ui` | 5 | 1998 |
+| `kotlin/com/crewcue/android/ui/activity` | 2 | 640 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 230 |
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 511 |
 | `kotlin/com/crewcue/android/ui/brand` | 1 | 234 |
 | `kotlin/com/crewcue/android/ui/brandloader` | 1 | 54 |
-| `kotlin/com/crewcue/android/ui/chat` | 7 | 1234 |
+| `kotlin/com/crewcue/android/ui/chat` | 7 | 1273 |
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 298 |
 | `kotlin/com/crewcue/android/ui/invite` | 1 | 273 |
 | `kotlin/com/crewcue/android/ui/join` | 2 | 257 |
-| `kotlin/com/crewcue/android/ui/map` | 6 | 1950 |
+| `kotlin/com/crewcue/android/ui/map` | 6 | 1956 |
 | `kotlin/com/crewcue/android/ui/members` | 1 | 317 |
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
-| `kotlin/com/crewcue/android/ui/onboarding` | 11 | 5945 |
+| `kotlin/com/crewcue/android/ui/onboarding` | 11 | 5954 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1503 |
 | `kotlin/com/crewcue/android/ui/profile` | 1 | 403 |
