@@ -30,7 +30,9 @@ import Dispatch
 /// (`RuntimeDemoRace.swift`),
 /// raceStartInput, gpxPreview, raceAccess, suggestedDisplayName, runnerSetupStep, updateRaceStart
 /// (`RuntimeRunnerSetup.swift`),
-/// pushTapReceive, pushTapTake, unpaidExpiry (`RuntimePushTap.swift`).
+/// pushTapReceive, pushTapTake, unpaidExpiry (`RuntimePushTap.swift`),
+/// onboardingTour, onboardingTourAnswer, onboardingTourSkip, setupChecklistOpen, setupChecklistHide,
+/// tourNotificationsOutcome, locationTest, onboardingTourCopy (`RuntimeOnboardingTour.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -361,6 +363,22 @@ enum RuntimeCall {
             return pushTapTake(object)
         case "unpaidExpiry":
             return unpaidExpiry(object)
+        case "onboardingTour":
+            return try onboardingTour(object)
+        case "onboardingTourAnswer":
+            return try onboardingTourAnswer(object)
+        case "onboardingTourSkip":
+            return try onboardingTourSkip(object)
+        case "setupChecklistOpen":
+            return try setupChecklistOpen(object)
+        case "setupChecklistHide":
+            return try setupChecklistHide(object)
+        case "tourNotificationsOutcome":
+            return tourNotificationsOutcome(object)
+        case "locationTest":
+            return try locationTestStep(object)
+        case "onboardingTourCopy":
+            return onboardingTourCopy(object)
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }
@@ -556,7 +574,7 @@ enum RuntimeCall {
 
     /// The viewer's zone: an IANA `timeZone` the client sends (Android passes its device zone, since the
     /// Swift runtime there cannot resolve `TimeZone.current` to an IANA region), else the device zone.
-    private static func requestTimeZone(_ object: [String: Any]) -> TimeZone {
+    static func requestTimeZone(_ object: [String: Any]) -> TimeZone {
         if let id = object["timeZone"] as? String, let zone = DeviceTimeZone.resolve(id) {
             return zone
         }

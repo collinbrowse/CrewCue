@@ -41,6 +41,14 @@ public struct LocationTest: Equatable, Sendable {
 
     public init() {}
 
+    /// A test as Android keeps it between `locationTest` ops (`RuntimeOnboardingTour.swift`).
+    init(phase: Phase, whenInUseOnly: Bool, wasTracking: Bool, startedAt: Date?) {
+        self.phase = phase
+        self.whenInUseOnly = whenInUseOnly
+        self.wasTracking = wasTracking
+        self.startedAt = startedAt
+    }
+
     /// Test tracking now. `alreadyTracking`: race-day tracking is on, so the test must not stop it.
     public mutating func start(alreadyTracking: Bool, at now: Date) {
         phase = .asking
