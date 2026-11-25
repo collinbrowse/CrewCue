@@ -373,7 +373,7 @@
       "sdk": "push",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "onboarding-runner-tour",
@@ -382,7 +382,7 @@
       "sdk": "location",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "race-rename",

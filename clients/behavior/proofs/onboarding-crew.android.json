@@ -1,0 +1,20 @@
+{
+  "id": "onboarding-crew",
+  "platform": "android",
+  "entry": "crewcue://dev/onboarding-crew",
+  "device": "Android emulators, Debug build (read-only instances, emulator-5588): crewcue_api_35 phone (1080x2400, API 35); crewcue_fold_api_35 (pixel_9_pro_fold, API 35) folded (outer display 1080x2424) and unfolded (inner display 2076x2152), with `adb emu fold` / `adb emu unfold` mid-flow; crewcue_tablet_api_35 (pixel_tablet, 2560x1600 landscape, API 35) for the expanded window.",
+  "date": "2026-11-25",
+  "commit": "claude/onboarding-12-android-tour: client-core tour runtime ops, then the Android tour, coach marks, checklist card and start-line zoom, and the commit with these proofs.",
+  "session": "None: the dev route plays the eight cards on the example race (client-core `dev` source, a paid example race in memory) with no account and no API. Nothing is saved or sent; Turn on notifications shows the system prompt only.",
+  "action": "Phone: npm run agent:android:ready -- --deeplink crewcue://dev/onboarding-crew; card 1 of 8 'Your runner's dot' above the ringed Map tab with Example race 'Runner: Ada · Mile 13.0'; Next walked Last update (4 min ago), ETA and PLAN on Pace (Aid 2 ETA 10:12 AM, PLAN 10:00 AM in the emulator's zone), Planned stops and Check in without service on Pace, Directions to the next aid on Map (Aid 2 · 2.5 mi ahead), Chat and alerts on Chat, and Turn on notifications (8 of 8, no tab ring, centred); Not now ended the tour. The tab under each card opened as the card showed. No location prompt on the crew route. Foldable: unfolded card 1 of 8, Next to card 3 of 8 on Pace, then `adb emu fold`: the outer display showed card 3 of 8 (ETA and PLAN, same example lines) kept; Skip tour left the plain tab with no overlay. Tablet: the eight cards in order, each above its ringed tab at 440 dp wide; Turn on notifications showed the Android 13+ prompt, Allow ended the tour.",
+  "checked": {
+    "Success": "Card 1: 'The dot is where Ada's phone last sent a ping. Every crew phone sees the same dot.' with the Example race box (crewcue.onboarding.tour.example).",
+    "Empty": "crewcue://dev/onboarding-crew?state=empty shows the fixture copy 'Join your runner's race to start the tour.' (client-core FeatureScreens).",
+    "Error": "crewcue://dev/onboarding-crew?state=error fixture copy: 'Couldn't load the race. The tour uses an example race.' The tour itself loads nothing.",
+    "Offline": "crewcue://dev/onboarding-crew?state=offline fixture copy: 'Offline. The tour plays from an example race on this phone.' The example lines come from client-core on the phone with no network.",
+    "Action": "Eight cards in order with their tabs, Next, Not now and Skip tour; a fold mid-flow kept card 3 of 8.",
+    "Accessibility labels": "Read with uiautomator: crewcue.onboarding-crew on the overlay root, crewcue.onboarding.tour.<step> on each card (runnerLocation, lastUpdateAge, etaVsPlan, editCheckpointDetails, checkInWhenNoService, directionsToNextAid, chatAndAlerts, notifications), crewcue.onboarding.tour.example, .primary, .secondary, .skip; tabs carry crewcue.tab.map/pace/chat/profile.",
+    "Adaptive": "Compact (phone, fold outer): card full width less 16 dp margins above the ringed tab. Expanded (fold inner, tablet): card 440 dp wide above the ringed tab, inside the safe drawing area. Fold and unfold kept the card. The tab bar stays a bottom pill at every size (no rail yet), so the beside-the-tab placement is covered by CoachMarkLayoutTest, not on a device. Font scale 200% was not run."
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
