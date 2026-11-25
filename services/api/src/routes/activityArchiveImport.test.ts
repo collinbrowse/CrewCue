@@ -178,9 +178,66 @@ test("rides in a .zip are listed as not runs and never imported", async () => {
       preview.json().runs.map((run: { fileName: string }) => run.fileName),
       ["run.fit"]
     );
-    assert.deepEqual(preview.json().unreadable, [{ fileName: "ride.fit", error: "This activity is a ride. Choose a run or hike." }]);
+    assert.deepEqual(preview.json().unreadable, []);
+    assert.deepEqual(preview.json().skipped, { older: 0, notRun: 1, unreadable: 0 });
     const imported = await post(app, token, "/activity-history/archive", "export.zip", upload);
     assert.equal(imported.json().saved, 1);
     assert.equal(await countActivityHistoryRows(), 1);
+  });
+});
+
+function postRaw(app: ReturnType<typeof buildApp>, token: string | null, mode: string, fileName: string, bytes: Uint8Array) {
+  return app.inject({
+    method: "POST",
+    url: `/activity-history/upload?mode=${mode}&fileName=${encodeURIComponent(fileName)}`,
+    headers: { "content-type": "application/zip", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    payload: Buffer.from(bytes)
+  });
+}
+
+test("raw upload previews and imports a .zip, keeping a year before the newest run", async () => {
+  await withApp(async (app, token) => {
+    // short-road is 2026-05-10, hill-run 2026-05-17: both inside the year. A copy of short-road
+    // dated two years earlier falls outside it.
+    const old = new TextDecoder()
+      .decode(fixture("activity-short-road.gpx"))
+      .replace(/2026-05-10/g, "2024-05-10");
+    const upload = zip([
+      { name: "a/short.fit", bytes: fixture("activity-short-road.fit") },
+      { name: "a/hill.fit", bytes: fixture("activity-hill-run.fit") },
+      { name: "a/old.gpx", bytes: new TextEncoder().encode(old) },
+      { name: "a/ride.fit", bytes: fixture("activity-ride.fit") },
+      { name: "a/notes.txt", bytes: new TextEncoder().encode("x") }
+    ]);
+    const preview = await postRaw(app, token, "preview", "export.zip", upload);
+    assert.equal(preview.statusCode, 200);
+    const body = preview.json();
+    assert.deepEqual(
+      body.runs.map((run: { fileName: string }) => run.fileName),
+      ["hill.fit", "short.fit"]
+    );
+    assert.deepEqual(body.skipped, { older: 1, notRun: 1, unreadable: 1 });
+    assert.ok(body.runs.every((run: { track: unknown[] }) => run.track.length === 0));
+    assert.equal(await countActivityHistoryRows(), 0);
+
+    const imported = await postRaw(app, token, "import", "export.zip", upload);
+    assert.equal(imported.statusCode, 201);
+    assert.equal(imported.json().saved, 2);
+    assert.equal(await countActivityHistoryRows(), 2);
+  });
+});
+
+test("raw upload takes more than the JSON limit and refuses bad requests", async () => {
+  await withApp(async (app, token) => {
+    // 25 MB of stored padding beside one run: over the 20 MB JSON limit, inside the raw one.
+    const big = zip([
+      { name: "run.fit", bytes: fixture("activity-short-road.fit") },
+      { name: "padding.bin", bytes: new Uint8Array(25 * 1024 * 1024), store: true }
+    ]);
+    const res = await postRaw(app, token, "preview", "big.zip", big);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().runs.length, 1);
+    assert.equal((await postRaw(app, token, "nope", "big.zip", big)).statusCode, 400);
+    assert.equal((await postRaw(app, null, "preview", "big.zip", big)).statusCode, 401);
   });
 });

@@ -1525,9 +1525,17 @@ enum RuntimeCall {
     /// Share-sheet import (run-share-import): `signedIn`, `fileName`, `contentBase64`. Returns the
     /// next state: `state` signedOut, failed (with `message`) or preview (with title, confirm label,
     /// canImport, unreadable line and runs[] with summary, alreadyImported and track).
+    /// The shared file: `filePath` (Android writes large shares to its cache) or `contentBase64`.
+    private static func uploadData(_ object: [String: Any]) -> Data {
+        if let path = text(object, "filePath"), let data = FileManager.default.contents(atPath: path) {
+            return data
+        }
+        return Data(base64Encoded: object["contentBase64"] as? String ?? "") ?? Data()
+    }
+
     private static func previewActivityUpload(_ object: [String: Any]) async -> Any {
         let fileName = text(object, "fileName") ?? "activity"
-        let data = Data(base64Encoded: object["contentBase64"] as? String ?? "") ?? Data()
+        let data = uploadData(object)
         let signedIn = object["signedIn"] as? Bool ?? true
         let start = SharedRunImport.start(signedIn: signedIn, fileName: fileName, byteCount: data.count)
         guard case .reading = start else { return sharedRunImportJSON(start) }
@@ -1543,7 +1551,7 @@ enum RuntimeCall {
     /// The runner confirmed: import every run in the file. Returns `state` done or failed with `message`.
     private static func importActivityUpload(_ object: [String: Any]) async -> Any {
         let fileName = text(object, "fileName") ?? "activity"
-        let data = Data(base64Encoded: object["contentBase64"] as? String ?? "") ?? Data()
+        let data = uploadData(object)
         let result: Result<ActivityUploadResult, any Error>
         do {
             result = .success(try await RaceDayAPI.importActivityUpload(graph: try graph(object), fileName: fileName, data: data))
@@ -1571,11 +1579,13 @@ enum RuntimeCall {
                 "title": preview.title,
                 "confirmLabel": preview.confirmLabel,
                 "canImport": preview.canImport,
-                "runs": preview.runs.map { run -> [String: Any] in
+                "runs": preview.listedRuns.map { run -> [String: Any] in
                     ["fileName": run.fileName, "summary": run.summary, "alreadyImported": run.alreadyImported, "track": run.track]
                 }
             ]
             if let line = preview.unreadableLine { json["unreadableLine"] = line }
+            if let line = preview.skippedLine { json["skippedLine"] = line }
+            if let line = preview.moreRunsLine { json["moreRunsLine"] = line }
             json["unreadable"] = preview.unreadable.map { ["fileName": $0.fileName, "error": $0.error] }
             return json
         }

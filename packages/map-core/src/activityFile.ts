@@ -53,9 +53,12 @@ export type ParsedActivityFile = {
 
 export type ActivitySport = "running" | "trail_running" | "walking" | "hiking" | "cycling" | "other";
 
-/** Runs and hikes feed pacing history; rides, swims and the rest don't. Unknown counts as a run. */
+/**
+ * Runs and hikes feed pacing history; rides, walks, swims and the rest don't (a walk at low grades
+ * would read as hiking and skew the runner's hiking factor). Unknown counts as a run.
+ */
 export function isFootActivity(sport: ActivitySport | null): boolean {
-  return sport === null || sport === "running" || sport === "trail_running" || sport === "walking" || sport === "hiking";
+  return sport === null || sport === "running" || sport === "trail_running" || sport === "hiking";
 }
 
 function sportFromText(text: string | null | undefined): ActivitySport | null {

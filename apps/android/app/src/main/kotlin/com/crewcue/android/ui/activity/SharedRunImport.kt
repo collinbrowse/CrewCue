@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
-import android.util.Base64
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -58,7 +57,7 @@ const val RUN_SHARE_IMPORTING = "Importing…"
 const val RUN_SHARE_UNREADABLE = "Couldn't read that file. Choose a .gpx, .fit, .tcx or .zip export."
 
 /** Matches client-core `SharedRunImport.maxUploadBytes`; bigger files are refused before reading them all. */
-private const val MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+private const val MAX_UPLOAD_BYTES = 200L * 1024 * 1024
 
 data class SharedRun(val summary: String, val alreadyImported: Boolean, val track: List<Pair<Double, Double>>)
 
@@ -73,7 +72,9 @@ sealed interface SharedRunUi {
         val canImport: Boolean,
         val runs: List<SharedRun>,
         val unreadableLine: String?,
-        val unreadable: List<String>
+        val unreadable: List<String>,
+        val moreRunsLine: String? = null,
+        val skippedLine: String? = null
     ) : SharedRunUi
 }
 
@@ -81,23 +82,25 @@ sealed interface SharedRunUi {
 class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel() {
     var ui by androidx.compose.runtime.mutableStateOf<SharedRunUi?>(null)
         private set
+    /** Display name and the cached copy's path, held between preview and confirm. */
     private var file: Pair<String, String>? = null
     private var ticket = 0
 
-    fun receive(fileName: String, bytes: ByteArray?, signedIn: Boolean) {
+    /** [path] is a readable copy of the shared file, or null when the sender didn't let CrewCue read it. */
+    fun receive(fileName: String, path: String?, signedIn: Boolean) {
         ticket += 1
         val mine = ticket
-        if (bytes == null && signedIn) {
+        if (path == null && signedIn) {
             // The sending app didn't let CrewCue read the file.
             file = null
             ui = SharedRunUi.Message(RUN_SHARE_UNREADABLE)
             return
         }
-        val encoded = if (bytes == null) "" else Base64.encodeToString(bytes, Base64.NO_WRAP)
-        file = fileName to encoded
+        val filePath = path.orEmpty()
+        file = fileName to filePath
         ui = SharedRunUi.Reading
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { raceDay.previewActivityUpload(fileName, encoded, signedIn) }
+            val result = withContext(Dispatchers.IO) { raceDay.previewActivityUpload(fileName, filePath, signedIn) }
             if (mine != ticket) return@launch
             ui = uiFor(result)
             if (ui !is SharedRunUi.Preview) file = null
@@ -112,12 +115,12 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
 
     fun confirm() {
         val preview = ui as? SharedRunUi.Preview ?: return
-        val (name, encoded) = file ?: return
+        val (name, path) = file ?: return
         if (!preview.canImport) return
         val mine = ticket
         ui = SharedRunUi.Importing
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { raceDay.importActivityUpload(name, encoded) }
+            val result = withContext(Dispatchers.IO) { raceDay.importActivityUpload(name, path) }
             if (mine != ticket) return@launch
             ui = uiFor(result)
             file = null
@@ -158,6 +161,8 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
                         )
                     },
                     unreadableLine = json.optString("unreadableLine").ifBlank { null },
+                    moreRunsLine = json.optString("moreRunsLine").ifBlank { null },
+                    skippedLine = json.optString("skippedLine").ifBlank { null },
                     unreadable = (0 until (unreadable?.length() ?: 0)).mapNotNull { index ->
                         unreadable?.optJSONObject(index)?.let { "${it.optString("fileName")}: ${it.optString("error")}" }
                     }
@@ -181,26 +186,34 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
             }
         }
 
-        /** Display name and bytes (null bytes when unreadable). Reads at most one byte past the limit. */
-        fun readShared(context: Context, uri: Uri): Pair<String, ByteArray?> {
+        /**
+         * Display name and a cached copy's path (null when unreadable). Streams to the cache, so a
+         * 100+ MB export never sits in memory; stops one byte past the limit so client-core can say
+         * it's too large.
+         */
+        fun copyShared(context: Context, uri: Uri): Pair<String, String?> {
             val name = runCatching {
                 context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                     if (cursor.moveToFirst()) cursor.getString(0) else null
                 }
             }.getOrNull() ?: uri.lastPathSegment ?: "activity"
-            val bytes = runCatching {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    val out = java.io.ByteArrayOutputStream()
-                    val chunk = ByteArray(64 * 1024)
-                    while (out.size() <= MAX_UPLOAD_BYTES) {
-                        val read = stream.read(chunk)
-                        if (read < 0) break
-                        out.write(chunk, 0, read)
+            val target = java.io.File(context.cacheDir, "shared-run-upload")
+            val path = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { output ->
+                        val chunk = ByteArray(256 * 1024)
+                        var total = 0L
+                        while (total <= MAX_UPLOAD_BYTES) {
+                            val read = input.read(chunk)
+                            if (read < 0) break
+                            output.write(chunk, 0, read)
+                            total += read
+                        }
                     }
-                    out.toByteArray()
+                    target.absolutePath
                 }
             }.getOrNull()
-            return name to bytes
+            return name to path
         }
     }
 }
@@ -251,9 +264,11 @@ fun SharedRunImportSheet(model: SharedRunImportViewModel) {
                             }
                         }
                     }
+                    ui.moreRunsLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    ui.skippedLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     val single = ui.runs.singleOrNull()
                     if (single != null && single.track.size >= 2) RouteSketch(single.track)
-                    ui.unreadableLine?.let { line ->
+                    (ui.unreadableLine ?: if (ui.unreadable.isNotEmpty()) "Unreadable files" else null)?.let { line ->
                         GhostButton(
                             line,
                             onClick = { expanded = !expanded },

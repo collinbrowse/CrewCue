@@ -79,3 +79,19 @@ private let previewBody = #"""
     #expect(ActivityUploadResult(saved: 0, duplicates: 3).message == ActivityImport.duplicateMessage)
     #expect(SharedRunImport.afterImport(.success(result)) == .done("41 runs imported."))
 }
+
+@Test func bulkPreviewSummarizesWhatWasSkipped() throws {
+    let body = #"""
+    {"runs":[],"unreadable":[{"fileName":"a.fit","error":"x"}],"skipped":{"older":847,"notRun":344,"unreadable":714}}
+    """#
+    var preview = try JSONDecoder().decode(ActivityUploadPreview.self, from: Data(body.utf8))
+    preview.runs = (0..<180).map { ActivityPreviewRun(fileName: "\($0).fit", source: "fit_upload", recordedAt: "2026-01-01", distanceMeters: 5000) }
+    #expect(preview.title == "Import 180 runs?")
+    #expect(preview.skippedLine == "1,905 files skipped: 847 older than a year, 344 not runs or hikes, 714 unreadable")
+    #expect(preview.unreadableLine == nil)
+    #expect(preview.listedRuns.count == 50)
+    #expect(preview.moreRunsLine == "and 130 more")
+    #expect(SharedRunImport.count(1_234_567) == "1,234,567")
+    #expect(SharedRunImport.count(999) == "999")
+    #expect(SharedRunImport.start(signedIn: true, fileName: "export.zip", byteCount: 128 * 1024 * 1024) == .reading(fileName: "export.zip"))
+}

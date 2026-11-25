@@ -13,7 +13,8 @@
     "Error": "Signed out (--signed-out) with hill.fit: 'Sign in to import runs.' with OK; nothing uploaded.",
     "Offline": "road.tcx with the API base on a closed port (127.0.0.1:3999): 'Offline. Import the file when you're back online.'",
     "Accessibility labels": "crewcue.run-share-import, crewcue.run-share-import.confirm, crewcue.run-share-import.cancel",
-    "Adaptive": "iPhone Duo outer display (compact) shows the preview; unfolding to the inner display mid-preview keeps the same preview (no reset)."
+    "Adaptive": "iPhone Duo outer display (compact) shows the preview; unfolding to the inner display mid-preview keeps the same preview (no reset).",
+    "Bulk": "The owner's COROS bulk export (2,085 FIT files, 129 MB zip) via the dev link: 'Import 174 runs?' listing the newest runs; Import → '174 runs imported.' (server import 16.5 s on the local API)."
   },
   "screenshots": "Attached to the PR, not committed."
 }

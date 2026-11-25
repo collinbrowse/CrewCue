@@ -195,28 +195,27 @@ public enum RaceDayAPI {
         return ActivityImportResult(status: response.status == 201 ? .saved : .duplicate, item: item.displayItem)
     }
 
-    /// `POST /activity-history/preview`: what a shared file (one run or a .zip) holds. Saves nothing.
+    /// What a shared file (one run, or a .zip up to a whole watch-app export) holds. Saves nothing.
+    /// Sent raw to `POST /activity-history/upload?mode=preview`.
     public static func previewActivityUpload(graph: ClientGraph, fileName: String, data: Data) async throws -> ActivityUploadPreview {
-        let response = try await postUpload(graph, "/activity-history/preview", fileName: fileName, data: data)
+        let response = try await postUpload(graph, mode: "preview", fileName: fileName, data: data)
         return try JSONDecoder().decode(ActivityUploadPreview.self, from: response.body)
     }
 
-    /// `POST /activity-history/archive`: import every run in a shared file. Already imported runs count as duplicates.
+    /// Import every run in a shared file (`mode=import`). Already imported runs count as duplicates.
     public static func importActivityUpload(graph: ClientGraph, fileName: String, data: Data) async throws -> ActivityUploadResult {
-        let response = try await postUpload(graph, "/activity-history/archive", fileName: fileName, data: data)
+        let response = try await postUpload(graph, mode: "import", fileName: fileName, data: data)
         return try JSONDecoder().decode(ActivityUploadResult.self, from: response.body)
     }
 
-    private static func postUpload(_ graph: ClientGraph, _ path: String, fileName: String, data: Data) async throws -> HTTPResponse {
-        guard let baseURL = graph.baseURL, let url = APIClient.endpoint(baseURL, path) else {
+    private static func postUpload(_ graph: ClientGraph, mode: String, fileName: String, data: Data) async throws -> HTTPResponse {
+        guard let baseURL = graph.baseURL,
+              let url = APIClient.endpoint(baseURL, "/activity-history/upload", query: ["mode": mode, "fileName": fileName]) else {
             throw ClientHTTPError(status: 0, message: "API base URL is not set.")
         }
         let token = await graph.tokenProvider?.accessToken()
-        let body = try JSONSerialization.data(withJSONObject: [
-            "fileName": fileName,
-            "contentBase64": data.base64EncodedString()
-        ])
-        let request = APIClient.authorized(url: url, method: .post, token: token, body: body)
+        var request = APIClient.authorized(url: url, method: .post, token: token, body: data)
+        request.headers["Content-Type"] = "application/octet-stream"
         return try await APIClient.send(request, transport: graph.transport)
     }
 

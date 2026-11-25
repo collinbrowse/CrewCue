@@ -16,7 +16,7 @@ import { slowdownFromTimedTrack } from "./runnerSlowdown.js";
 
 export { ActivityFileError, MAX_ACTIVITY_FILE_BYTES } from "@crewcue/map-core";
 
-const SPORT_NAMES: Record<string, string> = { cycling: "a ride", other: "not a run or hike" };
+const SPORT_NAMES: Record<string, string> = { cycling: "a ride", walking: "a walk", other: "not a run or hike" };
 
 export const ACTIVITY_FILE_SOURCES: Record<ActivityFileFormat, ActivityHistorySource> = {
   gpx: "gpx_upload",

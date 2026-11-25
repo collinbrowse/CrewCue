@@ -325,20 +325,23 @@ class RaceDayBridge private constructor(
     }
 
     /**
-     * run-share-import: a shared or opened run file (or .zip), base64. Answers the next state:
+     * run-share-import: a shared or opened run file (or .zip), by path. Answers the next state:
      * `state` signedOut, failed (with message) or preview (title, confirmLabel, canImport, runs[], unreadable).
      */
-    fun previewActivityUpload(fileName: String, contentBase64: String, signedIn: Boolean): RuntimeResult =
+    fun previewActivityUpload(fileName: String, filePath: String, signedIn: Boolean): RuntimeResult =
         call("previewActivityUpload") {
             put("fileName", fileName)
-            put("contentBase64", contentBase64)
+            put("filePath", filePath)
             put("signedIn", signedIn)
         }
 
-    /** run-share-import: the runner confirmed. Answers `state` done or failed, with message. */
-    fun importActivityUpload(fileName: String, contentBase64: String): RuntimeResult = call("importActivityUpload") {
+    /**
+     * run-share-import: the runner confirmed. Answers `state` done or failed, with message. The file
+     * goes by path: a whole watch-app export can be 100+ MB, too big to pass through JNI as text.
+     */
+    fun importActivityUpload(fileName: String, filePath: String): RuntimeResult = call("importActivityUpload") {
         put("fileName", fileName)
-        put("contentBase64", contentBase64)
+        put("filePath", filePath)
     }
 
     /** Pacing history for display: items[].summary, newest first. */

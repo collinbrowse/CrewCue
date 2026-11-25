@@ -52,38 +52,80 @@ public struct ActivityUnreadableFile: Equatable, Sendable, Decodable {
     }
 }
 
+/// Files in a shared upload that weren't imported, by reason.
+public struct ActivityUploadSkipped: Equatable, Sendable, Decodable {
+    /// Runs more than a year before the upload's newest run (multi-run uploads only).
+    public var older: Int
+    /// Rides, walks and other sports.
+    public var notRun: Int
+    /// Not an activity file, or one that couldn't be read.
+    public var unreadable: Int
+
+    public init(older: Int = 0, notRun: Int = 0, unreadable: Int = 0) {
+        self.older = older
+        self.notRun = notRun
+        self.unreadable = unreadable
+    }
+
+    public var total: Int { older + notRun + unreadable }
+}
+
 /// What a shared file holds, before the runner confirms.
 public struct ActivityUploadPreview: Equatable, Sendable, Decodable {
     public var runs: [ActivityPreviewRun]
+    /// Unreadable files by name (the API lists up to 50).
     public var unreadable: [ActivityUnreadableFile]
+    public var skipped: ActivityUploadSkipped?
 
-    public init(runs: [ActivityPreviewRun], unreadable: [ActivityUnreadableFile] = []) {
+    public init(runs: [ActivityPreviewRun], unreadable: [ActivityUnreadableFile] = [], skipped: ActivityUploadSkipped? = nil) {
         self.runs = runs
         self.unreadable = unreadable
+        self.skipped = skipped
+    }
+
+    /// Runs listed in the preview; a whole export can hold hundreds.
+    public static let listedRunLimit = 50
+    public var listedRuns: [ActivityPreviewRun] { Array(runs.prefix(Self.listedRunLimit)) }
+    /// "and 130 more", or nil.
+    public var moreRunsLine: String? {
+        runs.count > Self.listedRunLimit ? "and \(SharedRunImport.count(runs.count - Self.listedRunLimit)) more" : nil
+    }
+
+    /// "1,905 files skipped: 847 older than a year, 344 not runs or hikes, 714 unreadable", or nil.
+    public var skippedLine: String? {
+        guard let skipped, skipped.total > 0 else { return nil }
+        var parts: [String] = []
+        if skipped.older > 0 { parts.append("\(SharedRunImport.count(skipped.older)) older than a year") }
+        if skipped.notRun > 0 { parts.append("\(SharedRunImport.count(skipped.notRun)) not runs or hikes") }
+        if skipped.unreadable > 0 { parts.append("\(SharedRunImport.count(skipped.unreadable)) unreadable") }
+        let noun = skipped.total == 1 ? "file" : "files"
+        return "\(SharedRunImport.count(skipped.total)) \(noun) skipped: " + parts.joined(separator: ", ")
     }
 
     /// Runs not yet in pacing history; the ones Import would add.
     public var newRuns: [ActivityPreviewRun] { runs.filter { !$0.alreadyImported } }
     public var canImport: Bool { !newRuns.isEmpty }
 
-    /// "Import this run?" / "Import 41 runs?" / "Already in pacing history." / the unreadable message.
+    /// "Import this run?" / "Import 1,041 runs?" / "Already in pacing history." / the unreadable message.
     public var title: String {
         if runs.isEmpty { return SharedRunImport.unreadableMessage }
         if newRuns.isEmpty { return ActivityImport.duplicateMessage }
-        return newRuns.count == 1 ? "Import this run?" : "Import \(newRuns.count) runs?"
+        return newRuns.count == 1 ? "Import this run?" : "Import \(SharedRunImport.count(newRuns.count)) runs?"
     }
 
     /// "Import" / "Import 41 runs".
     public var confirmLabel: String {
-        newRuns.count == 1 ? "Import" : "Import \(newRuns.count) runs"
+        newRuns.count == 1 ? "Import" : "Import \(SharedRunImport.count(newRuns.count)) runs"
     }
 
-    /// "1 file can't be read" / "3 files can't be read", or nil.
+    /// "1 file can't be read" / "3 files can't be read", or nil. For a bulk export, see `skippedLine`.
     public var unreadableLine: String? {
-        switch unreadable.count {
-        case 0: nil
-        case 1: "1 file can't be read"
-        default: "\(unreadable.count) files can't be read"
+        let count = skipped?.unreadable ?? unreadable.count
+        if skipped != nil, skippedLine != nil { return nil }
+        switch count {
+        case 0: return nil
+        case 1: return "1 file can't be read"
+        default: return "\(SharedRunImport.count(count)) files can't be read"
         }
     }
 }
@@ -122,8 +164,8 @@ public enum SharedRunImportState: Equatable, Sendable {
 }
 
 public enum SharedRunImport {
-    /// Matches the API's MAX_ARCHIVE_BYTES: one run, or a .zip of runs.
-    public static let maxUploadBytes = 20 * 1024 * 1024
+    /// Matches the API's MAX_RAW_UPLOAD_BYTES: one run, or a .zip up to a whole watch-app export.
+    public static let maxUploadBytes = 200 * 1024 * 1024
     public static let fileExtensions = ActivityImport.fileExtensions + ["zip"]
 
     public static let tip = "Export a run from your watch app and share it to CrewCue."
@@ -131,7 +173,18 @@ public enum SharedRunImport {
     public static let readingMessage = "Reading your run…"
     public static let importingMessage = "Importing…"
     public static let doneOne = "Run imported."
-    public static let tooLargeMessage = "The file is larger than 20 MB. Export fewer runs at a time."
+    public static let tooLargeMessage = "The file is larger than 200 MB. Export fewer runs at a time."
+
+    /// "1,905": thousands grouped with commas, the same on every platform.
+    public static func count(_ value: Int) -> String {
+        let digits = String(abs(value))
+        var out = ""
+        for (index, char) in digits.enumerated() {
+            if index > 0 && (digits.count - index) % 3 == 0 { out.append(",") }
+            out.append(char)
+        }
+        return value < 0 ? "-" + out : out
+    }
     public static let unreadableMessage = "Couldn't read that file. Choose a .gpx, .fit, .tcx or .zip export."
 
     /// A failed preview or import: the server's own message for a 400/413, offline, else unreadable.
