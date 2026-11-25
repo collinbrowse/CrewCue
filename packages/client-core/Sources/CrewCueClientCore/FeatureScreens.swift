@@ -178,6 +178,10 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.onboarding-runner-setup", title: "Set up your race", body: onboardingRunnerSetupBody(state))
         case "onboarding-race-preview":
             return FeatureCopy(accessibilityIdentifier: "crewcue.onboarding-race-preview", title: "Race day preview", body: onboardingRacePreviewBody(state))
+        case "onboarding-runner-tour":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.onboarding-runner-tour", title: "Race tour", body: onboardingTourBody(state, role: .runner))
+        case "onboarding-crew":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.onboarding-crew", title: "Crew tour", body: onboardingTourBody(state, role: .crew))
         case "race-rename":
             return FeatureCopy(accessibilityIdentifier: "crewcue.race-rename", title: "Rename race", body: raceRenameBody(state))
         case "course-locked":
@@ -589,5 +593,15 @@ private func onboardingRacePreviewBody(_ state: FeatureState) -> String {
     case .empty: OnboardingCopy.replayEmpty
     case .error: OnboardingCopy.replayError
     case .offline: OnboardingCopy.replayOffline
+    }
+}
+
+/// Copy for clients/behavior/onboarding-runner-tour.md and onboarding-crew.md.
+private func onboardingTourBody(_ state: FeatureState, role: OnboardingChoice) -> String {
+    switch state {
+    case .success: OnboardingTourCopy.body(role == .runner ? .invites : .runnerLocation, role: role, demo: .fixture())
+    case .empty: role == .runner ? "Unlock your race to start the tour." : "Join your runner's race to start the tour."
+    case .error: role == .runner ? LocationTestCopy.failed : "Couldn't load the race. The tour uses an example race."
+    case .offline: role == .runner ? LocationTestCopy.offline : "Offline. The tour plays from an example race on this phone."
     }
 }
