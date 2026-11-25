@@ -7,6 +7,7 @@ import { deflateRawSync } from "node:zlib";
 import { buildApp } from "../app.js";
 import { countActivityHistoryRows, resetActivityHistoryStoreForTests } from "../lib/activityHistoryStore.js";
 import { readZipEntries, ZipArchiveError } from "../lib/zipArchive.js";
+import { resetUploadJobsForTests, settleUploadJobsForTests } from "../lib/uploadJobs.js";
 
 function findPacingFixturesDir(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -64,6 +65,8 @@ async function withApp(run: (app: ReturnType<typeof buildApp>, token: string) =>
   try {
     await run(app, app.jwt.sign({ sub: "athlete-archive", teamIds: [], roomRoles: {} }));
   } finally {
+    await settleUploadJobsForTests();
+    resetUploadJobsForTests();
     await app.close();
     await resetActivityHistoryStoreForTests();
   }
@@ -186,13 +189,33 @@ test("rides in a .zip are listed as not runs and never imported", async () => {
   });
 });
 
-function postRaw(app: ReturnType<typeof buildApp>, token: string | null, mode: string, fileName: string, bytes: Uint8Array) {
+function startRaw(app: ReturnType<typeof buildApp>, token: string | null, mode: string, fileName: string, bytes: Uint8Array) {
   return app.inject({
     method: "POST",
     url: `/activity-history/upload?mode=${mode}&fileName=${encodeURIComponent(fileName)}`,
     headers: { "content-type": "application/zip", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     payload: Buffer.from(bytes)
   });
+}
+
+function pollJob(app: ReturnType<typeof buildApp>, token: string, jobId: string) {
+  return app.inject({
+    method: "GET",
+    url: `/activity-history/upload-jobs/${jobId}`,
+    headers: { authorization: `Bearer ${token}` }
+  });
+}
+
+/** Upload, then poll the job until it finishes: the finished response. */
+async function postRaw(app: ReturnType<typeof buildApp>, token: string, mode: string, fileName: string, bytes: Uint8Array) {
+  const started = await startRaw(app, token, mode, fileName, bytes);
+  assert.equal(started.statusCode, 202);
+  const { jobId } = started.json() as { jobId: string };
+  for (;;) {
+    const res = await pollJob(app, token, jobId);
+    if (res.statusCode !== 202) return res;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 test("raw upload previews and imports a .zip, keeping a year before the newest run", async () => {
@@ -237,7 +260,27 @@ test("raw upload takes more than the JSON limit and refuses bad requests", async
     const res = await postRaw(app, token, "preview", "big.zip", big);
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().runs.length, 1);
-    assert.equal((await postRaw(app, token, "nope", "big.zip", big)).statusCode, 400);
-    assert.equal((await postRaw(app, null, "preview", "big.zip", big)).statusCode, 401);
+    assert.equal((await startRaw(app, token, "nope", "big.zip", big)).statusCode, 400);
+    assert.equal((await startRaw(app, null, "preview", "big.zip", big)).statusCode, 401);
+  });
+});
+
+test("upload jobs: corrupt zips fail in the job and jobs are private", async () => {
+  await withApp(async (app, token) => {
+    const corrupt = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3]);
+    const failed = await postRaw(app, token, "preview", "bad.zip", corrupt);
+    assert.equal(failed.statusCode, 400);
+    assert.equal(failed.json().code, "file_corrupt");
+
+    const upload = zip([{ name: "run.fit", bytes: fixture("activity-short-road.fit") }]);
+    const second = (await startRaw(app, token, "preview", "b.zip", upload)).json().jobId as string;
+    await settleUploadJobsForTests();
+    assert.equal((await pollJob(app, token, second)).statusCode, 200);
+    const other = app.jwt.sign({ sub: "someone-else", teamIds: [], roomRoles: {} });
+    assert.equal((await pollJob(app, other, second)).statusCode, 404);
+
+    const stranger = await app.inject({ method: "GET", url: `/activity-history/upload-jobs/${second}` });
+    assert.equal(stranger.statusCode, 401);
+    assert.equal((await pollJob(app, token, "missing")).statusCode, 404);
   });
 });

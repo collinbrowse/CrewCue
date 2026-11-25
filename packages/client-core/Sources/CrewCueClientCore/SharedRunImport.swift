@@ -32,13 +32,45 @@ public struct ActivityPreviewRun: Equatable, Sendable, Decodable {
         self.alreadyImported = alreadyImported
     }
 
-    /// "2026-11-19 · 14.6 km · 1:43:12 · 604 m climb"
-    public var summary: String {
-        var parts = [String(recordedAt.prefix(10)), String(format: "%.1f km", distanceMeters / 1000)]
-        if let elapsedSeconds { parts.append(ScheduleFormat.formatDurationSeconds(elapsedSeconds)) }
-        if let elevationGainMeters { parts.append("\(Int(elevationGainMeters.rounded())) m climb") }
-        return parts.joined(separator: " · ")
+    /// "Thu, Nov 19, 2026": the row's heading. The run's start date as the file records it (UTC).
+    public var dateLabel: String {
+        let ymd = recordedAt.prefix(10).split(separator: "-").compactMap { Int($0) }
+        guard ymd.count == 3, (1...12).contains(ymd[1]) else { return String(recordedAt.prefix(10)) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? calendar.timeZone
+        let month = Self.months[ymd[1] - 1]
+        guard let date = calendar.date(from: DateComponents(year: ymd[0], month: ymd[1], day: ymd[2])) else {
+            return "\(month) \(ymd[2]), \(ymd[0])"
+        }
+        let weekday = Self.weekdays[calendar.component(.weekday, from: date) - 1]
+        return "\(weekday), \(month) \(ymd[2]), \(ymd[0])"
     }
+
+    /// The row's labeled values: Distance, Time, Climb. A value the file lacks reads "–".
+    public var details: [ActivityRunDetail] {
+        [
+            ActivityRunDetail(label: "Distance", value: String(format: "%.1f km", distanceMeters / 1000)),
+            ActivityRunDetail(label: "Time", value: elapsedSeconds.map { ScheduleFormat.formatDurationSeconds($0) } ?? Self.missing),
+            ActivityRunDetail(label: "Climb", value: elevationGainMeters.map { "\(Int($0.rounded())) m" } ?? Self.missing)
+        ]
+    }
+
+    /// "Thu, Nov 19, 2026. Distance 14.6 km. Time 1:43:12. Climb 604 m." What VoiceOver/TalkBack read.
+    public var spokenSummary: String {
+        var parts = [dateLabel] + details.filter { $0.value != Self.missing }.map { "\($0.label) \($0.value)" }
+        if alreadyImported { parts.append(SharedRunImport.alreadyImportedBadge) }
+        return parts.joined(separator: ". ") + "."
+    }
+
+    static let missing = "–"
+    private static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    private static let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+}
+
+/// One labeled value in a preview row: "Distance" over "14.6 km".
+public struct ActivityRunDetail: Equatable, Sendable {
+    public var label: String
+    public var value: String
 }
 
 /// A file in a shared .zip that isn't a run or couldn't be read.
@@ -83,12 +115,16 @@ public struct ActivityUploadPreview: Equatable, Sendable, Decodable {
         self.skipped = skipped
     }
 
-    /// Runs listed in the preview; a whole export can hold hundreds.
-    public static let listedRunLimit = 50
-    public var listedRuns: [ActivityPreviewRun] { Array(runs.prefix(Self.listedRunLimit)) }
-    /// "and 130 more", or nil.
-    public var moreRunsLine: String? {
-        runs.count > Self.listedRunLimit ? "and \(SharedRunImport.count(runs.count - Self.listedRunLimit)) more" : nil
+    /// Runs listed before "Show more"; a whole export can hold hundreds.
+    public static let firstListedRuns = 10
+    /// The runs on screen: the first 10, or all of them once the runner taps Show more.
+    public func listedRuns(showingAll: Bool) -> [ActivityPreviewRun] {
+        showingAll ? runs : Array(runs.prefix(Self.firstListedRuns))
+    }
+    /// "Show 164 more", or nil when every run is already listed.
+    public func showMoreLabel(showingAll: Bool) -> String? {
+        guard !showingAll, runs.count > Self.firstListedRuns else { return nil }
+        return "Show \(SharedRunImport.count(runs.count - Self.firstListedRuns)) more"
     }
 
     /// "1,905 files skipped: 847 older than a year, 344 not runs or hikes, 714 unreadable", or nil.
@@ -173,6 +209,7 @@ public enum SharedRunImport {
     public static let readingMessage = "Reading your run…"
     public static let importingMessage = "Importing…"
     public static let doneOne = "Run imported."
+    public static let alreadyImportedBadge = "Already imported"
     public static let tooLargeMessage = "The file is larger than 200 MB. Export fewer runs at a time."
 
     /// "1,905": thousands grouped with commas, the same on every platform.
@@ -186,11 +223,16 @@ public enum SharedRunImport {
         return value < 0 ? "-" + out : out
     }
     public static let unreadableMessage = "Couldn't read that file. Choose a .gpx, .fit, .tcx or .zip export."
+    /// The server lost the upload (a restart, or it waited too long for the app).
+    public static let uploadLostMessage = "The upload was interrupted. Share the file again."
+    public static let uploadTimeoutMessage = "This export is taking too long. Try again, or export fewer runs."
 
     /// A failed preview or import: the server's own message for a 400/413, offline, else unreadable.
     public static func message(for error: any Error) -> String {
         if TransportFailure.isOffline(error) { return ActivityImport.offlineMessage }
         if let http = error as? ClientHTTPError, http.status == 401 { return signedOutMessage }
+        if let http = error as? ClientHTTPError, http.status == 404, http.reason == "upload_not_found" { return uploadLostMessage }
+        if let http = error as? ClientHTTPError, http.reason == "upload_timeout" { return uploadTimeoutMessage }
         if let http = error as? ClientHTTPError, http.status == 400 || http.status == 413,
            let server = http.serverMessage, !server.isEmpty {
             return server

@@ -40,20 +40,17 @@ struct SharedRunImportSheet: View {
                 .font(CrewFont.headline)
                 .foregroundStyle(theme.ink)
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(preview.listedRuns.enumerated()), id: \.offset) { _, run in
-                    HStack(alignment: .firstTextBaseline) {
-                        Label(run.summary, systemImage: run.alreadyImported ? "checkmark.circle" : "figure.run")
-                            .font(CrewFont.body)
-                            .foregroundStyle(run.alreadyImported ? theme.body.opacity(0.6) : theme.ink)
-                        if run.alreadyImported {
-                            Spacer(minLength: 8)
-                            Text("Already imported")
-                                .font(CrewFont.label)
-                                .foregroundStyle(theme.body)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
+                ForEach(Array(preview.listedRuns(showingAll: model.showsAllRuns).enumerated()), id: \.offset) { _, run in
+                    PreviewRunRow(run: run)
                 }
+            }
+            .accessibilityIdentifier("crewcue.run-share-import.runs")
+            if let more = preview.showMoreLabel(showingAll: model.showsAllRuns) {
+                Button(more) {
+                    withAnimation { model.showsAllRuns = true }
+                }
+                .buttonStyle(.crewSecondary)
+                .accessibilityIdentifier("crewcue.run-share-import.show-more")
             }
             if preview.runs.count == 1, let run = preview.runs.first, run.track.count >= 2 {
                 RouteSketch(track: run.track)
@@ -62,11 +59,6 @@ struct SharedRunImportSheet: View {
                     .padding(12)
                     .background(theme.well, in: RoundedRectangle(cornerRadius: 12))
                     .accessibilityHidden(true)
-            }
-            if let more = preview.moreRunsLine {
-                Text(more)
-                    .font(CrewFont.body)
-                    .foregroundStyle(theme.body)
             }
             if let skipped = preview.skippedLine {
                 Text(skipped)
@@ -141,6 +133,63 @@ struct SharedRunImportSheet: View {
             .font(CrewFont.title)
             .foregroundStyle(theme.ink)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// One previewed run: the date as the heading, then Distance, Time and Climb as small labels over
+/// bold values. Side by side when they fit; stacked at the largest text sizes.
+private struct PreviewRunRow: View {
+    let run: ActivityPreviewRun
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: run.alreadyImported ? "checkmark.circle" : "figure.run")
+                    .foregroundStyle(run.alreadyImported ? theme.body : theme.primary)
+                Text(run.dateLabel)
+                    .font(CrewFont.button)
+                    .foregroundStyle(theme.ink)
+                Spacer(minLength: 8)
+                if run.alreadyImported {
+                    Text(SharedRunImport.alreadyImportedBadge)
+                        .font(CrewFont.kicker)
+                        .foregroundStyle(theme.body)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .overlay(Capsule().strokeBorder(theme.outline, lineWidth: 1))
+                }
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(run.details, id: \.label) { detail in
+                        cell(detail).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(run.details, id: \.label) { cell($0) }
+                }
+            }
+            .opacity(run.alreadyImported ? 0.6 : 1)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(theme.outline.opacity(0.6), lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(run.spokenSummary)
+    }
+
+    private func cell(_ detail: ActivityRunDetail) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(detail.label.uppercased())
+                .font(CrewFont.kicker)
+                .foregroundStyle(theme.body)
+            Text(detail.value)
+                .font(CrewFont.title.monospacedDigit())
+                .foregroundStyle(theme.ink)
+                .lineLimit(1)
+        }
     }
 }
 
