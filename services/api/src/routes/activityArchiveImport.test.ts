@@ -5,7 +5,14 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateRawSync } from "node:zlib";
 import { buildApp } from "../app.js";
-import { countActivityHistoryRows, resetActivityHistoryStoreForTests } from "../lib/activityHistoryStore.js";
+import {
+  countActivityHistoryRows,
+  listActivityHistoryForAthlete,
+  resetActivityHistoryStoreForTests
+} from "../lib/activityHistoryStore.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
+import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 import { readZipEntries, ZipArchiveError } from "../lib/zipArchive.js";
 import { resetUploadJobsForTests, settleUploadJobsForTests } from "../lib/uploadJobs.js";
 
@@ -284,3 +291,124 @@ test("upload jobs: corrupt zips fail in the job and jobs are private", async () 
     assert.equal((await pollJob(app, token, "missing")).statusCode, 404);
   });
 });
+
+test(
+  "a bulk-imported watch export survives an API restart: same runs, the old job is gone, a re-share saves nothing new",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 120_000 },
+  async () => {
+    const athlete = "athlete-archive-restart";
+    const upload = zip([
+      { name: "export/short.fit", bytes: fixture("activity-short-road.fit") },
+      { name: "export/hill.fit", bytes: fixture("activity-hill-run.fit") },
+      { name: "export/ride.fit", bytes: fixture("activity-ride.fit") }
+    ]);
+    await resetActivityHistoryStoreForTests();
+    let jobId = "";
+    let imported: Array<{ id: string; externalId: string; recordedAt: string; distanceMeters: number }> = [];
+    // Not `withApp`: its cleanup truncates the rows the restart must read back.
+    const app = buildApp();
+    await app.ready();
+    try {
+      const token = app.jwt.sign({ sub: athlete, teamIds: [], roomRoles: {} });
+      const started = await startRaw(app, token, "import", "export.zip", upload);
+      assert.equal(started.statusCode, 202, started.body);
+      jobId = (started.json() as { jobId: string }).jobId;
+      await settleUploadJobsForTests();
+      const done = await pollJob(app, token, jobId);
+      assert.equal(done.statusCode, 201, done.body);
+      assert.equal(done.json().saved, 2);
+      const list = await app.inject({ method: "GET", url: "/activity-history", headers: { authorization: `Bearer ${token}` } });
+      imported = list.json().items;
+      assert.equal(imported.length, 2);
+    } finally {
+      await settleUploadJobsForTests();
+      resetUploadJobsForTests();
+      await app.close();
+    }
+
+    const after = runInFreshProcess<{
+      oldJob: { status: number; body: { code?: string } };
+      list: { status: number; body: { items: typeof imported } };
+      preview: { status: number; body: { runs: Array<{ fileName: string; alreadyImported: boolean }> } };
+      reimport: { status: number; body: { saved: number; duplicates: number; items: Array<{ id: string }> } };
+      estimate: { status: number; body: { checkpoints?: unknown[] } };
+    }>(
+      `
+      const { buildApp } = await import(process.argv[1]);
+      const [athlete, oldJobId, zipBase64, idsJson, checkpointsJson] = process.argv.slice(2);
+      const app = buildApp();
+      await app.ready();
+      const headers = { authorization: "Bearer " + app.jwt.sign({ sub: athlete, teamIds: [], roomRoles: {} }) };
+      const send = async (opts) => {
+        const res = await app.inject({ ...opts, headers: { ...headers, ...(opts.headers ?? {}) } });
+        return { status: res.statusCode, body: res.json() };
+      };
+      const raw = async (mode) => {
+        const started = await send({
+          method: "POST",
+          url: "/activity-history/upload?mode=" + mode + "&fileName=export.zip",
+          headers: { "content-type": "application/zip" },
+          payload: Buffer.from(zipBase64, "base64")
+        });
+        if (started.status !== 202) return started;
+        for (;;) {
+          const res = await send({ method: "GET", url: "/activity-history/upload-jobs/" + started.body.jobId });
+          if (res.status !== 202) return res;
+          await new Promise((r) => setTimeout(r, 10));
+        }
+      };
+      const out = {};
+      out.oldJob = await send({ method: "GET", url: "/activity-history/upload-jobs/" + oldJobId });
+      out.list = await send({ method: "GET", url: "/activity-history" });
+      out.preview = await raw("preview");
+      out.reimport = await raw("import");
+      out.estimate = await send({
+        method: "POST",
+        url: "/pacing-estimates",
+        payload: {
+          raceStartAt: "2026-08-15T13:00:00.000Z",
+          checkpoints: JSON.parse(checkpointsJson),
+          historyRefIds: JSON.parse(idsJson)
+        }
+      });
+      process.stdout.write("\\nRESULT:" + JSON.stringify(out) + "\\n");
+      await app.close();
+      process.exit(0);
+      `,
+      [
+        athlete,
+        jobId,
+        Buffer.from(upload).toString("base64"),
+        JSON.stringify(imported.map((run) => run.id)),
+        JSON.stringify(load50kCourseWithAids().checkpoints)
+      ]
+    );
+
+    // The phone polling a job from before the restart is told to share again, not left spinning.
+    assert.equal(after.oldJob.status, 404);
+    assert.equal(after.oldJob.body.code, "upload_not_found");
+    // The runner's history comes back from Postgres: same rows, ids and order.
+    assert.equal(after.list.status, 200);
+    assert.deepEqual(after.list.body.items, imported);
+    // Sharing the same export again: every run shows Already imported, and importing saves nothing.
+    assert.equal(after.preview.status, 200);
+    assert.deepEqual(
+      after.preview.body.runs.map((run) => [run.fileName, run.alreadyImported]),
+      [
+        ["hill.fit", true],
+        ["short.fit", true]
+      ]
+    );
+    assert.equal(after.reimport.status, 200, JSON.stringify(after.reimport.body));
+    assert.equal(after.reimport.body.saved, 0);
+    assert.equal(after.reimport.body.duplicates, 2);
+    assert.deepEqual(after.reimport.body.items.map((run) => run.id).sort(), imported.map((run) => run.id).sort());
+    // The pace estimate still finds every imported run by id.
+    assert.equal(after.estimate.status, 200, JSON.stringify(after.estimate.body));
+    // The hill run kept the grade profile the pace model reads, and nothing was duplicated.
+    assert.equal(await countActivityHistoryRows(), 2);
+    const stored = await listActivityHistoryForAthlete(athlete);
+    assert.equal(stored.filter((run) => run.gradeProfile !== undefined).length, 1);
+    await resetActivityHistoryStoreForTests();
+  }
+);

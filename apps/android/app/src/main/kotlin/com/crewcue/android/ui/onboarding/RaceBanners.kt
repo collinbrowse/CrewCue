@@ -30,16 +30,20 @@ const val UNLOCK_BANNER_TAG = "crewcue.unlock-race-banner"
 /** Test tag of a crew member's locked race (`raceLocked`). */
 const val RACE_LOCKED_TAG = "crewcue.race-locked"
 
-/** An unpaid race after setup: Map, Pace, and Chat carry this; it opens the paywall. */
+/**
+ * An unpaid race after setup: Map, Pace, and Chat carry this; it opens the paywall. [expiry] is
+ * client-core's "Expires in N days" (`OnboardingCopy.unpaidExpiry`), null without a date.
+ */
 @Composable
-fun UnlockRaceBanner(label: String, onUnlock: () -> Unit, modifier: Modifier = Modifier) {
+fun UnlockRaceBanner(label: String, onUnlock: () -> Unit, modifier: Modifier = Modifier, expiry: String? = null) {
     if (label.isBlank()) return
     val colors = MaterialTheme.colorScheme
+    val description = if (expiry.isNullOrBlank()) label else "$label. $expiry"
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .testTag(UNLOCK_BANNER_TAG)
-            .semantics(mergeDescendants = true) { contentDescription = label }
+            .semantics(mergeDescendants = true) { contentDescription = description }
             .clickable(role = Role.Button, onClick = onUnlock),
         shape = CircleShape,
         color = colors.primary,
@@ -52,7 +56,12 @@ fun UnlockRaceBanner(label: String, onUnlock: () -> Unit, modifier: Modifier = M
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Outlined.Lock, contentDescription = null)
-            Text(label, style = MaterialTheme.typography.labelLarge)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(label, style = MaterialTheme.typography.labelLarge)
+                if (!expiry.isNullOrBlank()) {
+                    Text(expiry, style = MaterialTheme.typography.labelMedium)
+                }
+            }
         }
     }
 }

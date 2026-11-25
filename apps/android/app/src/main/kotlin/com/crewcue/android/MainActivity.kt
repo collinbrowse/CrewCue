@@ -64,8 +64,9 @@ class MainActivity : ComponentActivity() {
         // A demo replay killed mid-play leaves its folder in the cache directory; sweep it at launch.
         lifecycleScope.launch(Dispatchers.IO) { container.cleanDemoRacesOnce() }
         CrewPush.ensureChannel(applicationContext)
-        // Only on a fresh launch: folding or rotating recreates the activity with the same intent.
-        if (savedInstanceState == null) CrewPush.chatRoomFrom(intent)?.let { shellModel.openChat(it) }
+        // A tapped notification (cold launch). Only on a fresh launch: folding or rotating recreates
+        // the activity with the same intent, and Recents relaunches with the old tap's extras.
+        if (freshLaunch) CrewPush.tapPayloadFrom(intent)?.let { shellModel.receivePushTap(it) }
         if (container.sessionStore.current() != null) {
             lifecycleScope.launch(Dispatchers.IO) { CrewPush.refreshIfAllowed(applicationContext, container.raceDay) }
         }
@@ -103,8 +104,9 @@ class MainActivity : ComponentActivity() {
         // Auth0 returns to crewcue://auth, which this activity's bare-scheme filter catches
         // before the SDK's RedirectActivity (that one only listens on the tenant host).
         if (intent.data?.host == AUTH_REDIRECT_HOST && WebAuthProvider.resume(intent)) return
-        CrewPush.chatRoomFrom(intent)?.let {
-            shellModel.openChat(it)
+        // A tapped notification with the app in the background or open.
+        CrewPush.tapPayloadFrom(intent)?.let {
+            shellModel.receivePushTap(it)
             return
         }
         val runShareLink = intent.dataString?.let { DevRoutes.inboundFeatureId(it) } == "run-share-import"
