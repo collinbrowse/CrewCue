@@ -31,7 +31,7 @@ async function ensureDatabase(base, name) {
   try {
     await admin.connect();
   } catch (error) {
-    console.error(`test:pg: cannot reach Postgres at ${base.replace(/\/\/[^@]*@/, "//")} (${error.message}). Start it (docker compose -f docker-compose.local.yml up -d) or set DATABASE_URL.`);
+    console.error(`test:pg: cannot reach Postgres (${error.message}). Start it (docker compose -f docker-compose.local.yml up -d) or set DATABASE_URL.`);
     process.exit(1);
   }
   try {
