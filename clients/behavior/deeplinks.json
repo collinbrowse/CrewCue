@@ -367,6 +367,24 @@
       "android": "pass"
     },
     {
+      "id": "onboarding-crew",
+      "entry": "crewcue://dev/onboarding-crew",
+      "label": "crewcue.onboarding-crew",
+      "sdk": "push",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "fail"
+    },
+    {
+      "id": "onboarding-runner-tour",
+      "entry": "crewcue://dev/onboarding-runner-tour",
+      "label": "crewcue.onboarding-runner-tour",
+      "sdk": "location",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "fail"
+    },
+    {
       "id": "race-rename",
       "entry": "crewcue://dev/race-rename",
       "label": "crewcue.race-rename",
