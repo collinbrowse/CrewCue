@@ -17,6 +17,7 @@ if (!repoRoot || !dir) {
   process.exit(2);
 }
 const STATE = "workspace-state.json";
+const RESOLVED_MARKER = ".crewcue-resolved"; // see sharedPackagesReady in scripts/lib/iosBuild.mjs
 const ENTRIES = ["artifacts", "checkouts", "repositories", STATE];
 
 function seed() {
@@ -84,4 +85,7 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
 repointArtifacts();
+// The folder is named after Package.resolved's hash, so once resolved it stays valid for every
+// checkout that maps to it; iosBuild.mjs skips resolving again while this file is here.
+fs.writeFileSync(path.join(dir, RESOLVED_MARKER), `${new Date().toISOString()}\n`);
 console.error(`ios-resolve-packages: resolved ${dir}`);

@@ -25,14 +25,34 @@ export function packagesLockName(repoRoot) {
   return `spm-crewcue-${packageResolvedKey(repoRoot)}`;
 }
 
+/** Written by scripts/ios-resolve-packages.mjs once a folder has resolved successfully. */
+export const RESOLVED_MARKER = ".crewcue-resolved";
+
+/**
+ * True when `dir` resolved successfully before and every binary artifact it records is still there.
+ * The folder is keyed by Package.resolved's hash, so that is enough to build without resolving.
+ */
+export function sharedPackagesReady(dir) {
+  if (!fs.existsSync(path.join(dir, RESOLVED_MARKER)) || !fs.existsSync(path.join(dir, "checkouts"))) return false;
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(dir, "workspace-state.json"), "utf8"));
+    return (state.object?.artifacts ?? []).every((a) => typeof a.path !== "string" || fs.existsSync(a.path));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolves Swift packages into this checkout's shared folder, one resolver at a time, and returns
- * the xcodebuild arguments that build against it. Returns [] in CI. Throws if resolution fails.
+ * the xcodebuild arguments that build against it. Skips resolving when the folder is already
+ * resolved (CREWCUE_SPM_RESOLVE=1 forces it). Returns [] in CI. Throws if resolution fails.
  */
 export function prepareSharedPackages(repoRoot, env = process.env) {
   const base = sharedSourcePackagesBase(env);
   const dir = sharedSourcePackagesDir(repoRoot, env);
   if (!base || !dir) return [];
+  const buildArgs = ["-clonedSourcePackagesDirPath", dir, "-disableAutomaticPackageResolution"];
+  if (env.CREWCUE_SPM_RESOLVE !== "1" && sharedPackagesReady(dir)) return buildArgs;
   fs.mkdirSync(base, { recursive: true });
   const key = path.basename(dir);
   // Two locks: the queue lock shows the wait in `slot status`; lockf also holds when this already
@@ -42,7 +62,7 @@ export function prepareSharedPackages(repoRoot, env = process.env) {
   const job = slotted(inner[0], inner.slice(1), { credits: 1, locks: [packagesLockName(repoRoot)], label: "CrewCue Swift packages", kind: "xcodebuild resolve" }, env);
   const result = spawnSync(job.command, job.args, { cwd: repoRoot, stdio: ["ignore", "inherit", "inherit"], env });
   if (result.status !== 0) throw new Error(`Swift package resolution into ${dir} failed (exit ${result.status ?? result.signal}).`);
-  return ["-clonedSourcePackagesDirPath", dir, "-disableAutomaticPackageResolution"];
+  return buildArgs;
 }
 
 /** xcodebuild arguments for this checkout's DerivedData folder ([] in CI). */

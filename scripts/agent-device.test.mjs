@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { androidPort, androidSerial, checkoutKey, emulatorGpu, FIRST_PORT, IOS_PACKAGE_RESOLVED, iosDerivedDataDir, iosSimulatorName, iosSimulatorNames, packageResolvedKey, PORT_SLOTS, sharedDevice, sharedSourcePackagesArgs, SOFTWARE_GPU } from "./lib/agentDevice.mjs";
-import { removeOldCheckoutDerivedData } from "./lib/iosBuild.mjs";
+import { removeOldCheckoutDerivedData, RESOLVED_MARKER, sharedPackagesReady } from "./lib/iosBuild.mjs";
 import { slotAvailable, slotPath, slotted } from "./lib/slot.mjs";
 
 const worktree = (name) => `/Users/x/CrewCue/.claude/worktrees/${name}`;
@@ -93,6 +93,23 @@ test("package checkouts are shared locally per Package.resolved, left to xcodebu
     assert.notEqual(packageResolvedKey(repo), first, "different pins get a different folder");
   } finally {
     rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("a resolved package folder is reused without resolving again, unless an artifact is missing", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "crewcue-spm-ready-"));
+  try {
+    mkdirSync(path.join(dir, "checkouts"));
+    mkdirSync(path.join(dir, "artifacts", "x", "X.xcframework"), { recursive: true });
+    const artifact = path.join(dir, "artifacts", "x", "X.xcframework");
+    writeFileSync(path.join(dir, "workspace-state.json"), JSON.stringify({ object: { artifacts: [{ path: artifact }] } }));
+    assert.equal(sharedPackagesReady(dir), false, "never resolved here");
+    writeFileSync(path.join(dir, RESOLVED_MARKER), "2026-11-25\n");
+    assert.equal(sharedPackagesReady(dir), true);
+    rmSync(artifact, { recursive: true });
+    assert.equal(sharedPackagesReady(dir), false, "a missing xcframework needs a resolve");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
