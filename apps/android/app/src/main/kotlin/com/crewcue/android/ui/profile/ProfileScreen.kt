@@ -1,17 +1,14 @@
 package com.crewcue.android.ui.profile
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -37,10 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -50,13 +45,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.crewcue.android.R
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.optText
 import com.crewcue.android.ui.RaceChoice
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.brand.CairnLoader
+import com.crewcue.android.ui.brand.CourseProfileArt
 import com.crewcue.android.ui.map.MapViewModel
 import com.crewcue.android.ui.map.RaceReadout
 import com.crewcue.android.ui.map.isOnline
@@ -224,7 +219,7 @@ private fun RaceRow(race: RaceChoice, active: Boolean, onSelect: () -> Unit) {
     }
 }
 
-/** Runner hero: night-trail gradient, illustration, name, role, and live chip. */
+/** Runner hero: slate ground, course-profile art, name, role, and live chip. */
 @Composable
 private fun ProfileHero(name: String, role: String?, live: Boolean) {
     val extras = LocalCrewExtras.current
@@ -236,16 +231,7 @@ private fun ProfileHero(name: String, role: String?, live: Boolean) {
             .background(Brush.linearGradient(extras.heroGradient))
             .semantics(mergeDescendants = true) {}
     ) {
-        Image(
-            painter = painterResource(R.drawable.onboarding_runner),
-            contentDescription = null,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .fillMaxHeight()
-                .padding(top = 8.dp)
-                .offset(x = 24.dp),
-            contentScale = ContentScale.Fit
-        )
+        CourseProfileArt(Modifier.fillMaxSize().padding(top = 28.dp, bottom = 64.dp), ground = false)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f)))))
         Row(
             Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(24.dp),

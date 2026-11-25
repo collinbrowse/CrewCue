@@ -439,14 +439,14 @@ private fun drawDot(style: Style, dot: CoursePoint?, palette: CoursePalette) {
 
 private const val EMPTY_COLLECTION = """{"type":"FeatureCollection","features":[]}"""
 
-/** Course colors on the map: Night Trail primary line, white markers with dark labels. */
+/** Course colors on the map: slate course line, ember runner path, white markers with dark labels. */
 private class CoursePalette(dark: Boolean) {
-    /** The runner's path: the theme's secondary, so it reads apart from the course line. */
-    val track = Color.parseColor(if (dark) "#ADC6FF" else "#0058BE")
-    val line = Color.parseColor(if (dark) "#C9BFFF" else "#5440B9")
-    val marker = Color.parseColor(if (dark) "#20201B" else "#FFFFFF")
-    val label = Color.parseColor(if (dark) "#E5E2DA" else "#1C1C17")
-    val halo = Color.parseColor(if (dark) "#14140F" else "#FFFFFF")
+    /** The runner's path: the theme's primary, so the runner reads apart from the slate course line. */
+    val track = Color.parseColor(if (dark) "#FF8F5C" else "#B5441A")
+    val line = Color.parseColor(if (dark) "#B7C4D4" else "#34404F")
+    val marker = Color.parseColor(if (dark) "#1F252D" else "#FFFFFF")
+    val label = Color.parseColor(if (dark) "#ECE6DA" else "#1F2730")
+    val halo = Color.parseColor(if (dark) "#161A20" else "#FFFFFF")
 }
 
 /**

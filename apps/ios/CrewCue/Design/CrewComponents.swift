@@ -33,13 +33,8 @@ struct CrewTopBar: View {
 
     var body: some View {
         HStack(spacing: CrewSpace.stackSm) {
-            Image("OnboardingRunner")
-                .resizable()
-                .scaledToFill()
+            CairnAvatar()
                 .frame(width: 40, height: 40)
-                .background(theme.ink)
-                .clipShape(Circle())
-                .overlay { Circle().stroke(theme.primary, lineWidth: 2) }
                 .accessibilityHidden(true)
             Text(verbatim: title)
                 .font(CrewFont.wordmark)

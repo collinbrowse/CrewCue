@@ -290,10 +290,10 @@ private struct StepHeader: View {
 
 private struct SetupIllustration: View {
     var body: some View {
-        Image("OnboardingRunner")
-            .resizable()
-            .scaledToFit()
-            .frame(maxWidth: .infinity)
+        CourseProfileArt()
+            .aspectRatio(CourseProfile.aspectRatio, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: CrewRadius.lg, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: 240)
             .accessibilityHidden(true)
     }
 }

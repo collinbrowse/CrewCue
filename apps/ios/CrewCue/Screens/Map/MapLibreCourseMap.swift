@@ -22,8 +22,8 @@ struct MapLibreCourseMap: UIViewRepresentable {
     /// fallback). Fires again after camera moves; the setup course preview waits for the first.
     var onRendered: () -> Void = {}
     var recenterRequest = 0
-    var lineColor = UIColor(red: 0.329, green: 0.251, blue: 0.725, alpha: 1)
-    var trackColor = UIColor.systemOrange
+    var lineColor = UIColor(red: 0.204, green: 0.251, blue: 0.310, alpha: 1)
+    var trackColor = UIColor(red: 0.710, green: 0.267, blue: 0.102, alpha: 1)
     /// The course line from the server's GPX read (setup preview). Empty: the line joins the checkpoints.
     var route: [CLLocationCoordinate2D] = []
     /// Room kept clear when the course is framed. The race map leaves space for its chips and sheet.
@@ -203,8 +203,8 @@ struct MapLibreCourseMap: UIViewRepresentable {
         var dark = false
         /// True after the remote style failed and the blank local style replaced it.
         var usingBlankStyle = false
-        var lineColor = UIColor.systemPurple
-        var trackColor = UIColor.systemOrange
+        var lineColor = UIColor(red: 0.204, green: 0.251, blue: 0.310, alpha: 1)
+        var trackColor = UIColor(red: 0.710, green: 0.267, blue: 0.102, alpha: 1)
         var track: [CLLocationCoordinate2D] = []
         var trackTimes: [Date] = []
         var glideFrame: RunnerGlideFrame?
@@ -631,7 +631,7 @@ final class CheckpointTitleView: MLNAnnotationView {
     override init(reuseIdentifier: String?) {
         super.init(reuseIdentifier: reuseIdentifier)
         backgroundColor = UIColor.white.withAlphaComponent(0.94)
-        layer.borderColor = UIColor(red: 0.329, green: 0.251, blue: 0.725, alpha: 1).cgColor
+        layer.borderColor = UIColor(red: 0.204, green: 0.251, blue: 0.310, alpha: 1).cgColor
         layer.borderWidth = 1.5
         layer.shadowColor = UIColor.black.cgColor
         layer.shadowOpacity = 0.12
@@ -639,7 +639,7 @@ final class CheckpointTitleView: MLNAnnotationView {
         layer.shadowOffset = CGSize(width: 0, height: 2)
         label.font = Self.font
         label.adjustsFontForContentSizeCategory = true
-        label.textColor = UIColor(red: 0.110, green: 0.110, blue: 0.090, alpha: 1)
+        label.textColor = UIColor(red: 0.122, green: 0.153, blue: 0.188, alpha: 1)
         label.textAlignment = .center
         addSubview(label)
     }
