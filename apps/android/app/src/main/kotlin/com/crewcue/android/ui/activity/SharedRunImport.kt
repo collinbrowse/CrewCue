@@ -65,6 +65,9 @@ const val RUN_SHARE_UNREADABLE = "Couldn't read that file. Choose a .gpx, .fit, 
 private const val MAX_UPLOAD_BYTES = 200L * 1024 * 1024
 
 /** One labeled value in a preview row ("Distance" over "14.6 km"), worded by client-core. */
+/** After a number of Show more taps: how many runs are listed, and the button's label (null once all are). */
+data class ShowMoreStep(val listed: Int, val label: String?)
+
 data class SharedRunDetail(val label: String, val value: String)
 
 data class SharedRun(
@@ -88,10 +91,8 @@ sealed interface SharedRunUi {
         val unreadableLine: String?,
         val unreadable: List<String>,
         val skippedLine: String? = null,
-        /** Runs listed before Show more. */
-        val firstListedRuns: Int = 10,
-        /** "Show 164 more", or null when every run fits. */
-        val showMoreLabel: String? = null,
+        /** How many runs are listed after each Show more tap, and the button's label then (null at the end). */
+        val showMoreSteps: List<ShowMoreStep> = listOf(ShowMoreStep(runs.size, null)),
         val alreadyImportedBadge: String = "Already imported"
     ) : SharedRunUi
 }
@@ -100,12 +101,12 @@ sealed interface SharedRunUi {
 class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel() {
     var ui by androidx.compose.runtime.mutableStateOf<SharedRunUi?>(null)
         private set
-    /** The runner tapped Show more. Held here so a fold or rotation keeps the list open. */
-    var showsAllRuns by androidx.compose.runtime.mutableStateOf(false)
+    /** How many times the runner tapped Show more. Held here so a fold or rotation keeps the list open. */
+    var showMoreTaps by androidx.compose.runtime.mutableIntStateOf(0)
         private set
 
-    fun showAllRuns() {
-        showsAllRuns = true
+    fun showMore() {
+        showMoreTaps += 1
     }
     /** Display name and the cached copy's path, held between preview and confirm. */
     private var file: Pair<String, String>? = null
@@ -114,7 +115,7 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
     /** [path] is a readable copy of the shared file, or null when the sender didn't let CrewCue read it. */
     fun receive(fileName: String, path: String?, signedIn: Boolean) {
         ticket += 1
-        showsAllRuns = false
+        showMoreTaps = 0
         val mine = ticket
         if (path == null && signedIn) {
             // The sending app didn't let CrewCue read the file.
@@ -135,7 +136,7 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
 
     fun showTip() {
         ticket += 1
-        showsAllRuns = false
+        showMoreTaps = 0
         file = null
         ui = SharedRunUi.Message(RUN_SHARE_TIP)
     }
@@ -156,7 +157,7 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
 
     fun dismiss() {
         ticket += 1
-        showsAllRuns = false
+        showMoreTaps = 0
         ui = null
         file = null
     }
@@ -195,8 +196,12 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
                         )
                     },
                     unreadableLine = json.optString("unreadableLine").ifBlank { null },
-                    firstListedRuns = json.optInt("firstListedRuns", 10),
-                    showMoreLabel = json.optString("showMoreLabel").ifBlank { null },
+                    showMoreSteps = json.optJSONArray("showMoreSteps")?.let { steps ->
+                        (0 until steps.length()).mapNotNull { i ->
+                            val step = steps.optJSONObject(i) ?: return@mapNotNull null
+                            ShowMoreStep(step.optInt("listed"), step.optString("label").ifBlank { null })
+                        }
+                    }?.ifEmpty { null } ?: listOf(ShowMoreStep(Int.MAX_VALUE, null)),
                     alreadyImportedBadge = json.optString("alreadyImportedBadge").ifBlank { "Already imported" },
                     skippedLine = json.optString("skippedLine").ifBlank { null },
                     unreadable = (0 until (unreadable?.length() ?: 0)).mapNotNull { index ->
@@ -264,7 +269,9 @@ class SharedRunImportViewModelFactory(private val raceDay: RaceDayBridge) : View
 fun SharedRunImportSheet(model: SharedRunImportViewModel) {
     val ui = model.ui ?: return
     var expanded by rememberSaveable { mutableStateOf(false) }
-    ToolSheet(title = "Import runs", onDismiss = { if (ui !is SharedRunUi.Importing) model.dismiss() }) {
+    // "Import 174 runs?" while previewing, so the question is the sheet's only title.
+    val title = (ui as? SharedRunUi.Preview)?.title ?: "Import runs"
+    ToolSheet(title = title, onDismiss = { if (ui !is SharedRunUi.Importing) model.dismiss() }) {
         Column(
             Modifier.fillMaxWidth().testTag("crewcue.run-share-import").semantics { contentDescription = "Import runs" },
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -281,22 +288,20 @@ fun SharedRunImportSheet(model: SharedRunImportViewModel) {
                     )
                 }
                 is SharedRunUi.Preview -> {
-                    Text(ui.title, style = MaterialTheme.typography.titleMedium)
-                    val listed = if (model.showsAllRuns) ui.runs else ui.runs.take(ui.firstListedRuns)
+                    val step = ui.showMoreSteps[model.showMoreTaps.coerceAtMost(ui.showMoreSteps.lastIndex)]
+                    val listed = ui.runs.take(step.listed)
                     Column(
                         Modifier.fillMaxWidth().animateContentSize().testTag("crewcue.run-share-import.runs"),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listed.forEach { run -> PreviewRunRow(run, ui.alreadyImportedBadge) }
                     }
-                    if (!model.showsAllRuns) {
-                        ui.showMoreLabel?.let { label ->
-                            SecondaryButton(
-                                label,
-                                onClick = { model.showAllRuns() },
-                                modifier = Modifier.fillMaxWidth().testTag("crewcue.run-share-import.show-more")
-                            )
-                        }
+                    step.label?.let { label ->
+                        SecondaryButton(
+                            label,
+                            onClick = { model.showMore() },
+                            modifier = Modifier.fillMaxWidth().testTag("crewcue.run-share-import.show-more")
+                        )
                     }
                     ui.skippedLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     val single = ui.runs.singleOrNull()

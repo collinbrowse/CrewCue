@@ -9,11 +9,11 @@ import CrewCueClientCore
 final class SharedRunImportModel {
     /// Nil while no file is in flight; the sheet shows for any other state.
     private(set) var state: SharedRunImportState? {
-        didSet { if case .preview = state {} else { showsAllRuns = false } }
+        didSet { if case .preview = state {} else { showMoreTaps = 0 } }
     }
-    /// The runner tapped Show more: the preview lists every run, not the first 10. Kept here so a
-    /// size change (iPhone Duo fold) doesn't collapse the list.
-    var showsAllRuns = false
+    /// How many times the runner tapped Show more; each tap lists more runs (client-core
+    /// `listedCount(afterTaps:)`). Kept here so a size change (iPhone Duo fold) keeps the list open.
+    var showMoreTaps = 0
     var isPresented: Bool {
         get { state != nil }
         set { if !newValue { dismiss() } }
