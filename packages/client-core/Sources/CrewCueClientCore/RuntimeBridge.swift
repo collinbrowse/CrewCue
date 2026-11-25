@@ -22,7 +22,7 @@ import Dispatch
 /// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, deleteRace, raceDeletionCopy, renameRace, raceRenameCopy, onboardingCopy, onboardingHistoryComparison, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
-/// previewActivityUpload, importActivityUpload,
+/// previewActivityUpload, importActivityUpload, deleteActivity, activityDeleteCopy,
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
 /// readPendingJoin, clearPendingJoin, giveUpInvite, resolvePendingJoin, inviteShare, inviteCopy,
 /// pastedInviteCode, confirmedInviteForSignIn, inviteJoinLine (`RuntimeOnboarding.swift`),
@@ -257,6 +257,10 @@ enum RuntimeCall {
             return await previewActivityUpload(object)
         case "importActivityUpload":
             return await importActivityUpload(object)
+        case "deleteActivity":
+            return try await deleteActivity(object)
+        case "activityDeleteCopy":
+            return ActivityHistoryDelete.copy
         case "stravaStart":
             return try await stravaStart(object)
         case "stravaConnection":
@@ -1567,6 +1571,17 @@ enum RuntimeCall {
                 return ["offline": true, "items": [[String: Any]]()]
             }
             throw error
+        }
+    }
+
+    /// `id` is the history row. Returns removed true, or removed false with offline and a user-facing `message`.
+    private static func deleteActivity(_ object: [String: Any]) async throws -> Any {
+        let graph = try graph(object)
+        switch await ActivityHistoryDelete.run(graph: graph, id: text(object, "id") ?? "") {
+        case .removed:
+            return ["removed": true, "offline": false]
+        case .failed(let message, let offline):
+            return ["removed": false, "offline": offline, "message": message]
         }
     }
 

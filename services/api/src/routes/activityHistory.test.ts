@@ -538,3 +538,95 @@ test("POST /activity-history metrics-only ingest is idempotent and athlete-scope
     assert.equal(await countActivityHistoryRows(), 2);
   });
 });
+
+test("DELETE /activity-history/:id is owner-only and removes the run from list and get", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const a = tokenFor("athlete-a");
+    const b = tokenFor("athlete-b");
+    const created = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${a}` },
+      payload: { gpxXml: readPacingGpx("activity-short-road.gpx"), externalId: "delete-a" }
+    });
+    const ref = parseActivityHistoryRef(created.json());
+    const kept = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${a}` },
+      payload: { gpxXml: readPacingGpx("activity-long-trail.gpx"), externalId: "keep-a" }
+    });
+    const keptRef = parseActivityHistoryRef(kept.json());
+
+    const anonymous = await app.inject({ method: "DELETE", url: `/activity-history/${ref.id}` });
+    assert.equal(anonymous.statusCode, 401);
+
+    const otherAthlete = await app.inject({
+      method: "DELETE",
+      url: `/activity-history/${ref.id}`,
+      headers: { authorization: `Bearer ${b}` }
+    });
+    assert.equal(otherAthlete.statusCode, 404);
+    assert.equal(await countActivityHistoryRows(), 2);
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/activity-history/${ref.id}`,
+      headers: { authorization: `Bearer ${a}` }
+    });
+    assert.equal(removed.statusCode, 204);
+    assert.equal(removed.body, "");
+    assert.equal(await countActivityHistoryRows(), 1);
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/activity-history",
+      headers: { authorization: `Bearer ${a}` }
+    });
+    assert.deepEqual(
+      (list.json() as { items: ActivityHistoryRef[] }).items.map((item) => item.id),
+      [keptRef.id]
+    );
+    const get = await app.inject({
+      method: "GET",
+      url: `/activity-history/${ref.id}`,
+      headers: { authorization: `Bearer ${a}` }
+    });
+    assert.equal(get.statusCode, 404);
+
+    const again = await app.inject({
+      method: "DELETE",
+      url: `/activity-history/${ref.id}`,
+      headers: { authorization: `Bearer ${a}` }
+    });
+    assert.equal(again.statusCode, 404);
+  });
+});
+
+test("a deleted run can be imported again as a new row", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const a = tokenFor("athlete-a");
+    const payload = { gpxXml: readPacingGpx("activity-short-road.gpx"), externalId: "reimport" };
+    const first = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${a}` },
+      payload
+    });
+    const firstRef = parseActivityHistoryRef(first.json());
+    await app.inject({
+      method: "DELETE",
+      url: `/activity-history/${firstRef.id}`,
+      headers: { authorization: `Bearer ${a}` }
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${a}` },
+      payload
+    });
+    assert.equal(second.statusCode, 201, second.body);
+    assert.notEqual(parseActivityHistoryRef(second.json()).id, firstRef.id);
+    assert.equal(await countActivityHistoryRows(), 1);
+  });
+});

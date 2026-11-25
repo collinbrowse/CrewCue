@@ -178,6 +178,17 @@ public enum RaceDayAPI {
         return payload.items.map(\.displayItem).sorted { $0.recordedAt > $1.recordedAt }
     }
 
+    /// `DELETE /activity-history/:id`: the athlete removes one run from pacing history. The server
+    /// answers 404 for an unknown id or another athlete's run; a run already gone counts as removed.
+    public static func deleteActivity(graph: ClientGraph, id: String) async throws {
+        let path = "/activity-history/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)"
+        do {
+            _ = try await sendData(graph, path, method: .delete, body: nil)
+        } catch let failure as ClientHTTPError where failure.status == 404 {
+            return
+        }
+    }
+
     /// Upload an exported watch file (.gpx, .fit, .tcx) into pacing history (#652).
     /// A file already imported returns `.duplicate` with the stored row.
     public static func importActivityFile(graph: ClientGraph, fileName: String, data: Data) async throws -> ActivityImportResult {
