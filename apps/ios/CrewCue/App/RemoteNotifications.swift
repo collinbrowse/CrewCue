@@ -1,5 +1,6 @@
 import UIKit
 import UserNotifications
+import CrewCueClientCore
 
 @MainActor
 final class RemoteNotificationTokenCenter {
@@ -62,25 +63,26 @@ final class RemoteNotificationTokenCenter {
     }
 }
 
-/// Hands tapped chat notifications to the shell. Holds one tap until the shell is ready.
+/// Hands tapped notifications to the shell. Holds one tap until the shell is ready; the shell's
+/// `PushTapInbox` then holds it through sign-in and the race list.
 @MainActor
 final class PushRouter {
     static let shared = PushRouter()
 
-    var handler: ((String) -> Void)? {
+    var handler: ((PushTapRoute) -> Void)? {
         didSet { deliverPending() }
     }
-    private var pending: String?
+    private var pending: PushTapRoute?
 
-    func open(roomId: String) {
-        pending = roomId
+    func open(_ route: PushTapRoute) {
+        pending = route
         deliverPending()
     }
 
     private func deliverPending() {
-        guard let handler, let roomId = pending else { return }
+        guard let handler, let route = pending else { return }
         pending = nil
-        handler(roomId)
+        handler(route)
     }
 }
 
@@ -93,19 +95,18 @@ final class CrewCueAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificat
         return true
     }
 
-    /// Payload from the API: `{"aps": {...}, "type": "chat", "roomId": "..."}`.
+    /// Payload from the API: `{"aps": {...}, "type": "chat" | "tracking" | "unlock", "roomId": "..."}`
+    /// (`chatPushTransports.ts`). Cold launch, background and foreground taps all arrive here.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let info = response.notification.request.content.userInfo
-        let roomId = info["roomId"] as? String
-        let type = info["type"] as? String
+        let route = PushTapRoute.parse(userInfo: response.notification.request.content.userInfo)
         completionHandler()
-        guard let roomId, !roomId.isEmpty, type == nil || type == "chat" else { return }
+        guard let route else { return }
         Task { @MainActor in
-            PushRouter.shared.open(roomId: roomId)
+            PushRouter.shared.open(route)
         }
     }
 

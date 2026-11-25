@@ -36,8 +36,13 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { AppContainer(applicationContext) }
+    /**
+     * A fresh launch, not a restore after process death or a launch from Recents: only then is the
+     * launch intent's link (an invite, a dev route) opened. Set before [shellModel] is first read.
+     */
+    private var freshLaunch = true
     private val shellModel: ShellViewModel by viewModels {
-        ShellViewModelFactory(container, intent)
+        ShellViewModelFactory(container, intent.takeIf { freshLaunch })
     }
     private val sharedRunImport: SharedRunImportViewModel by viewModels {
         SharedRunImportViewModelFactory(container.raceDay)
@@ -46,6 +51,8 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        freshLaunch = savedInstanceState == null &&
+            ((intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
         CrashReporting.start(applicationContext)
         container.authConfig.problem?.let { problem ->
             setContent { CrewCueTheme { ConfigurationErrorScreen(problem) } }
@@ -120,8 +127,8 @@ class MainActivity : ComponentActivity() {
         val signedIn = shellModel.session != null || container.sessionStore.current() != null
         lifecycleScope.launch {
             if (uri != null) {
-                val (name, bytes) = withContext(Dispatchers.IO) { SharedRunImportViewModel.readShared(applicationContext, uri) }
-                sharedRunImport.receive(name, bytes, signedIn)
+                val (name, path) = withContext(Dispatchers.IO) { SharedRunImportViewModel.copyShared(applicationContext, uri) }
+                sharedRunImport.receive(name, path, signedIn)
                 return@launch
             }
             val name = android.net.Uri.parse(devLink).getQueryParameter("file")
@@ -129,8 +136,8 @@ class MainActivity : ComponentActivity() {
                 sharedRunImport.showTip()
                 return@launch
             }
-            val bytes = withContext(Dispatchers.IO) { runCatching { java.io.File(filesDir, name).readBytes() }.getOrNull() }
-            sharedRunImport.receive(name, bytes, signedIn)
+            val file = java.io.File(filesDir, name)
+            sharedRunImport.receive(name, file.takeIf { it.canRead() }?.absolutePath, signedIn)
         }
         return true
     }

@@ -241,7 +241,7 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
     var read = try onboarding.read(signedIn: false, userId: nil, now: t0)
     #expect(read.state.flow == .crew && read.state.step == .join)
     #expect(read.pendingJoin?.code == "123456")
-    try onboarding.mark(.join, invite: "123456", userId: nil)
+    try onboarding.mark(.join, invite: "123456", userId: nil, now: t0)
     read = try onboarding.read(signedIn: false, userId: nil, now: t0)
     #expect(read.state.step == .account)
     #expect(read.state.inviteConfirmed)
@@ -331,7 +331,7 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
 
     (outcome, kept, _) = try await resolve(join: .full)
     #expect(outcome == .raceFull && kept?.code == "123456")
-    #expect(outcome.message == "This race is full. Ask the runner to upgrade their pass.")
+    #expect(outcome.message == "This race is full. Ask the runner to add Full Crew so more crew can join.")
 
     (outcome, kept, _) = try await resolve(join: .unpaid)
     #expect(outcome == .raceLocked && kept?.code == "123456")
@@ -492,7 +492,7 @@ private actor Gate {
     #expect(read.pendingJoin?.code == "123456" && read.pendingJoin?.source == .referrer)
 
     // A named invite wins over the saved one: confirming the saved code doesn't confirm it.
-    try onboarding.mark(.join, invite: "123456", userId: nil)
+    try onboarding.mark(.join, invite: "123456", userId: nil, now: t0)
     read = try onboarding.read(signedIn: false, userId: nil, pendingInvite: "tok-b", now: t0)
     #expect(read.state.step == .join && !read.state.inviteConfirmed)
     #expect(try onboarding.read(signedIn: false, userId: nil, now: t0).state.inviteConfirmed)
@@ -715,4 +715,69 @@ private func isoDate(_ text: String) -> Date? {
     let stale = try result(try await runtime(signedOut.merging(["op": "readOnboarding"]) { $1 }))
     #expect(stale["pendingJoin"] is NSNull)
     #expect((stale["state"] as? [String: Any])?["flow"] as? String == "chooser")
+}
+
+// MARK: - Review round 3
+
+@Test func aLinkOpenedWhileTheJoinIsOutIsTheNextCode() async throws {
+    let (_, pending, _) = stores()
+    try pending.save(code: "123456", source: .link, userId: "ada", now: t0)
+    // The join answers only after a newer link has been saved.
+    let server = JoinServer(join: .wait({
+        _ = try? pending.save(code: "654321", source: .link, userId: "ada", now: t0.addingTimeInterval(30))
+    }, then: .joined("r9")))
+    let outcome = await pending.resolve(graph: graph(server), userId: "ada")
+    #expect(outcome == .joined(roomId: "r9"))
+    // The join cleared only its own code: the newer one is next, and the screen shows it.
+    #expect(pending.nextCode(after: outcome, userId: "ada", now: t0.addingTimeInterval(60))?.code == "654321")
+    // Nothing newer: nothing next. An outcome that isn't a membership keeps its own code on screen.
+    try pending.clear()
+    #expect(pending.nextCode(after: outcome, userId: "ada", now: t0) == nil)
+    try pending.save(code: "111111", source: .link, userId: "ada", now: t0)
+    #expect(pending.nextCode(after: .raceFull, userId: "ada", now: t0) == nil)
+    #expect(pending.nextCode(after: .alreadyMember(roomId: "r1"), userId: "ada", now: t0)?.code == "111111")
+}
+
+@Test func aConfirmationStampedAheadOfTheClockIsExpiredAndDropped() throws {
+    let (onboarding, pending, _) = stores()
+    try pending.save(code: "123456", source: .link, userId: nil, now: t0)
+    // Within a minute ahead (jitter): still counts.
+    try onboarding.mark(.join, invite: "123456", userId: nil, now: t0.addingTimeInterval(30))
+    #expect(try onboarding.read(signedIn: false, userId: nil, now: t0).state.inviteConfirmed)
+
+    // Stamped two minutes ahead: expired, and removed from the file on that read.
+    try onboarding.mark(.join, invite: "123456", userId: nil, now: t0.addingTimeInterval(120))
+    #expect(try !onboarding.read(signedIn: false, userId: nil, now: t0).state.inviteConfirmed)
+    #expect(onboarding.load(userId: nil).confirmedInvite == nil)
+    #expect(onboarding.load(userId: nil).confirmedInviteAt == nil)
+    // The clock catching up doesn't bring it back.
+    #expect(try !onboarding.read(signedIn: false, userId: nil, now: t0.addingTimeInterval(120)).state.inviteConfirmed)
+}
+
+@Test func anExpiredConfirmationIsDroppedFromTheFileOnRead() throws {
+    let (onboarding, pending, _) = stores()
+    try pending.save(code: "123456", source: .link, userId: nil, now: t0)
+    try onboarding.mark(.join, invite: "123456", userId: nil, now: t0)
+    _ = try onboarding.read(signedIn: false, userId: nil, now: t0.addingTimeInterval(OnboardingProgress.confirmedInviteLifetime + 1))
+    #expect(onboarding.load(userId: nil).confirmedInvite == nil)
+    // A clock moved back afterwards finds nothing to revive.
+    #expect(try !onboarding.read(signedIn: false, userId: nil, now: t0).state.inviteConfirmed)
+}
+
+@Test func giveUpInviteRuntimeOpClearsTheCodeAndTheConfirmation() async throws {
+    let storage = FileManager.default.temporaryDirectory
+        .appendingPathComponent("invite-rt-\(UUID().uuidString)/crewcue-user", isDirectory: true).path
+    let signedOut: [String: Any] = ["storageDir": storage, "userId": "", "token": ""]
+    _ = try result(try await runtime(signedOut.merging(["op": "savePendingJoin", "code": "123456", "source": "link"]) { $1 }))
+    let marked = try result(try await runtime(signedOut.merging(["op": "markOnboardingStep", "step": "join", "invite": "123456"]) { $1 }))
+    #expect((marked["state"] as? [String: Any])?["inviteConfirmed"] as? Bool == true)
+
+    let gaveUp = try result(try await runtime(signedOut.merging(["op": "giveUpInvite"]) { $1 }))
+    #expect(gaveUp["pendingJoin"] is NSNull)
+    #expect((gaveUp["state"] as? [String: Any])?["flow"] as? String == "chooser")
+
+    // The same link again: the preview (step join), not the sign-in, and nothing confirmed.
+    _ = try result(try await runtime(signedOut.merging(["op": "savePendingJoin", "code": "123456", "source": "link"]) { $1 }))
+    let again = try #require(try result(try await runtime(signedOut.merging(["op": "readOnboarding"]) { $1 }))["state"] as? [String: Any])
+    #expect(again["step"] as? String == "join" && again["inviteConfirmed"] as? Bool == false)
 }

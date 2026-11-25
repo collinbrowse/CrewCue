@@ -18,6 +18,14 @@ public struct OnboardingProgress: Equatable, Sendable {
     /// Which invite the signed-out person confirmed, as a digest of its token or code (the file
     /// never keeps the token itself). A different invite is not confirmed.
     public var confirmedInvite: String?
+    /// When the invite was confirmed (whole milliseconds). A confirmation only covers the sign-up
+    /// right after it: past `confirmedInviteLifetime` (or with no time saved) it no longer counts,
+    /// so on a shared device it never joins whoever signs in days later.
+    public var confirmedInviteAt: Date?
+    public static let confirmedInviteLifetime: TimeInterval = 30 * 60
+    /// How far ahead of `now` a confirmation may be stamped (clock jitter) and still count. One
+    /// stamped further ahead is expired: a skewed clock never stretches it.
+    public static let confirmedInviteFutureSkew: TimeInterval = 60
 
     public init(
         choice: OnboardingChoice? = nil,
@@ -25,7 +33,8 @@ public struct OnboardingProgress: Equatable, Sendable {
         tours: [OnboardingChoice: [OnboardingStep: OnboardingOutcome]] = [:],
         races: [String: [OnboardingStep: OnboardingOutcome]] = [:],
         knownRaces: [OnboardingRace]? = nil,
-        confirmedInvite: String? = nil
+        confirmedInvite: String? = nil,
+        confirmedInviteAt: Date? = nil
     ) {
         self.choice = choice
         self.account = account
@@ -33,6 +42,38 @@ public struct OnboardingProgress: Equatable, Sendable {
         self.races = races
         self.knownRaces = knownRaces
         self.confirmedInvite = confirmedInvite
+        self.confirmedInviteAt = confirmedInviteAt.map(Self.wholeMilliseconds)
+    }
+
+    /// The confirmation is recent enough to count at `now`: younger than `confirmedInviteLifetime`,
+    /// and stamped no more than `confirmedInviteFutureSkew` ahead of `now`.
+    public func inviteConfirmationIsCurrent(at now: Date) -> Bool {
+        guard confirmedInvite != nil, let at = confirmedInviteAt else { return false }
+        let age = now.timeIntervalSince(at)
+        return age >= -Self.confirmedInviteFutureSkew && age < Self.confirmedInviteLifetime
+    }
+
+    /// `inviteConfirmed(_:)` that also needs the confirmation to be current at `now`.
+    public func inviteConfirmed(_ invite: String?, at now: Date) -> Bool {
+        inviteConfirmed(invite) && inviteConfirmationIsCurrent(at: now)
+    }
+
+    /// Forgets the confirmed invite (the person gave it up).
+    public mutating func clearConfirmedInvite() {
+        confirmedInvite = nil
+        confirmedInviteAt = nil
+    }
+
+    /// This progress with an expired confirmation dropped, as `OnboardingStore.read` resolves it.
+    public func withCurrentConfirmation(at now: Date) -> OnboardingProgress {
+        guard confirmedInvite != nil, !inviteConfirmationIsCurrent(at: now) else { return self }
+        var result = self
+        result.clearConfirmedInvite()
+        return result
+    }
+
+    private static func wholeMilliseconds(_ date: Date) -> Date {
+        Date(timeIntervalSince1970: (date.timeIntervalSince1970 * 1000).rounded() / 1000)
     }
 
     /// True when nothing but the cached race list is saved: no chooser pick, account step, tour,
@@ -86,13 +127,15 @@ public struct OnboardingProgress: Equatable, Sendable {
         outcome: OnboardingOutcome,
         roomId: String?,
         invite: String? = nil,
-        role: OnboardingChoice? = nil
+        role: OnboardingChoice? = nil,
+        at confirmedAt: Date? = nil
     ) throws {
         if step.followsServer { throw OnboardingError.followsServer(step) }
         guard step.allowedOutcomes.contains(outcome) else { throw OnboardingError.outcomeNotAllowed(step, outcome) }
         if step == .join {
             guard let key = Self.inviteKey(invite) else { throw OnboardingError.inviteRequired }
             confirmedInvite = key
+            confirmedInviteAt = Self.wholeMilliseconds(confirmedAt ?? Date())
             return
         }
         if step.accountWide {
@@ -157,6 +200,9 @@ public struct OnboardingProgress: Equatable, Sendable {
         if let choice { object["choice"] = choice.rawValue }
         if let knownRaces { object["knownRaces"] = knownRaces.map(\.jsonObject) }
         if let confirmedInvite { object["confirmedInvite"] = confirmedInvite }
+        if let confirmedInviteAt {
+            object["confirmedInviteAtMs"] = Int64((confirmedInviteAt.timeIntervalSince1970 * 1000).rounded())
+        }
         return object
     }
 
@@ -174,7 +220,8 @@ public struct OnboardingProgress: Equatable, Sendable {
                 if !steps.isEmpty { races[entry.key] = steps }
             },
             knownRaces: (object["knownRaces"] as? [Any]).map { $0.compactMap(OnboardingRace.init(jsonObject:)) },
-            confirmedInvite: (object["confirmedInvite"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            confirmedInvite: (object["confirmedInvite"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            confirmedInviteAt: (object["confirmedInviteAtMs"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
         )
     }
 
@@ -285,9 +332,20 @@ public struct OnboardingStore: Sendable {
         roomId: String? = nil,
         invite: String? = nil,
         role: OnboardingChoice? = nil,
-        userId: String?
+        userId: String?,
+        now: Date = Date()
     ) throws -> OnboardingProgress {
-        try update(userId: userId) { try $0.record(step, outcome: outcome, roomId: roomId, invite: invite, role: role) }
+        try update(userId: userId) { try $0.record(step, outcome: outcome, roomId: roomId, invite: invite, role: role, at: now) }
+    }
+
+    /// Forgets the confirmed invite (Back from the join screen or the sign-in after it), so the
+    /// same link opened later shows the preview again and nothing joins on sign-in.
+    @discardableResult
+    public func clearConfirmedInvite(userId: String?) throws -> OnboardingProgress {
+        // Nothing confirmed: no write (and no empty guest file).
+        let current = load(userId: userId)
+        guard current.confirmedInvite != nil || current.confirmedInviteAt != nil else { return current }
+        return try update(userId: userId) { $0.clearConfirmedInvite() }
     }
 
     @discardableResult
@@ -405,7 +463,13 @@ extension OnboardingStore {
         now: Date,
         invite: (PendingJoin?) -> String?
     ) throws -> OnboardingRead {
-        let progress = try self.progress(signedIn: signedIn, userId: userId, races: races)
+        // A confirmation past its lifetime (or stamped too far ahead) no longer counts, and is
+        // removed from the file so a clock that comes back can't revive it.
+        let read = try self.progress(signedIn: signedIn, userId: userId, races: races)
+        var progress = read.withCurrentConfirmation(at: now)
+        if progress != read {
+            progress = try clearConfirmedInvite(userId: signedIn ? userId : nil).withCurrentConfirmation(at: now)
+        }
         let saved = pendingJoins.read(userId: signedIn ? userId : nil, now: now)
         let state = Onboarding.resolve(OnboardingInput(
             signedIn: signedIn, userId: userId, pendingInvite: invite(saved),

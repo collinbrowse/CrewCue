@@ -14,7 +14,8 @@
     "Offline": "API stopped: 'Offline. Import the file when you're back online.'",
     "Accessibility labels": "crewcue.run-share-import, crewcue.run-share-import.confirm, crewcue.run-share-import.cancel",
     "Share intent": "ACTION_SEND from adb with a MediaStore URI opened CrewCue's sheet (filter matched). adb can't grant another app read access to that URI, so the bytes weren't readable; a real sending app grants it. Unreadable shares now show the unreadable message.",
-    "Adaptive": "Mid-preview, the window was resized to 2208x1840 (fold-open size): same 'Import 2 runs?' preview, no reset. A foldable AVD (pixel_9_pro_fold) wasn't run."
+    "Adaptive": "Mid-preview, the window was resized to 2208x1840 (fold-open size): same 'Import 2 runs?' preview, no reset. A foldable AVD (pixel_9_pro_fold) wasn't run.",
+    "Bulk": "The owner's COROS bulk export (2,085 FIT files, 135 MB zip) copied into files/ and opened with the dev link (the path the shared-file copy uses): 'Import 174 runs?', the newest runs, 'and 124 more', '1,911 files skipped: 819 older than a year, 378 not runs or hikes, 714 unreadable', 'Unreadable files'; Import 174 runs → '174 runs imported.' Server time under emulator load: preview 55 s, import 65 s."
   },
   "screenshots": "Attached to the PR, not committed."
 }

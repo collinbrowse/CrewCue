@@ -49,6 +49,17 @@ Two pieces of work fix this: one-tap sharing of activity files from watch apps i
   - **Zip:** unzip on the server so there's one implementation. A single-activity Garmin zip fits the current 10 MB limit. Bulk zips need a larger limit or a per-file upload loop from the client. Decide in the zip slice.
 - **client-core:** an incoming-file model holding the states (signed out, previewing, importing, done, partial failure) and the copy. The platform apps own the document and intent plumbing.
 
+### Bulk import (Nov 24 2026)
+
+A COROS bulk export holds every activity, years of them: the owner's was 2,085 FIT files, 128 MB zipped. The JSON routes (20 MB, 500 files) can't take that, so clients send the file's raw bytes to `POST /activity-history/upload?mode=preview|import&fileName=`. That route takes up to 200 MB and 5,000 files, read one at a time.
+
+- **What's kept:** a multi-run upload keeps runs, trail runs and hikes from the year before its newest run.
+- **What's skipped and counted:** rides, walks and other sports, older runs, and files without a run. The preview shows "1,905 files skipped: …" and lists up to 50 unreadable names.
+- **A single shared run** imports whatever its date.
+- **Android** streams the shared file to its cache and passes the path through the bridge, so 100+ MB never crosses JNI as text.
+- **Owner's export on the simulator:** preview about 7 s, import 16.5 s locally, 174 runs saved.
+- **Timeout risk:** a slower server could pass the client's 60 s idle timeout on import. If that shows up, move import to a background job.
+
 ## Part 2: Personal climbing and descent model
 
 ### Idea

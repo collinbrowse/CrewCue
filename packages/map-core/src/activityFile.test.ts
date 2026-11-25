@@ -104,4 +104,5 @@ test("sport comes from the FIT session, TCX Activity and GPX type", () => {
   assert.equal(isFootActivity("hiking"), true);
   assert.equal(isFootActivity(null), true);
   assert.equal(isFootActivity("cycling"), false);
+  assert.equal(isFootActivity("walking"), false);
 });

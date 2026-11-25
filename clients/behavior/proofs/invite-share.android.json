@@ -1,0 +1,18 @@
+{
+  "id": "invite-share",
+  "platform": "android",
+  "entry": "crewcue://dev/invite-share",
+  "device": "crewcue_api_35 phone emulator (API 35) and crewcue_fold_api_35 foldable (unfolded, then folded), emulator-5608, debug APK",
+  "date": "2026-11-24",
+  "commit": "d65d44a6",
+  "session": "Local memory API on port 3000, the only listener; runner Ana (debug dev session, athlete) on Leadville 100 (paid, unlimited crew, join code 055818).",
+  "action": "Profile, Room members, Invite crew (crewcue.room-members.invite); Share invite; Copy code; Wi-Fi and data off, then Invite crew again; on the foldable, fold with the screen open.",
+  "checked": {
+    "Success": "'Invite ready to share.', code 055818 and https://collinbrowse.github.io/crewcue/join/?code=055818. Share invite opened the system share sheet (ChooserActivity). Copy code said 'Code copied.' and the code pasted on the join screen. Folding the foldable kept the screen, code and link.",
+    "Empty": "Not reachable on the device: the API gives every race a join code. 'No invite code for this race yet.' is covered by the Swift test inviteShareWithoutAJoinCodeIsEmpty.",
+    "Error": "Not reachable on the device with the network up: the room loaded every time. 'Couldn't load the invite.' for a body that doesn't decode, a 500 or a non-HTTP answer is covered by inviteShareIsOfflineOnlyForATransportFailure.",
+    "Offline": "Wi-Fi and data off: 'Offline. The invite needs the network.' Logcat: 'inviteShare Offline: Error Domain=NSURLErrorDomain Code=-1 ... Couldn't connect to server'.",
+    "Accessibility labels": "crewcue.invite-share (dev route, agent:android:ready ok), crewcue.invite-share.code, crewcue.invite-share.link, crewcue.invite-share.share, crewcue.room-members.invite"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

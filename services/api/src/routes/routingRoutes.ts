@@ -87,7 +87,8 @@ function osrmProfileForMode(mode: "drive" | "hike"): "driving" | "walking" {
 }
 
 function buildCoordinatePath(coordinates: Array<{ longitude: number; latitude: number }>): string {
-  return coordinates.map((c) => `${c.longitude},${c.latitude}`).join(";");
+  // Numbers only (schema bounds them); fixed precision keeps the path free of anything else.
+  return coordinates.map((c) => `${Number(c.longitude).toFixed(6)},${Number(c.latitude).toFixed(6)}`).join(";");
 }
 
 function summarizeOsrmRoute(data: OsrmRouteResponse): NavigationRouteResult | null {

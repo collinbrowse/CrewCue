@@ -13,7 +13,14 @@ struct ProfileTabPage: View {
                 roomId: model.signedInRoomId,
                 role: model.signedInRole,
                 upgradeModel: model.upgradeModel,
-                onProfile: { model.show(Route(featureId: "profile", state: .success)) }
+                onProfile: { model.show(Route(featureId: "profile", state: .success)) },
+                onInvite: { model.show(Route(featureId: "invite-share", state: .success)) }
+            )
+        case "invite-share":
+            InviteShareView(
+                model: model.inviteModel,
+                roomId: model.signedInRoomId,
+                onBack: { model.show(Route(featureId: "room-members", state: .success)) }
             )
         case "readouts-incidents":
             IncidentsView(

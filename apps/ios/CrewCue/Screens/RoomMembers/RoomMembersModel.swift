@@ -81,6 +81,12 @@ final class RoomMembersModel {
         }
     }
 
+    /// The signed-in user is this race's runner.
+    var isRunner: Bool {
+        guard let userId, let athleteId else { return false }
+        return userId == athleteId
+    }
+
     func canRemove(_ member: RoomMemberLine) -> Bool {
         guard let userId, let athleteId, userId == athleteId else { return false }
         return member.id != athleteId

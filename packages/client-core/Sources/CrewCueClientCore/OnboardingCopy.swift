@@ -181,6 +181,17 @@ public enum OnboardingCopy {
 
     public static let unpaidBanner = "Unlock race"
 
+    /// "Expires in 7 days" under the Unlock race banner: whole days until the server deletes the
+    /// unpaid race (`unpaidExpiresAt`), rounded down and at least 1, as the unpaid reminder pushes
+    /// count them (`unpaidRaceReminderCopy.ts`). Nil without a date, or once it has passed.
+    public static func unpaidExpiry(expiresAt: String?, now: Date) -> String? {
+        guard let expiresAt, let date = ScheduleFormat.parseISO8601(expiresAt) else { return nil }
+        let seconds = date.timeIntervalSince(now)
+        guard seconds > 0 else { return nil }
+        let days = max(1, Int((seconds / 86_400).rounded(.down)))
+        return days == 1 ? "Expires in 1 day" : "Expires in \(days) days"
+    }
+
     // MARK: Errors
 
     /// Course save limit reached (HTTP 429).

@@ -36,6 +36,8 @@ final class ShellModel {
     let sharedRunImport: SharedRunImportModel
     let accountDeletionModel: AccountDeletionModel
     let membersModel: RoomMembersModel
+    /// The runner's invite link and code (Room members → Invite crew).
+    let inviteModel: InviteShareModel
     let incidentsModel: IncidentsModel
     let paceModel: PaceModel
     let mapModel: MapModel
@@ -58,8 +60,8 @@ final class ShellModel {
     private(set) var signedInUserId: String? { didSet { syncChat() } }
     private(set) var signedInRole: String? { didSet { syncChat() } }
     private(set) var signedInRoomId: String? { didSet { syncChat() } }
-    /// A tapped chat push for a race the roster has not loaded yet.
-    private var pendingChatRoomId: String?
+    /// A tapped push waiting for sign-in or for the race list (clients/behavior/push-tap.md).
+    private var pushTaps = PushTapInbox()
     private(set) var signedInDisplayName: String?
     /// Every race the user belongs to. `signedInRoomId` is the active one; every tab follows it.
     private(set) var roster = RaceRoster()
@@ -101,6 +103,7 @@ final class ShellModel {
         self.sharedRunImport = SharedRunImportModel(client: client)
         self.accountDeletionModel = AccountDeletionModel(client: client)
         self.membersModel = RoomMembersModel(client: client)
+        self.inviteModel = InviteShareModel(client: client)
         self.incidentsModel = IncidentsModel(client: client)
         self.paceModel = PaceModel(client: client)
         self.mapModel = MapModel(client: client)
@@ -122,8 +125,11 @@ final class ShellModel {
         self.authModel.bindSession { [weak self] session in
             self?.adopt(session)
         }
-        self.joinModel.onJoined = { [weak self] roomId, role in
-            self?.noteJoined(roomId: roomId, role: role)
+        self.joinModel.onJoined = { [weak self] roomId, role, code in
+            self?.noteJoinedByHand(roomId: roomId, role: role, code: code)
+        }
+        self.joinModel.onNeedsAccount = { [weak self] code in
+            self?.requestAccount(toJoin: code)
         }
         self.athleteModel.onSaved = { [weak self] name in
             self?.updateDisplayName(name)
@@ -131,8 +137,8 @@ final class ShellModel {
         self.profileModel.bindSignOut { [weak self] in
             self?.signOut()
         }
-        PushRouter.shared.handler = { [weak self] roomId in
-            self?.openChat(roomId: roomId)
+        PushRouter.shared.handler = { [weak self] route in
+            self?.receivePushTap(route)
         }
         bindRunnerSetup()
         syncOnboarding()
@@ -155,7 +161,10 @@ final class ShellModel {
     }
 
     var raceAccess: RaceAccess? {
-        if isUnpaidRunnerRace { return .unlock }
+        if isUnpaidRunnerRace {
+            let expiresAt = roster.races.first(where: { $0.id == signedInRoomId })?.unpaidExpiresAt
+            return .unlock(expiry: OnboardingCopy.unpaidExpiry(expiresAt: expiresAt, now: client.graph.clock.now()))
+        }
         if onboarding.state.flow == .raceLocked, let reason = onboarding.state.reason {
             return .locked(reason: reason)
         }
@@ -177,6 +186,100 @@ final class ShellModel {
             freshRaces: races != nil
         )
         syncRacePreview()
+        // A pending invite read back (a relaunch, a sign-out) shows its code on the join screen.
+        if let pending = onboarding.pendingJoin, joinModel.code.isEmpty, !joinModel.joining {
+            joinModel.adopt(code: pending.code)
+        }
+    }
+
+    // MARK: Invites
+
+    /// A join link (the https join page, a Universal Link, or `crewcue://join/<code>`). Release
+    /// builds open these too; only `crewcue://dev/*` is Debug-only. The code is saved as the
+    /// device's pending invite, so a signed-out person keeps it through sign-up, and the
+    /// onboarding gate shows the join screen with the race's preview.
+    func openInvite(code: String, source: InviteSource) {
+        fixtureOverlay = false
+        racePreviewDevStart = nil
+        showsSettings = false
+        let saved = onboarding.savePendingJoin(code: code, source: source)
+        joinModel.adopt(code: code)
+        // Without the onboarding folder nothing is pending: the join screen still takes the code.
+        show(Route(featureId: saved ? "app-shell" : "join-crew", state: .success))
+        syncOnboarding()
+    }
+
+    /// A join link whose code couldn't be read: the join screen, offering Paste or typing it.
+    private func openJoinWithoutCode() {
+        fixtureOverlay = false
+        racePreviewDevStart = nil
+        showsSettings = false
+        joinModel.noteLinkWithoutCode()
+        show(Route(featureId: "join-crew", state: .success))
+    }
+
+    /// Signed out, Join on a previewed code: keep the code as the pending invite, confirm it, and
+    /// open sign-up. Signing in within the confirmation's lifetime then joins it (`adopt`).
+    func requestAccount(toJoin code: String) {
+        guard !isSignedIn else { return }
+        if onboarding.pendingJoin?.code != code {
+            onboarding.savePendingJoin(code: code, source: .typed)
+        }
+        onboarding.confirmInvite(code)
+        authModel.signingUp = true
+        fixtureOverlay = false
+        show(Route(featureId: "app-shell", state: .success))
+        syncOnboarding()
+    }
+
+    /// Back from the join screen or the sign-in after it: the person gave up on the invite. The
+    /// code and the confirmation both go, so the same link opened later shows the preview again
+    /// and signing in joins nothing.
+    func leaveCrewJoin() {
+        onboarding.giveUpInvite()
+        onboarding.clearChoice()
+        joinModel.clear()
+        syncOnboarding()
+    }
+
+    /// Join tapped on the join screen answered with a membership for `code`. Only that code's
+    /// pending invite is cleared: one that arrived while the join was out stays, and its join
+    /// screen stays up. The loader covers the gap until the race list has the new race, but only
+    /// on the onboarding join (the gate's join screen with no race to fall back on), never over a
+    /// shell that already has races.
+    private func noteJoinedByHand(roomId: String, role: String?, code: String) {
+        // No race yet: the onboarding join (or the chooser behind the join route) would show until
+        // the list answers. With races, the shell stays as it is.
+        let onboardingJoin = [.crewJoin, .chooser].contains(onboarding.entry) && onboarding.races.isEmpty
+        let newer = onboarding.clearPendingJoin(ifCode: code)
+        if newer == nil, onboardingJoin {
+            onboarding.noteJoinedAwaitingRaces()
+        }
+        noteJoined(roomId: roomId, role: role)
+    }
+
+    /// Joins the pending invite right after sign-in. Joined: the race becomes active. Anything else
+    /// (the race full or locked, offline) stays on the join screen with why; the code stays saved
+    /// unless it can never work.
+    func joinPendingInvite() async {
+        guard let userId = signedInUserId else { return }
+        joinModel.beginAutoJoin()
+        let outcome = await onboarding.resolvePendingJoin(graph: client.graph)
+        guard signedInUserId == userId else { return }
+        switch outcome {
+        case .joined(let roomId), .alreadyMember(let roomId):
+            // `resolve` clears only the code it joined: a link opened meanwhile stays pending.
+            if let newer = onboarding.nextCode(after: outcome) {
+                joinModel.endAutoJoin(adopting: newer.code)
+            } else {
+                if onboarding.races.isEmpty { onboarding.noteJoinedAwaitingRaces() }
+                joinModel.clear()
+            }
+            noteJoined(roomId: roomId, role: outcome == .joined(roomId: roomId) ? "crew_member" : nil)
+        default:
+            joinModel.show(outcome)
+            syncOnboarding()
+        }
     }
 
     /// The replay follows the gate: another race on its step starts over, and leaving the step
@@ -296,21 +399,54 @@ final class ShellModel {
         }
     }
 
-    /// A tapped chat notification: switch to that race and show its chat.
-    func openChat(roomId: String) {
-        guard isSignedIn else { return }
-        if roomId != signedInRoomId {
-            if roster.races.contains(where: { $0.id == roomId }) {
-                selectRace(roomId)
-            } else {
-                pendingChatRoomId = roomId
+    // MARK: Push taps
+
+    /// A tapped notification (`PushRouter`): cold launch, from the background, or with the app
+    /// open. Signed out, it's held until someone signs in in this launch, then opens only if the
+    /// race is in that account's list. A race the list doesn't have is dropped.
+    func receivePushTap(_ route: PushTapRoute) {
+        pushTaps.receive(route)
+        routePendingPushTap()
+    }
+
+    private func routePendingPushTap() {
+        switch pushTaps.take(signedIn: isSignedIn, userId: signedInUserId, races: roster.races) {
+        case nil, .holdUntilSignIn:
+            return
+        case .awaitRaces:
+            // The race isn't listed yet (a new race, or a launch before the list answered).
+            // `loadRaces` resolves it again when the list answers.
+            if !racesLoading {
                 Task { await loadRaces() }
-                return
             }
+        case .drop:
+            client.graph.logger.log("push tap for a race not in the list")
+        case .open(let roomId, let destination):
+            open(pushDestination: destination, roomId: roomId)
+        }
+    }
+
+    private func open(pushDestination destination: PushTapDestination, roomId: String) {
+        if roomId != signedInRoomId {
+            selectRace(roomId)
         }
         fixtureOverlay = false
-        show(Route(featureId: "chat-thread", state: .success))
-        enterShellIfNeeded()
+        racePreviewDevStart = nil
+        showsSettings = false
+        choosingRace = false
+        switch destination {
+        case .chat:
+            show(Route(featureId: "chat-thread", state: .success))
+            enterShellIfNeeded()
+        case .startTracking:
+            show(Route(featureId: "location-heartbeat", state: .success))
+            enterShellIfNeeded()
+        case .map:
+            show(Route(featureId: "map-track", state: .success))
+            enterShellIfNeeded()
+        case .paywall:
+            showBilling()
+        }
     }
 
     private func syncChat() {
@@ -324,6 +460,17 @@ final class ShellModel {
                 sharedRunImport.receive(url: url, signedIn: isSignedIn)
             }
             return
+        }
+        // Join links open in every build, ahead of the Debug-only dev routes.
+        switch InviteLink.route(url.absoluteString) {
+        case .invite(let invite):
+            openInvite(code: invite.code, source: invite.source)
+            return
+        case .withoutCode:
+            openJoinWithoutCode()
+            return
+        case nil:
+            break
         }
         guard url.scheme?.caseInsensitiveCompare("crewcue") == .orderedSame else { return }
         if DevLinks.enabled, Route.parse(url.absoluteString)?.featureId == "run-share-import" {
@@ -444,6 +591,10 @@ final class ShellModel {
     }
 
     func adopt(_ session: ClientSession) {
+        // Signed out, the person confirmed an invite before signing in: join it now.
+        // Read before this sign-in adopts the guest progress, and only within the confirmation's
+        // lifetime (`OnboardingStore.confirmedInviteForSignIn`).
+        let joinsInvite = !isSignedIn && onboarding.confirmedInviteForSignIn() != nil
         prepareStores()
         client.graph.session?.adopt(session)
         client.graph.tokenProvider = StaticTokenProvider(token: session.accessToken)
@@ -460,6 +611,9 @@ final class ShellModel {
         syncOnboarding()
         enterShellIfNeeded()
         Task { await loadRaces() }
+        if joinsInvite {
+            Task { await joinPendingInvite() }
+        }
         // Tokens rotate; re-register silently when notifications are already allowed.
         Task { await pushModel.refreshIfAuthorized(role: session.role) }
     }
@@ -489,12 +643,6 @@ final class ShellModel {
             }
             roster = next
             racesMessage = races.isEmpty ? "No races yet." : ""
-            if let pending = pendingChatRoomId {
-                pendingChatRoomId = nil
-                if next.races.contains(where: { $0.id == pending }) {
-                    openChat(roomId: pending)
-                }
-            }
             if let active = next.active {
                 if active.id != signedInRoomId || active.role != signedInRole {
                     apply(active)
@@ -503,6 +651,9 @@ final class ShellModel {
                 clearActiveRoom()
             }
             syncOnboarding(races: rooms.map { OnboardingRace(room: $0, userId: userId) })
+            // After the active race is applied, so the tapped race isn't switched back.
+            pushTaps.noteRacesListed()
+            routePendingPushTap()
         } catch {
             guard ticket == racesGeneration else { return }
             racesMessage = APIFailure.isOffline(error) ? "Offline. Showing your last race." : "Couldn't load your races."
@@ -640,13 +791,14 @@ final class ShellModel {
         choosingRace = false
         racesMessage = ""
         racesLoading = false
-        pendingChatRoomId = nil
+        pushTaps.clear()
         profileModel.clear()
         stravaModel.clear()
         activityImportModel.clear()
         sharedRunImport.dismiss()
         accountDeletionModel.clear()
         membersModel.clear()
+        inviteModel.clear()
         incidentsModel.clear()
         paceModel.clear()
         mapModel.clear()
@@ -657,6 +809,7 @@ final class ShellModel {
         upgradeModel.clear()
         runnerSetup.clear()
         racePreview.clear()
+        joinModel.clear()
         syncOnboarding()
         showsSettings = false
         settingsFocus = nil

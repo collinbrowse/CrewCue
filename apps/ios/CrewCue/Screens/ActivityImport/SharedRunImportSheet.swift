@@ -40,7 +40,7 @@ struct SharedRunImportSheet: View {
                 .font(CrewFont.headline)
                 .foregroundStyle(theme.ink)
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(preview.runs.enumerated()), id: \.offset) { _, run in
+                ForEach(Array(preview.listedRuns.enumerated()), id: \.offset) { _, run in
                     HStack(alignment: .firstTextBaseline) {
                         Label(run.summary, systemImage: run.alreadyImported ? "checkmark.circle" : "figure.run")
                             .font(CrewFont.body)
@@ -63,8 +63,19 @@ struct SharedRunImportSheet: View {
                     .background(theme.well, in: RoundedRectangle(cornerRadius: 12))
                     .accessibilityHidden(true)
             }
-            if let line = preview.unreadableLine {
-                DisclosureGroup(line) {
+            if let more = preview.moreRunsLine {
+                Text(more)
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.body)
+            }
+            if let skipped = preview.skippedLine {
+                Text(skipped)
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.body)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !preview.unreadable.isEmpty {
+                DisclosureGroup(preview.unreadableLine ?? "Unreadable files") {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(preview.unreadable.enumerated()), id: \.offset) { _, file in
                             Text("\(file.fileName): \(file.error)")
