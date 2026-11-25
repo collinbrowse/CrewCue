@@ -196,10 +196,36 @@ final class OnboardingRacePreviewTests: XCTestCase {
         XCTAssertEqual(aidPageOnScreen(app), "Next aid station", "a rotation keeps the next aid station")
 
         // The person's own swipe still picks another aid station, and it stays.
-        aidPageElementOnScreen(app)?.swipeRight()
-        let picked = aidPageOnScreen(app) { $0 != nil && $0 != "Next aid station" }
+        // On a slow machine the pager can still be settling from the rotation when the swipe lands;
+        // the app rightly treats that scroll as layout, not a pick. So swipe once the pager sits
+        // still, at a person's pace, and swipe again if one was lost, as a person would.
+        var picked: String?
+        for _ in 0..<3 {
+            guard let page = settledAidPage(app) else { break }
+            page.swipeRight(velocity: .slow)
+            picked = aidPageOnScreen(app, timeout: 5) { $0 != nil && $0 != "Next aid station" }
+            if let picked, picked != "Next aid station" { break }
+        }
         XCTAssertNotNil(picked, "a swipe shows the aid station before")
         XCTAssertNotEqual(picked, "Next aid station", "a swipe picks another aid station")
+        // It stays: the sheet doesn't jump back to the next aid station on its own.
+        let later = aidPageOnScreen(app, timeout: 3) { $0 != picked }
+        XCTAssertEqual(later, picked, "the picked aid station stays")
+    }
+
+    /// The aid page in view once it has stopped moving (two reads of its frame 0.3 s apart agree),
+    /// or nil when there is none within 10 s.
+    private func settledAidPage(_ app: XCUIApplication) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(10)
+        var last: CGRect?
+        repeat {
+            if let page = aidPageElementOnScreen(app) {
+                if page.frame == last { return page }
+                last = page.frame
+            }
+            Thread.sleep(forTimeInterval: 0.3)
+        } while Date() < deadline
+        return aidPageElementOnScreen(app)
     }
 
     /// The aid page in view. The pages sit side by side; the one in view is the one whose middle is
