@@ -441,6 +441,7 @@ fun CourseMapPreview(
                     CourseFraming.Preview,
                     trackTimes = emptyList(),
                     glide = null,
+                    startLineRequest = 0,
                     onRendered = { line, points ->
                         val current = shown
                         if (line == current.line && points == current.checkpoints) rendered(current)

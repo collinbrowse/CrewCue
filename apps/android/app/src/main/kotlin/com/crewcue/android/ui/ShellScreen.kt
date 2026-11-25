@@ -83,6 +83,26 @@ import com.crewcue.android.ui.onboarding.RacePreviewRoute
 import com.crewcue.android.ui.onboarding.RaceGate
 import com.crewcue.android.ui.onboarding.RaceLockedPane
 import com.crewcue.android.ui.onboarding.UnlockRaceBanner
+import com.crewcue.android.ui.onboarding.CREW_TOUR_FEATURE
+import com.crewcue.android.ui.onboarding.OnboardingTourViewModel
+import com.crewcue.android.ui.onboarding.RUNNER_TOUR_FEATURE
+import com.crewcue.android.ui.onboarding.SetupChecklistCard
+import com.crewcue.android.ui.onboarding.SetupChecklistPanel
+import com.crewcue.android.ui.onboarding.SetupChecklistRow
+import com.crewcue.android.ui.onboarding.TourAnchors
+import com.crewcue.android.ui.onboarding.TourContext
+import com.crewcue.android.ui.onboarding.TourDevRoute
+import com.crewcue.android.ui.onboarding.TourOverlayHost
+import com.crewcue.android.ui.onboarding.tabAnchorTag
+import com.crewcue.android.ui.onboarding.tourAnchor
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalConfiguration
+import com.crewcue.android.ui.chat.CrewPush
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ShellScreen(viewModel: ShellViewModel) {
@@ -107,6 +127,8 @@ private fun AppShell(viewModel: ShellViewModel) {
     if (!roomId.isNullOrBlank()) {
         LaunchedEffect(roomId) { viewModel.checkBilling(roomId) }
     }
+    val tour = rememberTour(viewModel)
+    val anchors = remember { TourAnchors() }
     CrewBackground(
         Modifier
             .fillMaxSize()
@@ -153,7 +175,11 @@ private fun AppShell(viewModel: ShellViewModel) {
                             Modifier.weight(1f),
                             bottomInset = TAB_BAR_SPACE,
                             onLocked = onLocked,
-                            toolRequest = viewModel.mapToolRequest
+                            toolRequest = viewModel.mapToolRequest,
+                            startLineRequest = viewModel.startLineRequest,
+                            topCard = tour?.checklist?.takeIf { tour.card == null }?.let { checklist ->
+                                { SetupChecklistSlot(viewModel, tour, checklist) }
+                            }
                         )
                     }
                 }
@@ -191,11 +217,21 @@ private fun AppShell(viewModel: ShellViewModel) {
             selected = viewModel.selectedTab,
             chatUnread = viewModel.chatUnread,
             onSelect = viewModel::selectTab,
+            anchors = anchors,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
+        // The tour's coach marks, over a race the person can use (not the paywall or a locked race).
+        if (tour != null && paywallRoom == null && lockedReason == null && !viewModel.showsSettings) {
+            TourOverlayHost(
+                tour = tour,
+                anchors = anchors,
+                onSelectTab = { tab -> if (viewModel.selectedTab != tab) viewModel.selectTab(tab) },
+                onStartLine = viewModel::showStartLine
+            )
+        }
     }
     if (viewModel.showsSettings) {
         ShellSettingsSheet(viewModel, onDismiss = viewModel::closeSettings)
@@ -227,13 +263,17 @@ private fun rememberRaceDay(viewModel: ShellViewModel, roomId: String, sampleLoc
     return race
 }
 
-/** Floating pill tab bar. The active tab is a filled primary capsule. */
+/**
+ * Floating pill tab bar. The active tab is a filled primary capsule. Each tab is tagged
+ * `crewcue.tab.*` and reports its frame to [anchors], so a tour card rings the real control.
+ */
 @Composable
-private fun CrewTabBar(
+internal fun CrewTabBar(
     selected: ShellTab,
     chatUnread: Int,
     onSelect: (ShellTab) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    anchors: TourAnchors? = null
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
@@ -252,6 +292,8 @@ private fun CrewTabBar(
                         .clip(CircleShape)
                         .background(if (active) colors.primary else Color.Transparent)
                         .selectable(selected = active, role = Role.Tab) { onSelect(tab) }
+                        .testTag(tabAnchorTag(tab))
+                        .tourAnchor(anchors, tabAnchorTag(tab))
                         .padding(vertical = 8.dp)
                         .semantics {
                             contentDescription = if (tab == ShellTab.Chat && chatUnread > 0) {
@@ -313,6 +355,14 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
         // Runner phase 2: the race-day replay and its paywall. The dev route plays DemoRaceFixture,
         // its `?state=` shown on the real screen with Skip.
         RACE_PREVIEW_FEATURE -> RacePreviewRoute(viewModel)
+        // The tab-bar tours on the example race, with no API: nothing is saved or sent.
+        RUNNER_TOUR_FEATURE, CREW_TOUR_FEATURE -> {
+            if (viewModel.stateOverlay) {
+                FeatureScreen(viewModel.uiState)
+            } else {
+                TourDevRoute(viewModel, if (viewModel.uiState.screen.featureId == CREW_TOUR_FEATURE) "crew" else "runner")
+            }
+        }
         "billing-purchase", "billing-redeem" -> {
             val roomId = viewModel.session?.roomId
             when {
@@ -475,4 +525,74 @@ private fun tabIcon(tab: ShellTab, selected: Boolean): ImageVector = when (tab) 
     ShellTab.Pace -> if (selected) Icons.Filled.Timer else Icons.Outlined.Timer
     ShellTab.Chat -> if (selected) Icons.AutoMirrored.Filled.Chat else Icons.AutoMirrored.Outlined.Chat
     ShellTab.Profile -> if (selected) Icons.Filled.Person else Icons.Outlined.Person
+}
+
+/**
+ * The signed-in user's tour and setup checklist for the active race (client-core decides both),
+ * read again whenever the onboarding state, the race list or the race changes. Null signed out.
+ */
+@Composable
+private fun rememberTour(viewModel: ShellViewModel): OnboardingTourViewModel? {
+    val session = viewModel.session ?: return null
+    val context = LocalContext.current
+    val tour: OnboardingTourViewModel = viewModel(
+        key = "tour-${session.userId}",
+        factory = OnboardingTourViewModel.factory(viewModel.container.raceDay, context, devRole = null)
+    )
+    tour.onState = viewModel::noteOnboardingState
+    val (rows, active) = viewModel.onboardingRaceContext()
+    LaunchedEffect(viewModel.onboarding, viewModel.onboardingRaces, active) {
+        if (!active.isNullOrBlank()) tour.refresh(TourContext(rows, active))
+    }
+    // Permissions changed in Settings: the checklist reads them again.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle, tour) {
+        var started = false
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                if (started) tour.refresh() else started = true
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    return tour
+}
+
+/** The setup checklist under the Map's top bar; opening an item goes where it says and marks it. */
+@Composable
+private fun SetupChecklistSlot(viewModel: ShellViewModel, tour: OnboardingTourViewModel, checklist: SetupChecklistCard) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            scope.launch {
+                withContext(Dispatchers.IO) { runCatching { CrewPush.refreshIfAllowed(context, viewModel.container.raceDay) } }
+                tour.refresh()
+            }
+        }
+    }
+    fun open(row: SetupChecklistRow) {
+        when (row.opens) {
+            "inviteShare" -> {
+                viewModel.selectTab(ShellTab.Profile)
+                viewModel.openInviteShare()
+            }
+            "paceStopEdit" -> viewModel.openPaceStopEdit()
+            "mapCheckpointPick" -> viewModel.openMapTool("pick")
+            "mapTracking" -> viewModel.openMapTool("location")
+            "notifications" -> if (android.os.Build.VERSION.SDK_INT >= 33 && !CrewPush.notificationsAllowed(context)) {
+                notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        tour.openChecklistItem(row.kind)
+    }
+    SetupChecklistPanel(
+        checklist = checklist,
+        onOpen = ::open,
+        onHide = tour::hideChecklist,
+        // Open, the list scrolls in this much of the window, so the top bar and the map stay.
+        maxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.4f,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
 }

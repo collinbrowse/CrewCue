@@ -654,6 +654,31 @@ class ShellViewModel(
         private set
     private var mapToolRequests = 0
 
+    /** Bumped when the tour's start-line card shows: the Map zooms to the course's start. */
+    var startLineRequest by mutableStateOf(0)
+        private set
+
+    /** The tour's "Your start line": Map, zoomed to the start. */
+    fun showStartLine() {
+        if (selectedTab != ShellTab.Map) selectTab(ShellTab.Map)
+        startLineRequest += 1
+    }
+
+    /** Opens a Map tool (`pick`, `location`) on the Map tab: the setup checklist's items. */
+    fun openMapTool(tool: String) {
+        selectTab(ShellTab.Map)
+        mapToolRequest = MapToolRequest(tool, ++mapToolRequests)
+    }
+
+    /** Pace in Edit planned stops: the setup checklist's Adjust aid station stops. */
+    fun openPaceStopEdit() {
+        selectTab(ShellTab.Pace)
+        paceFocus = "pace-stop-edit"
+    }
+
+    /** A fixture screen's copy (the tour dev route's tabs). */
+    fun fixtureScreen(url: String): ScreenCopy = load(url)
+
     /** client-core's "Expires in N days" for the active race when it is unpaid, or null. */
     fun unpaidExpiry(): String? {
         val expiresAt = races.firstOrNull { it.id == session?.roomId }?.unpaidExpiresAt ?: return null

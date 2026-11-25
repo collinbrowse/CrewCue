@@ -83,14 +83,22 @@ fun MapScreen(
     /** Set on an unpaid race: Start tracking opens the paywall instead. */
     onLocked: (() -> Unit)? = null,
     /** A tool the shell opens (a tracking push opens Location, at Start tracking). */
-    toolRequest: MapToolRequest? = null
+    toolRequest: MapToolRequest? = null,
+    /** Bumped to zoom to the course's start (the tour's start-line card). */
+    startLineRequest: Int = 0,
+    /** A card under the top bar, above the chips (the setup checklist). */
+    topCard: (@Composable () -> Unit)? = null
 ) {
     val role = shell.session?.role.orEmpty()
     val model: MapViewModel = viewModel(
         key = "map-$roomId-$role",
         factory = MapViewModelFactory(shell.container.raceDay, roomId, role)
     )
-    MapContent(model, roomId, focus, modifier, bottomInset = bottomInset, onLocked = onLocked, toolRequest = toolRequest)
+    MapContent(
+        model, roomId, focus, modifier,
+        bottomInset = bottomInset, onLocked = onLocked, toolRequest = toolRequest,
+        startLineRequest = startLineRequest, topCard = topCard
+    )
 }
 
 /**
@@ -117,7 +125,9 @@ fun MapContent(
     framing: CourseFraming = CourseFraming.Screen,
     glide: (() -> RunnerGlideFrame?)? = null,
     pathPings: Int? = null,
-    toolRequest: MapToolRequest? = null
+    toolRequest: MapToolRequest? = null,
+    startLineRequest: Int = 0,
+    topCard: (@Composable () -> Unit)? = null
 ) {
     LaunchedEffect(roomId) { model.load() }
     // Back from the lock screen or another app: read the runner now, not at the next tick.
@@ -175,13 +185,15 @@ fun MapContent(
                 modifier = Modifier.fillMaxSize(),
                 framing = framing,
                 trackTimes = if (glide != null) model.trackTimes else emptyList(),
-                glide = glide
+                glide = glide,
+                startLineRequest = startLineRequest
             )
             MapOverlay(
                 model,
                 onTool = { tool = it },
                 underTopBar = underTopBar,
                 pathPings = pathPings,
+                topCard = topCard,
                 modifier = Modifier.align(Alignment.TopStart)
             )
         }
@@ -207,16 +219,18 @@ private fun MapOverlay(
     onTool: (String) -> Unit,
     underTopBar: Boolean,
     pathPings: Int?,
+    topCard: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var menu by remember { mutableStateOf(false) }
-    Row(
+    Column(
         modifier
             .fillMaxWidth()
             .then(if (underTopBar) Modifier.statusBarsPadding().padding(top = 76.dp) else Modifier.padding(top = 12.dp))
-            .padding(start = 16.dp, end = 16.dp),
-        verticalAlignment = Alignment.Top
+            .padding(start = 16.dp, end = 16.dp)
     ) {
+    topCard?.invoke()
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         val readout = model.readout
         if (readout.statusLabel.isNotBlank()) {
             StatusChip(readout.statusLabel, if (readout.status == "behind") ChipStyle.Soft else ChipStyle.Filled)
@@ -253,6 +267,7 @@ private fun MapOverlay(
                 }
             }
         }
+    }
     }
 }
 
@@ -477,7 +492,8 @@ private fun CourseMapHost(
     modifier: Modifier,
     framing: CourseFraming = CourseFraming.Screen,
     trackTimes: List<Long> = emptyList(),
-    glide: (() -> RunnerGlideFrame?)? = null
+    glide: (() -> RunnerGlideFrame?)? = null,
+    startLineRequest: Int = 0
 ) {
     val renderer = CourseMaps.renderer
     if (BuildConfig.MAP_LIBRE && renderer != null) {
@@ -497,7 +513,8 @@ private fun CourseMapHost(
                 framing,
                 trackTimes,
                 glide,
-                onRendered = { _, _ -> }
+                onRendered = { _, _ -> },
+                startLineRequest = startLineRequest
             )
             if (!settled) {
                 CairnLoader(
