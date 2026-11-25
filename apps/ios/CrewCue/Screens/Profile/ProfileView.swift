@@ -351,7 +351,7 @@ struct ProfileRaceRow: View {
     }
 }
 
-/// Runner hero: night-trail gradient, illustration, name, role, and live chip.
+/// Runner hero: slate ground, course-profile art, name, role, and live chip.
 struct ProfileHero: View {
     let name: String
     let role: String?
@@ -365,13 +365,9 @@ struct ProfileHero: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            Image("OnboardingRunner")
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.top, 8)
-                .padding(.trailing, -24)
-                .opacity(0.9)
+            CourseProfileArt(ground: false)
+                .padding(.top, 28)
+                .padding(.bottom, 64)
                 .accessibilityHidden(true)
             LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
             HStack(alignment: .bottom) {

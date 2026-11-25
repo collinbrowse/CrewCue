@@ -33,12 +33,13 @@ struct AuthSignInView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 12)
-            Image("OnboardingRunner")
-                .resizable()
-                .scaledToFit()
+            CourseProfileArt()
+                .aspectRatio(CourseProfile.aspectRatio, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: CrewRadius.lg, style: .continuous))
                 .frame(maxWidth: 348, minHeight: 120, maxHeight: 220)
                 .frame(maxWidth: .infinity)
-                .accessibilityLabel("Trail runner illustration")
+                .accessibilityElement()
+                .accessibilityLabel("Course profile with a runner on it")
             VStack(alignment: .leading, spacing: 10) {
                 Text("Welcome to CrewCue")
                     .font(CrewFont.display)

@@ -2,12 +2,14 @@ package com.crewcue.android.ui.auth
 
 import android.app.Activity
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,18 +43,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.crewcue.android.R
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.brand.CairnShakeLoader
+import com.crewcue.android.ui.brand.CourseProfile
+import com.crewcue.android.ui.brand.CourseProfileArt
 import com.crewcue.android.ui.findActivity
 import com.crewcue.android.ui.theme.CrewSpace
 import com.crewcue.android.ui.theme.GhostButton
@@ -160,14 +162,15 @@ private fun SignInContent(
             .padding(horizontal = CrewSpace.margin, vertical = CrewSpace.margin),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
     ) {
-        Image(
-            painter = painterResource(R.drawable.onboarding_runner),
-            contentDescription = "Trail runner illustration",
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp),
-            contentScale = ContentScale.Fit
-        )
+        Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+            CourseProfileArt(
+                Modifier
+                    .fillMaxHeight()
+                    .aspectRatio(CourseProfile.ASPECT_RATIO)
+                    .clip(MaterialTheme.shapes.medium)
+                    .semantics { contentDescription = "Course profile with a runner on it" }
+            )
+        }
         Text("Welcome to CrewCue", style = MaterialTheme.typography.displaySmall, color = colors.onSurface)
         Text(
             "Find your crew and run race day together.",
