@@ -445,7 +445,13 @@ final class ShellModel {
             show(Route(featureId: "map-track", state: .success))
             enterShellIfNeeded()
         case .paywall:
-            showBilling()
+            // Runner setup not finished on this phone: the gate shows setup, which leads to the
+            // paywall (clients/behavior/push-tap.md). Android lands there the same way.
+            if onboarding.entry == .runnerSetup {
+                show(Route(featureId: "app-shell", state: .success))
+            } else {
+                showBilling()
+            }
         }
     }
 
