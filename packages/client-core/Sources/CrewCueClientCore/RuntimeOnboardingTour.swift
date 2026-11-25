@@ -156,7 +156,7 @@ extension RuntimeCall {
             notificationsOn: boolValue(object["notificationsOn"]) ?? false,
             locationAlways: boolValue(object["locationAlways"]) ?? false
         )
-        let demo = CrewTourDemo.fixture(timeZone: requestTimeZone(object))
+        let zone = requestTimeZone(object)
         switch source {
         case .saved(let store):
             let userId = onboardingSignedIn(object) ? text(object, "userId") : nil
@@ -171,7 +171,7 @@ extension RuntimeCall {
                 throw ClientHTTPError(status: 400, message: error.message)
             }
             let read = marked ? try savedRead(object, store: store) : first
-            var answer = tourJSON(state: read.state, progress: read.progress, facts: facts, demo: demo)
+            var answer = tourJSON(state: read.state, progress: read.progress, facts: facts, zone: zone)
             answer["progress"] = read.progress.jsonObject
             return answer
         case .dev(let role, var answers):
@@ -186,7 +186,7 @@ extension RuntimeCall {
                 throw ClientHTTPError(status: 400, message: error.message)
             }
             let read = devTour(role, answers)
-            var answer = tourJSON(state: read.state, progress: read.progress, facts: facts, demo: demo)
+            var answer = tourJSON(state: read.state, progress: read.progress, facts: facts, zone: zone)
             answer["dev"] = [
                 "role": role.rawValue,
                 "answers": Dictionary(uniqueKeysWithValues: answers.map { ($0.key.rawValue, $0.value.rawValue) })
@@ -247,8 +247,12 @@ extension RuntimeCall {
 
     // MARK: JSON
 
-    private static func tourJSON(state: OnboardingState, progress: OnboardingProgress, facts: SetupChecklistFacts, demo: CrewTourDemo) -> [String: Any] {
+    private static func tourJSON(state: OnboardingState, progress: OnboardingProgress, facts: SetupChecklistFacts, zone: TimeZone) -> [String: Any] {
         let checklist = SetupChecklistPolicy.make(state: state, progress: progress, facts: facts)
+        // Only the crew tour shows the example race; its clock times are formatted on demand.
+        let demo = state.phase == .tour && state.role == .crew
+            ? CrewTourDemo.fixture(timeZone: zone)
+            : CrewTourDemo(runnerName: "", mileText: "", lastUpdateAge: "", nextAid: "", nextAidAheadText: "", etaClock: "", planClock: "")
         return [
             "state": onboardingJSON(state),
             "card": OnboardingTour.card(for: state, demo: demo).map(cardJSON) ?? NSNull(),

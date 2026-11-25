@@ -67,7 +67,9 @@ class OnboardingTourViewModel(
         private set
     var busy by mutableStateOf(false)
         private set
-    val text: TourText by lazy { TourText.from((raceDay.onboardingTourCopy() as? RuntimeResult.Success)?.result) }
+    /** The tour lines not on a card, read off the main thread once. */
+    var text by mutableStateOf(TourText())
+        private set
 
     /** A real tour answer's new onboarding state, for the shell to route by. */
     var onState: ((JSONObject) -> Unit)? = null
@@ -84,6 +86,10 @@ class OnboardingTourViewModel(
     val card: TourCard? get() = (uiState as? TourUiState.Showing)?.card
 
     init {
+        viewModelScope.launch {
+            val copy = withContext(Dispatchers.IO) { runCatching { raceDay.onboardingTourCopy() }.getOrNull() }
+            text = TourText.from((copy as? RuntimeResult.Success)?.result)
+        }
         // A test that was running when the process died goes on (tracking resumes from its session).
         if (location?.isRunning == true || location?.waitsForAlways == true) pollLocationTest()
     }

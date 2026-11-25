@@ -327,7 +327,7 @@ internal fun CrewTabBar(
 @Composable
 private fun FeatureHost(viewModel: ShellViewModel) {
     val featureId = viewModel.uiState.screen.featureId
-    val fullBleed = featureId in setOf("map-track", "map-checkpoint-pick", "map-navigate", "runner-track")
+    val fullBleed = featureId in setOf("map-track", "map-checkpoint-pick", "map-navigate", "runner-track", RUNNER_TOUR_FEATURE, CREW_TOUR_FEATURE)
     CrewBackground(
         Modifier
             .fillMaxSize()

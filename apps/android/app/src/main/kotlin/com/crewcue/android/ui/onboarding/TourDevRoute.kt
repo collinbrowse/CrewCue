@@ -68,7 +68,9 @@ fun TourDevRoute(shell: ShellViewModel, role: String) {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
-            FeatureScreen(UiState.Success(shell.fixtureScreen(tab.url)), Modifier.weight(1f))
+            // Read once per tab: a fixture's copy is a client-core call, not something to repeat per frame.
+            val screen = remember(tab) { shell.fixtureScreen(tab.url) }
+            FeatureScreen(UiState.Success(screen), Modifier.weight(1f))
         }
         CrewTabBar(
             selected = tab,

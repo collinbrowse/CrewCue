@@ -82,7 +82,9 @@ fun Modifier.tourAnchor(anchors: TourAnchors?, tag: String): Modifier =
     if (anchors == null) this else onGloballyPositioned { coordinates ->
         val origin = coordinates.positionInWindow()
         val size = coordinates.size
-        anchors.frames[tag] = Rect(origin.x, origin.y, origin.x + size.width, origin.y + size.height)
+        val frame = Rect(origin.x, origin.y, origin.x + size.width, origin.y + size.height)
+        // Only a moved frame is written: every write to the map recomposes the overlay.
+        if (anchors.frames[tag] != frame) anchors.frames[tag] = frame
     }
 
 /**
