@@ -59,7 +59,7 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt) | 838 |
 | [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift) | 818 |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 817 |
-| [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | 809 |
+| [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | 814 |
 
 ## In-process timers (API)
 
