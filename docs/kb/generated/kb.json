@@ -1027,6 +1027,7 @@
     ],
     "DATABASE_URL": [
       "services/api/scripts/apply-sql-migrations.mjs",
+      "services/api/scripts/test-pg.mjs",
       "services/api/src/lib/activityHistoryStore.ts",
       "services/api/src/lib/chatMessageStore.ts",
       "services/api/src/lib/chatPersistence.ts",
@@ -1068,6 +1069,12 @@
       "services/api/src/lib/roomPersistence.ts",
       "services/api/src/lib/stravaConnectionStore.ts",
       "services/api/src/routes/raceRooms.ts"
+    ],
+    "PERSONAL_TERRAIN_FACTORS": [
+      "services/api/src/lib/pacingEstimate/microModel/personalTerrain.ts"
+    ],
+    "PG_URL_BASE": [
+      "services/api/scripts/test-pg.mjs"
     ],
     "PORT": [
       "services/api/src/server.ts"

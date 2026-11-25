@@ -18,12 +18,13 @@
  * Keep the folder git-ignored (e.g. projection-backtest-data/my-runs): tracks show where people run.
  * Slice 2 of docs/product/run-import-and-grade-curve-scope.md.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   buildActivityGradeSteps,
   parseActivityFile,
-  type ActivityGradeStep
+  type ActivityGradeStep,
+  type ActivitySport
 } from "@crewcue/map-core";
 import { gradeCostMultiplier } from "../src/lib/pacingEstimate/microModel/simulate.js";
 
@@ -35,24 +36,59 @@ const shared = (g: number) => gradeCostMultiplier(g, 1, 1);
 
 type Run = { name: string; date: string; km: number; gain: number; steps: ActivityGradeStep[]; level: number };
 
-function loadRuns(dir: string): Run[] {
+/** Runs, trail runs and hikes only (no rides or walks), at least MIN_KM, within the window. */
+const FOOT: ReadonlyArray<ActivitySport | null> = ["running", "trail_running", "hiking", null];
+const MIN_KM = 3;
+
+function filesUnder(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return filesUnder(path);
+    return /\.(fit|gpx|tcx)$/i.test(name) ? [path] : [];
+  });
+}
+
+function loadRuns(dir: string, sinceMs: number): { runs: Run[]; skipped: Record<string, number> } {
   const runs: Run[] = [];
-  for (const file of readdirSync(dir).filter((n) => /\.(fit|gpx|tcx)$/i.test(n)).sort()) {
-    const parsed = parseActivityFile(new Uint8Array(readFileSync(join(dir, file))), file);
+  const skipped: Record<string, number> = {};
+  const skip = (why: string) => (skipped[why] = (skipped[why] ?? 0) + 1);
+  for (const path of filesUnder(dir).sort()) {
+    let parsed;
+    try {
+      parsed = parseActivityFile(new Uint8Array(readFileSync(path)), path);
+    } catch {
+      skip("unreadable or no distance");
+      continue;
+    }
+    if (!FOOT.includes(parsed.sport)) {
+      skip(`sport ${parsed.sport}`);
+      continue;
+    }
+    if (parsed.startTimestampMs === null || parsed.startTimestampMs < sinceMs) {
+      skip("older than the window");
+      continue;
+    }
+    if (parsed.distanceMeters < MIN_KM * 1000) {
+      skip(`under ${MIN_KM} km`);
+      continue;
+    }
     const built = buildActivityGradeSteps(parsed.points);
-    if (!built) continue;
+    if (!built) {
+      skip("no usable track");
+      continue;
+    }
     const seconds = built.steps.reduce((s, x) => s + x.seconds, 0);
     const cost = built.steps.reduce((s, x) => s + STEP * shared(x.grade), 0);
     runs.push({
-      name: file.replace(/\.(fit|gpx|tcx)$/i, "").slice(0, 18),
-      date: parsed.startTimestampMs ? new Date(parsed.startTimestampMs).toISOString().slice(0, 10) : "?",
+      name: path.split("/").pop()!.replace(/\.(fit|gpx|tcx)$/i, "").slice(0, 18),
+      date: new Date(parsed.startTimestampMs).toISOString().slice(0, 10),
       km: parsed.distanceMeters / 1000,
       gain: parsed.elevationGainMeters ?? 0,
       steps: built.steps,
       level: seconds / cost
     });
   }
-  return runs;
+  return { runs, skipped };
 }
 
 const CLASS_NAMES = ["flat", "runnable climb", "hiking-grade climb", "runnable descent", "steep descent"] as const;
@@ -157,10 +193,14 @@ function misplaced(run: Run, model: Model): number {
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 const dir = process.argv.slice(2).find((arg) => !arg.startsWith("--"));
 if (!dir) {
-  console.error("usage: npm run own-runs:backtest -- <folder of .fit/.gpx/.tcx> [--equal]");
+  console.error("usage: npm run own-runs:backtest -- <folder of .fit/.gpx/.tcx> [--equal] [--days 365]");
   process.exit(1);
 }
-const runs = loadRuns(dir);
+const daysArg = process.argv.indexOf("--days");
+const days = daysArg > 0 ? Number(process.argv[daysArg + 1]) : 365;
+const loaded = loadRuns(dir, Date.now() - days * 86_400_000);
+const runs = loaded.runs;
+console.log("Skipped:", JSON.stringify(loaded.skipped));
 console.log(`${runs.length} runs with a usable track.\n`);
 console.log("Held-out run                 date        km    gain   moving time misplaced by km");
 console.log("                                                       shared   six-value   per-grade");
