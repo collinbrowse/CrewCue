@@ -145,6 +145,11 @@ test("activity names are trimmed, decoded and capped", () => {
   assert.equal(cleanActivityName("  \n  "), null);
   assert.equal(cleanActivityName(undefined), null);
   assert.equal(cleanActivityName("<![CDATA[Hill <repeats>]]>"), "Hill <repeats>");
+  // Unterminated CDATA repeated many times stays linear (CodeQL polynomial regex).
+  const hostile = "<![CDATA[" + "<![CDATA[a".repeat(50_000);
+  const started = Date.now();
+  assert.ok(cleanActivityName(hostile) !== undefined);
+  assert.ok(Date.now() - started < 500);
   assert.equal(cleanActivityName("Caf&#233; loop &#x1F3C3;"), "Café loop 🏃");
   const long = "x".repeat(MAX_ACTIVITY_NAME_CHARS + 30);
   assert.equal(cleanActivityName(long)!.length, MAX_ACTIVITY_NAME_CHARS);
