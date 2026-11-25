@@ -39,7 +39,7 @@ A race already in the loaded list opens offline. One that isn't waits for the ne
 push
 
 ## Proof
-Simulator: `xcrun simctl push <udid> com.crewcue.ios <file>.apns` with the API's payload, then tap the banner. A local memory API seeds the person's paid and unpaid races and another account's race.
+Simulator: `xcrun simctl push <udid> com.crewcue.ios <file>.apns` with the API's payload, then tap the banner. A local memory API seeds the person's paid and unpaid races and another account's race. Emulator: `adb shell am start -n com.crewcue.android/.MainActivity --es type <kind> --es roomId <id>`, the extras a system-shown FCM notification carries.
 
 ## Today
-iOS routes chat, tracking and unlock taps. Android doesn't route tracking or unlock taps yet (a later PR).
+iOS and Android route chat, tracking and unlock taps (simulator and emulator proof). Android reads the FCM `data` keys from the launch intent's extras (cold launch and `onNewIntent`) and asks client-core through the `pushTapReceive` and `pushTapTake` runtime ops; in the foreground `CrewCueMessagingService` shows every kind with the same extras on its tap.

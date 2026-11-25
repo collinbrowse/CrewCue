@@ -42,4 +42,4 @@ Real phone only (`"proof": "physical"` in deeplinks.json): simulators and emulat
 - Both with the app in the background and in the foreground.
 
 ## Today
-iOS routes `type: "tracking"`: a tap from a cold launch, the background or the foreground opens the race's Map at Start tracking (push-tap, simulator proof). This row still needs its real-phone proof. Android shows the system notification only while the app is in the background, where a tap opens the shell's Map tab; in the foreground the message is dropped (`CrewCueMessagingService` shows only `chat`).
+iOS routes `type: "tracking"`: a tap from a cold launch, the background or the foreground opens the race's Map at Start tracking (push-tap, simulator proof). This row still needs its real-phone proof. Android routes it the same way (push-tap, emulator proof) and shows it in the foreground too. Neither platform has the real-phone proof yet.
