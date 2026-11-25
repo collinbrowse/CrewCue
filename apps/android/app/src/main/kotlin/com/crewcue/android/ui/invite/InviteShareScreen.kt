@@ -1,5 +1,12 @@
 package com.crewcue.android.ui.invite
 
+import com.crewcue.android.ui.theme.PillButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -77,6 +84,9 @@ data class InviteText(private val lines: Map<String, String>) {
     val joinButton get() = this["joinButton"]
     val inviteCrewButton get() = this["inviteCrewButton"]
     val backToMembers get() = this["backToMembers"]
+    val invitePill get() = this["invitePill"]
+    /** "Waiting for the runner to unlock this race.": crew on a race that isn't unlocked yet. */
+    val raceLockedReason get() = this["raceLockedReason"]
 
     companion object {
         fun from(copy: JSONObject?): InviteText {
@@ -191,6 +201,13 @@ fun InviteShareScreen(shell: ShellViewModel, roomId: String, onBack: () -> Unit,
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
+        // Back to Room members, at the top where a pushed page's back control sits.
+        PillButton(
+            text.backToMembers,
+            onClick = onBack,
+            modifier = Modifier.padding(bottom = 12.dp).testTag("$INVITE_SHARE_TAG.back"),
+            icon = Icons.AutoMirrored.Filled.ArrowBack
+        )
         ProductTitle(text.shareTitle, text.shareDetail)
         if (model.share == null) {
             CircularProgressIndicator(
@@ -228,21 +245,25 @@ fun InviteShareScreen(shell: ShellViewModel, roomId: String, onBack: () -> Unit,
                     )
                 }
             }
-            PrimaryButton(
-                text.shareButton,
-                onClick = { openShareSheet(context, share, text.shareTitle) },
-                modifier = Modifier.padding(top = 16.dp).testTag("$INVITE_SHARE_TAG.share")
-            )
-            SecondaryButton(
-                text.copyCode,
-                onClick = {
-                    copyCode(context, share.code.orEmpty(), text.codeLabel)
-                    model.noteCopied()
-                },
-                modifier = Modifier.padding(top = 12.dp).testTag("$INVITE_SHARE_TAG.copy")
-            )
+            Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PillButton(
+                    text.shareButton,
+                    onClick = { openShareSheet(context, share, text.shareTitle) },
+                    modifier = Modifier.testTag("$INVITE_SHARE_TAG.share"),
+                    prominent = true,
+                    icon = Icons.Outlined.Share
+                )
+                PillButton(
+                    text.copyCode,
+                    onClick = {
+                        copyCode(context, share.code.orEmpty(), text.codeLabel)
+                        model.noteCopied()
+                    },
+                    modifier = Modifier.testTag("$INVITE_SHARE_TAG.copy"),
+                    icon = Icons.Outlined.ContentCopy
+                )
+            }
         }
-        SecondaryButton(text.backToMembers, onClick = onBack, modifier = Modifier.padding(top = 12.dp))
     }
 }
 

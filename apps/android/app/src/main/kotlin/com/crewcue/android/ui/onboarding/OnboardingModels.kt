@@ -30,6 +30,8 @@ const val RACE_NAME_TAG = "crewcue.onboarding.race-name"
 const val COURSE_LOADING_TAG = "crewcue.onboarding.course-loading"
 /** "Course saved" (with the file's name when known) on a phone that doesn't hold the file. */
 const val COURSE_SAVED_TAG = "crewcue.onboarding.course-saved"
+/** The picked course previewed: a checkmark, "Course uploaded" and the file name. */
+const val COURSE_UPLOADED_TAG = "crewcue.onboarding.course-uploaded"
 /** Cancel after a file picked after Back couldn't be read: the course from before stays. */
 const val CANCEL_COURSE_TAG = "crewcue.onboarding.cancel-course"
 /** The history step's three tips. */
@@ -109,10 +111,17 @@ data class OnboardingText(
     val chooserRunner: String = "",
     val chooserCrew: String = "",
     val unpaidBanner: String = "",
+    /** The Race Pass page's one title and subtitle. */
+    val racePassTitle: String = "",
+    val racePassSubtitle: String = "",
     val courseSaveLimit: String = "",
     val startTimeDstGap: String = "",
     /** "Add a race name to continue.": the race needs a name and has none, typed or listed. */
     val raceNameMissing: String = "",
+    /** The server found no route in the picked file: choose another (client-core `OnboardingCopy.courseUnreadable`). */
+    val courseUnreadable: String = "",
+    /** Any other failed course upload: try again or choose another file. */
+    val courseUploadFailed: String = "",
     /** The history step's three tips, under its lead (the step's explanation). */
     val historyTips: List<String> = emptyList(),
     val stepTitles: Map<String, String> = emptyMap(),
@@ -144,9 +153,13 @@ data class OnboardingText(
                 chooserRunner = json.optText("chooserRunner"),
                 chooserCrew = json.optText("chooserCrew"),
                 unpaidBanner = json.optText("unpaidBanner"),
+                racePassTitle = json.optText("racePassTitle"),
+                racePassSubtitle = json.optText("racePassSubtitle"),
                 courseSaveLimit = json.optText("courseSaveLimit"),
                 startTimeDstGap = json.optText("startTimeDstGap"),
                 raceNameMissing = json.optText("raceNameMissing"),
+                courseUnreadable = json.optText("courseUnreadable"),
+                courseUploadFailed = json.optText("courseUploadFailed"),
                 historyTips = (0 until (tips?.length() ?: 0)).mapNotNull { tips?.optString(it)?.ifBlank { null } },
                 stepTitles = json.optJSONObject("stepTitles").strings(),
                 stepExplanations = json.optJSONObject("stepExplanations").strings(),
@@ -194,13 +207,14 @@ data class ReplayText(
     val loading: String = "",
     val back: String = "",
     val notNow: String = "",
-    val pitch: String = "",
     val lockedRow: String = "",
     val lockedExplanation: String = "",
     /** "Buy {product}, {price}", the buy button's spoken label. */
     val buyLabelTemplate: String = "",
     /** Every beat's caption, in beat order, so the caption card keeps the longest one's height. */
     val captions: List<String> = emptyList(),
+    /** Where to look at each beat (client-core `OnboardingCopy.replayFocus`), by beat. */
+    val focus: Map<String, String> = emptyMap(),
     val options: List<PaywallOption> = emptyList()
 ) {
     fun panelTitle(panel: ReplayPanel): String = when (panel) {
@@ -230,7 +244,6 @@ data class ReplayText(
             loading = json.optText("loading"),
             back = json.optText("back"),
             notNow = json.optText("paywallNotNow"),
-            pitch = json.optText("paywallPitch"),
             lockedRow = json.optText("lockedAidRow"),
             lockedExplanation = json.optText("lockedAidExplanation"),
             buyLabelTemplate = json.optText("paywallBuyLabelTemplate"),
@@ -238,6 +251,9 @@ data class ReplayText(
                 listOf(ReplayBeats.FOLLOWING, ReplayBeats.FALLING_BEHIND, ReplayBeats.DEAD_ZONE, ReplayBeats.CREW_CHAT)
                     .mapNotNull { beat -> beats?.optText(beat)?.ifBlank { null } }
             },
+            focus = json.optJSONObject("beatFocus")?.let { beats ->
+                beats.keys().asSequence().associateWith { beats.optText(it) }.filterValues { it.isNotBlank() }
+            }.orEmpty(),
             options = listOf(
                 PaywallOption(
                     title = json.optText("paywallRunnerPlusOneTitle"),

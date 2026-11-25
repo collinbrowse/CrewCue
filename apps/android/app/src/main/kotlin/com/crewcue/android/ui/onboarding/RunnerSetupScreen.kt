@@ -348,7 +348,8 @@ private fun StepForm(shell: ShellViewModel, model: RunnerSetupViewModel, step: S
             StatusLine(
                 model.status,
                 text,
-                onRetry = { model.retry(context.isOnline()) },
+                // A file with no route in it can't be retried: Choose another file is the action.
+                onRetry = if (model.courseNeedsAnotherFile) null else { { model.retry(context.isOnline()) } },
                 retryEnabled = model.canRetry,
                 onCancel = if (model.canCancelCourse) model::cancelPendingCourse else null
             )
@@ -431,6 +432,10 @@ private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText) {
     RaceNameField(model, text)
     val fileName = model.shownCourseFileName
     when {
+        // The upload failed: only the error under the step says so, never the file's name as if it
+        // had uploaded. Offline, the file waits on this phone and stays named.
+        model.courseUploadFailedShown -> Unit
+        model.courseUploaded && fileName != null -> CourseSavedLine(text.label("courseUploaded"), fileName, COURSE_UPLOADED_TAG)
         model.showsCourseSaved -> CourseSavedLine(text.label("courseSaved"), model.savedCourseFileName)
         fileName != null -> Text(
             fileName,
@@ -442,6 +447,14 @@ private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText) {
     }
     val action = model.courseAction
     when {
+        // The file itself can't work: choosing another is the one main action.
+        model.courseNeedsAnotherFile ->
+            SetupPrimaryButton(
+                text.label("chooseAnotherFile"),
+                setupTag("course.choose-another"),
+                choose,
+                enabled = model.canChooseCourse
+            )
         // Try again (and Cancel, for a file picked after Back) sit under the step, with the error.
         model.courseNeedsRetry -> Unit
         action == CourseContinue.ChooseFile ->
@@ -461,8 +474,13 @@ private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText) {
                 busy = model.busy
             )
     }
-    if (model.courseNeedsRetry || action != CourseContinue.ChooseFile) {
-        SetupSecondaryButton(text.label("chooseAnotherFile"), setupTag("course.choose-another"), choose, enabled = model.canChooseCourse)
+    if (!model.courseNeedsAnotherFile && (model.courseNeedsRetry || action != CourseContinue.ChooseFile)) {
+        com.crewcue.android.ui.theme.PillButton(
+            text.label("chooseAnotherFile"),
+            onClick = choose,
+            modifier = Modifier.testTag(setupTag("course.choose-another")),
+            enabled = model.canChooseCourse
+        )
     }
 }
 
@@ -500,12 +518,12 @@ private fun RaceNameField(model: RunnerSetupViewModel, text: OnboardingText) {
 
 /** "Course saved", with the file's name when this phone knows it: nothing is uploaded again. */
 @Composable
-private fun CourseSavedLine(label: String, fileName: String?) {
+private fun CourseSavedLine(label: String, fileName: String?, tag: String = COURSE_SAVED_TAG) {
     val spoken = listOfNotNull(label, fileName).joinToString(", ")
     Row(
         Modifier
             .fillMaxWidth()
-            .testTag(COURSE_SAVED_TAG)
+            .testTag(tag)
             .clearAndSetSemantics { contentDescription = spoken },
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically

@@ -155,6 +155,10 @@ val LocalCrewExtras = staticCompositionLocalOf {
 
 /** Metric numerals: heavy, tabular. */
 val MetricStyle = TextStyle(fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, fontFeatureSettings = "tnum")
+/** The value in a compact row of three metrics (sheet pages, cards). */
+val MetricCompactStyle = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
+/** A list row's title at Settings density. */
+val RowTitleStyle = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
 val MetricLargeStyle = TextStyle(fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Black, fontFeatureSettings = "tnum")
 
 @Composable

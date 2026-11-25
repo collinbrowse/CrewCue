@@ -89,8 +89,14 @@ class RaceDayBridge private constructor(
         elevation: JSONArray? = null,
         live: JSONObject? = null,
         /** The zone (IANA id) the rows' clocks are written in; null: this phone's. */
-        timeZone: String? = null
+        timeZone: String? = null,
+        /** `{ checkpointId: ISO-8601 }`: the live arrivals client-core gave the timeline. */
+        liveArrivals: JSONObject? = null,
+        /** `[{ recordedAt, latitude, longitude }]`: the runner's path, oldest first. */
+        track: JSONArray? = null
     ): RuntimeResult = call("projectAidSheet") {
+        if (liveArrivals != null && liveArrivals.length() > 0) put("liveArrivals", liveArrivals)
+        if (track != null && track.length() > 0) put("track", track)
         if (sheet != null) put("sheet", sheet)
         if (timeZone != null) put("timeZone", timeZone)
         put("checkpoints", checkpoints)
@@ -197,13 +203,16 @@ class RaceDayBridge private constructor(
         id: String,
         title: String,
         latitude: Double,
-        longitude: Double
+        longitude: Double,
+        /** The course line, `[[longitude, latitude]]`: a pin too far off it comes back `rejected`. */
+        line: JSONArray? = null
     ): RuntimeResult = call("placeCheckpoint") {
         put("roomId", roomId)
         put("id", id)
         put("title", title)
         put("latitude", latitude)
         put("longitude", longitude)
+        if (line != null && line.length() > 0) put("line", line)
     }
 
     fun route(roomId: String, mode: String, checkpointIds: List<String>): RuntimeResult = call("route") {
@@ -359,11 +368,34 @@ class RaceDayBridge private constructor(
     /** Shared Delete account copy from client-core. */
     fun accountDeletionCopy(): RuntimeResult = call("accountDeletionCopy")
 
+    /**
+     * `DELETE /race-rooms/:roomId` (owner only). `result.deleted` is true once the race is gone,
+     * a 404 included; otherwise `result.message` is client-core's failure copy.
+     */
+    fun deleteRace(roomId: String): RuntimeResult = call("deleteRace") { put("roomId", roomId) }
+
+    /** `PATCH /race-rooms/:roomId` `{ name }`: `{renamed, id?, name?, message}` (clients/behavior/race-rename.md). */
+    fun renameRace(roomId: String, name: String): RuntimeResult = call("renameRace") {
+        put("roomId", roomId)
+        put("name", name)
+    }
+
+    /** Rename race copy and whether [role] may rename (client-core `PlanAuthority.mayEditRaceSetup`). Pure. */
+    fun raceRenameCopy(role: String): RuntimeResult = call("raceRenameCopy") { put("role", role) }
+
+    /** Shared Delete race copy from client-core, the confirm built for [raceName] and [paid]. */
+    fun raceDeletionCopy(raceName: String = "", paid: Boolean = false): RuntimeResult = call("raceDeletionCopy") {
+        put("raceName", raceName)
+        put("paid", paid)
+    }
+
     fun listOutbox(): RuntimeResult = call("listOutbox")
 
-    fun exportCrewSheet(roomId: String, raceName: String = ""): RuntimeResult = call("exportCrewSheet") {
+    /** [titles] maps checkpoint ids to course titles, so a checkpoint added on the map shows its name. */
+    fun exportCrewSheet(roomId: String, raceName: String = "", titles: Map<String, String> = emptyMap()): RuntimeResult = call("exportCrewSheet") {
         put("roomId", roomId)
         put("raceName", raceName)
+        put("titles", org.json.JSONObject(titles))
     }
 
     /** #250 Pace edit draft: rows, projected stops, and timeline for the typed minutes. Pure; no network. */

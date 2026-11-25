@@ -33,10 +33,15 @@ import com.crewcue.android.data.optText
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.billing.UpgradeCard
 import com.crewcue.android.ui.map.isOnline
-import com.crewcue.android.ui.theme.PrimaryButton
-import com.crewcue.android.ui.theme.ProductCard
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PersonAdd
+import com.crewcue.android.ui.theme.PillButton
+import com.crewcue.android.ui.theme.RowDivider
+import com.crewcue.android.ui.theme.SettingRow
+import com.crewcue.android.ui.theme.SettingsGroup
 import com.crewcue.android.ui.theme.ProductTitle
-import com.crewcue.android.ui.theme.SecondaryButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,18 +84,65 @@ fun RoomMembersScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
+        if (onBack != null) {
+            // Back to Profile, at the top where a pushed page's back control sits.
+            PillButton(
+                "Profile",
+                onClick = onBack,
+                modifier = Modifier.padding(bottom = 12.dp).testTag("crewcue.room-members.back"),
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                spoken = "Back to Profile"
+            )
+        }
         ProductTitle("Room members", "Your crew for this race. Change your own name in Settings.")
         model.status?.let { line ->
             Text(line, modifier = Modifier.padding(top = 12.dp).semantics { contentDescription = line })
         }
-        val isRunner = MemberPermissions.mayRemoveMembers(shell.session?.userId, model.athleteId)
+        val viewerId = shell.session?.userId
+        val isRunner = MemberPermissions.mayRemoveMembers(viewerId, model.athleteId)
         // Invites stay with the runner: only they see Invite crew.
-        if (isRunner) {
-            PrimaryButton(
-                shell.inviteText.inviteCrewButton,
-                onClick = shell::openInviteShare,
-                modifier = Modifier.padding(top = 16.dp).testTag("crewcue.room-members.invite")
-            )
+        if (model.members.isNotEmpty() || isRunner) {
+            // Invite sits on the CREW label's row, not among the members. Allowed before the race
+            // is paid: crew who use it wait for the runner to unlock it.
+            val invite: (@Composable () -> Unit)? = if (isRunner) {
+                {
+                    PillButton(
+                        shell.inviteText.invitePill.ifBlank { "Invite" },
+                        onClick = shell::openInviteShare,
+                        modifier = Modifier.testTag("crewcue.room-members.invite"),
+                        prominent = true,
+                        icon = Icons.Outlined.PersonAdd,
+                        spoken = shell.inviteText.inviteCrewButton
+                    )
+                }
+            } else {
+                null
+            }
+            SettingsGroup("Crew", Modifier.padding(top = 16.dp), accessory = invite) {
+                model.members.forEachIndexed { index, member ->
+                    if (index > 0) RowDivider()
+                    val label = member.displayName.ifBlank { "Crew member" }
+                    SettingRow(
+                        Icons.Outlined.Person,
+                        label,
+                        modifier = Modifier.semantics(mergeDescendants = false) { contentDescription = label },
+                        // The API lets only the race's athlete remove members, so nobody else sees the pill.
+                        trailing = if (MemberPermissions.mayRemove(viewerId, model.athleteId, member.userId)) {
+                            {
+                                PillButton(
+                                    "Remove",
+                                    onClick = { model.remove(member.userId, context.isOnline()) },
+                                    enabled = !model.busy,
+                                    destructive = true,
+                                    spoken = "Remove $label"
+                                )
+                            }
+                        } else {
+                            null
+                        }
+                    )
+                }
+            }
         }
         // Race Pass line for every member; the runner also gets the Full Crew upgrade (#649).
         UpgradeCard(
@@ -99,47 +151,6 @@ fun RoomMembersScreen(
             isRunner = isRunner,
             modifier = Modifier.padding(top = 16.dp)
         )
-        if (model.members.isNotEmpty()) {
-            ProductCard(Modifier.padding(top = 16.dp)) {
-                model.members.forEach { member ->
-                    val label = member.displayName.ifBlank { "Crew member" }
-                    val selected = model.selectedId == member.userId
-                    Button(
-                        onClick = { model.select(member.userId) },
-                        modifier = Modifier
-                            .padding(top = 8.dp)
-                            .fillMaxWidth()
-                            .semantics { contentDescription = label },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (selected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            },
-                            contentColor = if (selected) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            }
-                        )
-                    ) {
-                        Text(label, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-            // The API lets only the race's athlete remove members, so nobody else sees the button.
-            if (MemberPermissions.mayRemoveMembers(shell.session?.userId, model.athleteId)) {
-                SecondaryButton(
-                    "Remove",
-                    onClick = { model.removeSelected(context.isOnline()) },
-                    modifier = Modifier.padding(top = 12.dp),
-                    enabled = !model.busy && MemberPermissions.mayRemove(shell.session?.userId, model.athleteId, model.selectedId)
-                )
-            }
-        }
-        if (onBack != null) {
-            SecondaryButton("Profile", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
-        }
     }
 }
 
@@ -227,6 +238,11 @@ class RoomMembersViewModel(
 
     fun removeSelected(online: Boolean) {
         val userId = selectedId ?: return
+        remove(userId, online)
+    }
+
+    /** Removes [userId] from this room; the API refuses anyone but the race's athlete. */
+    fun remove(userId: String, online: Boolean) {
         if (busy) return
         viewModelScope.launch {
             busy = true

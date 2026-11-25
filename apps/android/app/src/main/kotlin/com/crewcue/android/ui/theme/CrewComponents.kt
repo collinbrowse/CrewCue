@@ -37,6 +37,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -49,6 +53,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -80,9 +85,18 @@ fun CrewBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.
     }
 }
 
-/** Avatar, CrewCue wordmark, and settings. Solid surface on Android (no blur). */
+/**
+ * Avatar, the active race's name (CrewCue with no race), and settings. Solid surface on Android
+ * (no blur). A long name wraps to a second line and then shrinks to fit; it never cuts a word.
+ */
 @Composable
-fun CrewTopBar(onSettings: (() -> Unit)?, modifier: Modifier = Modifier) {
+fun CrewTopBar(
+    onSettings: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    /** Map and Pace: the runner's course progress under the bar's row. Null elsewhere. */
+    courseStrip: CourseStripState? = null,
+    title: String = "CrewCue"
+) {
     val colors = MaterialTheme.colorScheme
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -90,30 +104,51 @@ fun CrewTopBar(onSettings: (() -> Unit)?, modifier: Modifier = Modifier) {
         color = colors.surfaceContainerLowest.copy(alpha = if (LocalCrewExtras.current.dark) 0.92f else 0.96f),
         shadowElevation = 3.dp
     ) {
-        Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            CairnAvatar(Modifier.size(40.dp))
-            Text(
-                "CrewCue",
-                modifier = Modifier.padding(start = 12.dp).weight(1f),
-                style = MaterialTheme.typography.headlineSmall,
-                color = colors.primary
-            )
-            if (onSettings != null) {
-                IconButton(
-                    onClick = onSettings,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .background(colors.surfaceContainerHigh, CircleShape)
-                        .semantics { contentDescription = "Settings" }
-                ) {
-                    Icon(Icons.Outlined.Settings, contentDescription = null, tint = colors.primary)
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CairnAvatar(Modifier.size(40.dp))
+                FittedTitle(
+                    title,
+                    modifier = Modifier.padding(start = 12.dp, end = 8.dp).weight(1f).semantics { heading() },
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = colors.primary
+                )
+                if (onSettings != null) {
+                    IconButton(
+                        onClick = onSettings,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(colors.surfaceContainerHigh, CircleShape)
+                            .semantics { contentDescription = "Settings" }
+                    ) {
+                        Icon(Icons.Outlined.Settings, contentDescription = null, tint = colors.primary)
+                    }
                 }
             }
+            if (courseStrip != null) CourseProgressStrip(courseStrip, Modifier.padding(top = 8.dp))
         }
     }
+}
+
+/**
+ * Up to two lines that wrap between words; a name still too long steps the size down (to about
+ * 60%) until it fits, so the bar never ellipsizes a word mid-way.
+ */
+@Composable
+private fun FittedTitle(text: String, modifier: Modifier, style: TextStyle, color: Color) {
+    var scale by remember(text) { mutableStateOf(1f) }
+    Text(
+        text,
+        modifier = modifier,
+        style = style.copy(fontSize = style.fontSize * scale, lineHeight = style.lineHeight * scale),
+        color = color,
+        maxLines = 2,
+        softWrap = true,
+        onTextLayout = { layout ->
+            val broken = layout.hasVisualOverflow || (0 until layout.lineCount).any { layout.isLineEllipsized(it) }
+            if (broken && scale > 0.6f) scale -= 0.1f
+        }
+    )
 }
 
 enum class ChipStyle { Filled, Soft, Surface, Secondary }
@@ -144,7 +179,7 @@ fun StatusChip(text: String, style: ChipStyle = ChipStyle.Soft, dot: Boolean = f
     }
 }
 
-/** Caps caption over a large value. */
+/** Caps caption over a large value. [compact] is the smaller value for rows of three in a sheet or card. */
 @Composable
 fun MetricColumn(
     label: String,
@@ -152,23 +187,26 @@ fun MetricColumn(
     modifier: Modifier = Modifier,
     caption: String? = null,
     alignment: Alignment.Horizontal = Alignment.CenterHorizontally,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+    compact: Boolean = false
 ) {
+    val textAlign = when (alignment) {
+        Alignment.Start -> androidx.compose.ui.text.style.TextAlign.Start
+        Alignment.End -> androidx.compose.ui.text.style.TextAlign.End
+        else -> androidx.compose.ui.text.style.TextAlign.Center
+    }
     Column(modifier.semantics(mergeDescendants = true) {}, horizontalAlignment = alignment) {
+        // The label wraps; it never truncates.
         Text(
             label.uppercase(),
-            style = MaterialTheme.typography.labelMedium,
+            style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = when (alignment) {
-                Alignment.Start -> androidx.compose.ui.text.style.TextAlign.Start
-                Alignment.End -> androidx.compose.ui.text.style.TextAlign.End
-                else -> androidx.compose.ui.text.style.TextAlign.Center
-            }
+            textAlign = textAlign
         )
         Text(
             value,
-            modifier = Modifier.padding(top = 6.dp),
-            style = MetricStyle,
+            modifier = Modifier.padding(top = if (compact) 3.dp else 6.dp),
+            style = if (compact) MetricCompactStyle else MetricStyle,
             color = valueColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -231,7 +269,7 @@ fun IconDisc(icon: ImageVector, tint: Color = MaterialTheme.colorScheme.primary)
     }
 }
 
-/** Tappable row with an icon disc, title, detail, and chevron. */
+/** Tappable row at Settings density: a plain icon, a title, a gray hint that wraps, and a chevron. */
 @Composable
 fun CrewListRow(
     icon: ImageVector,
@@ -239,10 +277,11 @@ fun CrewListRow(
     onClick: () -> Unit,
     detail: String? = null,
     tint: Color = MaterialTheme.colorScheme.primary,
-    titleColor: Color = MaterialTheme.colorScheme.onSurface
+    titleColor: Color = MaterialTheme.colorScheme.onSurface,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .clickable(role = Role.Button, onClick = onClick)
@@ -250,11 +289,11 @@ fun CrewListRow(
             .semantics(mergeDescendants = true) { contentDescription = title },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconDisc(icon, tint)
-        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor)
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(28.dp).padding(2.dp))
+        Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
+            Text(title, style = RowTitleStyle, color = titleColor)
             if (!detail.isNullOrBlank()) {
-                Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
         }
         Icon(

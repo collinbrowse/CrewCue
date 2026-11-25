@@ -18,6 +18,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -41,35 +46,27 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
     val activity = LocalContext.current.findActivity()
     val code = viewModel.inviteCode
     val colors = MaterialTheme.colorScheme
-    val status = viewModel.uiState.screen.body
+    val text = viewModel.inviteText
+    // The line under the code repeats the prompt above it while nothing is typed: shown only once
+    // it says something new.
+    val status = viewModel.uiState.screen.body.takeUnless { code.isEmpty() && it == text.joinEmpty }.orEmpty()
+    val labels = viewModel.onboardingText
+    // System Back does what the top bar's control does, so the page is never a dead end.
+    BackHandler(enabled = !viewModel.joining) { viewModel.closeJoin() }
+    Column(Modifier.fillMaxSize().testTag("crewcue.join-crew").semantics { contentDescription = "Join crew" }) {
+        if (viewModel.joinIsOnboardingStep) {
+            // Onboarding's crew step: the same Back as every other onboarding step.
+            com.crewcue.android.ui.theme.CrewBackBar(labels.back.ifBlank { "Back" }, "crewcue.join-crew.back", enabled = !viewModel.joining, onBack = viewModel::closeJoin)
+        } else {
+            // A page opened over the app: the X at the top right, back to where it was opened.
+            com.crewcue.android.ui.theme.CrewCloseBar(labels.label("close").ifBlank { "Close" }, "crewcue.join-crew.close", enabled = !viewModel.joining, onClose = viewModel::closeJoin)
+        }
     Column(
         Modifier
             .fillMaxSize()
-            .testTag("crewcue.join-crew")
-            .semantics { contentDescription = "Join crew" }
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 24.dp)
+            .padding(horizontal = 24.dp, vertical = 8.dp)
     ) {
-        // Signed out: Back. Signed in over a saved invite: Not now. Both forget the invite.
-        val leave = when {
-            viewModel.session == null -> "Back"
-            viewModel.joinHasInvite -> "Not now"
-            else -> null
-        }
-        // System Back does what the Back / Not now button does: it gives the invite up.
-        BackHandler(enabled = leave != null && !viewModel.joining) { viewModel.leaveJoin() }
-        if (leave != null) {
-            TextButton(
-                onClick = viewModel::leaveJoin,
-                enabled = !viewModel.joining,
-                modifier = Modifier
-                    .testTag("crewcue.join-crew.leave")
-                    .semantics { contentDescription = leave }
-            ) {
-                Text(leave, style = MaterialTheme.typography.labelLarge)
-            }
-        }
-        val text = viewModel.inviteText
         ProductTitle(text.joinTitle, text.joinPrompt)
         OutlinedTextField(
             value = code,
@@ -88,10 +85,12 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
                 .fillMaxWidth()
                 .semantics { contentDescription = "Invite code" }
         )
-        // A link, the share text or the bare code from the clipboard, read by client-core.
+        // A link, the share text or the bare code from the clipboard, read by client-core. Shown only
+        // while the clipboard holds text (its description only: reading it would show Android's
+        // pasted-from-clipboard notice on every visit).
         val clipboard = LocalClipboardManager.current
         val paste = viewModel.inviteText.pasteLabel
-        TextButton(
+        if (rememberClipboardHasText()) TextButton(
             onClick = { viewModel.pasteInvite(clipboard.getText()?.text) },
             enabled = !viewModel.joining,
             modifier = Modifier
@@ -127,7 +126,17 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
                 fontWeight = FontWeight.SemiBold
             )
         }
-        if (status.isNotBlank()) {
+        if (viewModel.joinWaitingForUnlock && status.isNotBlank()) {
+            // Not an error: the code is right, the runner just hasn't unlocked the race yet.
+            ProductCard(
+                Modifier
+                    .padding(top = 16.dp)
+                    .testTag("crewcue.join-crew.waiting")
+                    .semantics(mergeDescendants = true) { contentDescription = status }
+            ) {
+                Text(status, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface)
+            }
+        } else if (status.isNotBlank()) {
             Text(
                 status,
                 modifier = Modifier
@@ -156,4 +165,38 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
             busy = viewModel.joining
         )
     }
+    }
+}
+
+/**
+ * The clipboard holds text (a code or a link could be in it), read from its description only,
+ * again whenever the clipboard changes.
+ */
+@Composable
+private fun rememberClipboardHasText(): Boolean {
+    val context = LocalContext.current
+    val manager = remember(context) { context.getSystemService(android.content.ClipboardManager::class.java) }
+    fun read(): Boolean {
+        val description = manager?.primaryClipDescription ?: return false
+        return manager.hasPrimaryClip() &&
+            (description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN) ||
+                description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_HTML) ||
+                description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_URILIST))
+    }
+    var hasText by remember(manager) { mutableStateOf(read()) }
+    DisposableEffect(manager) {
+        val listener = android.content.ClipboardManager.OnPrimaryClipChangedListener { hasText = read() }
+        manager?.addPrimaryClipChangedListener(listener)
+        onDispose { manager?.removePrimaryClipChangedListener(listener) }
+    }
+    // Copied in another app: read again when the screen comes back.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) hasText = read()
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    return hasText
 }

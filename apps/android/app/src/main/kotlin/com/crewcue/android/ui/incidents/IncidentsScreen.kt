@@ -1,5 +1,9 @@
 package com.crewcue.android.ui.incidents
 
+import com.crewcue.android.ui.theme.PillButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -80,6 +84,16 @@ fun IncidentsScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
+        if (onBack != null) {
+            // Back to Profile, at the top where a pushed page's back control sits.
+            PillButton(
+                "Profile",
+                onClick = onBack,
+                modifier = Modifier.padding(bottom = 12.dp),
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                spoken = "Back to Profile"
+            )
+        }
         ProductTitle("Incidents", "Log what the crew needs to know.")
         if (model.summaries.isNotEmpty()) {
             ProductCard(Modifier.padding(top = 16.dp)) {
@@ -118,15 +132,13 @@ fun IncidentsScreen(
                     .fillMaxWidth()
                     .semantics { contentDescription = "Checkpoint" }
             )
-            PrimaryButton(
+            PillButton(
                 "Submit",
                 onClick = { model.submit(context.isOnline()) },
-                modifier = Modifier.padding(top = 12.dp),
+                modifier = Modifier.padding(top = 12.dp).align(Alignment.End),
+                prominent = true,
                 enabled = !model.busy && model.summary.isNotBlank()
             )
-        }
-        if (onBack != null) {
-            SecondaryButton("Profile", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
         }
     }
 }

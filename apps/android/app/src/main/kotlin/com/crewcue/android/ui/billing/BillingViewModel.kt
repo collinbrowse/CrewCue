@@ -143,7 +143,8 @@ class BillingViewModel(
                     state = if (info.isPaid) {
                         BillingUiState.Success(info.summary, unlocked = false)
                     } else {
-                        BillingUiState.Empty(info.summary)
+                        // No "No Race Pass yet" line: the page's title and subtitle say it.
+                        BillingUiState.Empty(info.paywallStatus)
                     }
                 }
             }

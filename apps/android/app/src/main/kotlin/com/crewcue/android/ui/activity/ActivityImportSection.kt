@@ -25,6 +25,25 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.DirectionsRun
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import com.crewcue.android.ui.theme.RowDivider
+import com.crewcue.android.ui.theme.RowTitleStyle
+import com.crewcue.android.ui.theme.ToolSheet
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -65,6 +84,7 @@ fun ActivityImportSection(shell: ShellViewModel, modifier: Modifier = Modifier) 
         }
     }
     LaunchedEffect(shell.session?.userId) { model.refresh() }
+    var showsRuns by rememberSaveable { mutableStateOf(false) }
     SettingRow(
         Icons.Outlined.Download,
         "Import your training history",
@@ -84,17 +104,156 @@ fun ActivityImportSection(shell: ShellViewModel, modifier: Modifier = Modifier) 
         },
         below = if (model.items.isEmpty()) null else {
             {
-                model.items.forEach { line ->
+                // One line about the history; the runs themselves open in a sheet.
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 36.dp)
+                        .clickable(role = Role.Button, onClickLabel = "Show each imported run") { showsRuns = true }
+                        .testTag("crewcue.activity-import.runs")
+                        .semantics(mergeDescendants = true) { contentDescription = model.countLabel },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        line,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.semantics { contentDescription = line }
+                        model.countLabel,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline
                     )
                 }
             }
         }
     )
+    if (showsRuns) {
+        ImportedRunsSheet(model.items, model.countLabel, onDismiss = { showsRuns = false })
+    }
+}
+
+/** Every run in the pacing history, newest first, with its distance, time and pace. */
+@Composable
+fun ImportedRunsSheet(items: List<ImportedRun>, countLabel: String, onDismiss: () -> Unit) {
+    ToolSheet(title = "Imported runs", onDismiss = onDismiss) {
+        Column(Modifier.testTag("crewcue.activity-import.list"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "$countLabel. Each one shapes your pace estimate.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainerLowest
+            ) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    ImportedRun.newestFirst(items).forEachIndexed { index, item ->
+                        if (index > 0) RowDivider()
+                        ImportedRunRow(item)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImportedRunRow(item: ImportedRun) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp)
+            .semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            Icons.AutoMirrored.Outlined.DirectionsRun,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(28.dp).padding(2.dp)
+        )
+        Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
+            // A named run ("Morning Run") shows its name over the date; others show the date.
+            Text(item.titleLabel, style = RowTitleStyle, color = MaterialTheme.colorScheme.onSurface, maxLines = 2)
+            Text(item.subtitleLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                item.totalsLabel,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.End
+            )
+            item.paceLabel?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                    color = MaterialTheme.colorScheme.outline,
+                    textAlign = TextAlign.End
+                )
+            }
+        }
+    }
+}
+
+/** One row of client-core's activity history; every label is formatted there. */
+data class ImportedRun(
+    val id: String,
+    val recordedAt: String,
+    val summary: String,
+    val sourceLabel: String,
+    val dateLabel: String,
+    val distanceLabel: String?,
+    val durationLabel: String?,
+    val paceLabel: String?,
+    /** The activity's own name from the file, when it had one. */
+    val name: String? = null,
+    /** client-core's title: the name, else the date. */
+    val titleLabel: String = name ?: dateLabel,
+    /** The date under a named run's title; null when the title is the date. */
+    val subtitleDateLabel: String? = null
+) {
+    /** "6.2 mi · 1:02:10" */
+    val totalsLabel: String get() = listOfNotNull(distanceLabel, durationLabel).joinToString(" · ")
+
+    /** "May 10, 2026 · GPX" under a named run, "GPX" under a dated one. */
+    val subtitleLabel: String get() = listOfNotNull(subtitleDateLabel, sourceLabel).joinToString(" · ")
+
+    companion object {
+        fun parse(json: JSONObject): ImportedRun? {
+            val id = json.optString("id").ifBlank { return null }
+            val recordedAt = json.optString("recordedAt")
+            val dateLabel = json.optString("dateLabel").ifBlank { recordedAt.take(10) }
+            return ImportedRun(
+                id = id,
+                recordedAt = recordedAt,
+                summary = json.optString("summary"),
+                sourceLabel = json.optString("sourceLabel").ifBlank { json.optString("source") },
+                dateLabel = dateLabel,
+                distanceLabel = json.optLabel("distanceLabel"),
+                durationLabel = json.optLabel("durationLabel"),
+                paceLabel = json.optLabel("paceLabel"),
+                name = json.optLabel("name"),
+                titleLabel = json.optLabel("titleLabel") ?: json.optLabel("name") ?: dateLabel,
+                subtitleDateLabel = json.optLabel("subtitleDateLabel")
+            )
+        }
+
+        fun parseList(json: JSONObject): List<ImportedRun> {
+            val array = json.optJSONArray("items") ?: return emptyList()
+            return (0 until array.length()).mapNotNull { array.optJSONObject(it)?.let(::parse) }
+        }
+
+        /** Newest first by the recorded instant (ISO-8601 sorts as text). */
+        fun newestFirst(items: List<ImportedRun>): List<ImportedRun> = items.sortedByDescending { it.recordedAt }
+
+        private fun JSONObject.optLabel(key: String): String? =
+            if (isNull(key)) null else optString(key).ifBlank { null }
+    }
 }
 
 const val ACTIVITY_IMPORT_HINT = "Runs from Garmin, COROS, Suunto or any watch app (.gpx, .fit, .tcx). They sharpen your estimate."
@@ -133,7 +292,10 @@ private fun displayName(context: Context, uri: Uri): String {
 class ActivityImportViewModel(private val raceDay: RaceDayBridge) : ViewModel() {
     var message by mutableStateOf(ACTIVITY_IMPORT_EMPTY)
         private set
-    var items by mutableStateOf<List<String>>(emptyList())
+    var items by mutableStateOf<List<ImportedRun>>(emptyList())
+        private set
+    /** "3 runs imported", from client-core. */
+    var countLabel by mutableStateOf("")
         private set
     var busy by mutableStateOf(false)
         private set
@@ -143,9 +305,9 @@ class ActivityImportViewModel(private val raceDay: RaceDayBridge) : ViewModel() 
             val result = withContext(Dispatchers.IO) { raceDay.activityHistoryItems() }
             if (result is RuntimeResult.Success) {
                 if (result.result.optBoolean("offline") && items.isEmpty()) message = ACTIVITY_IMPORT_OFFLINE
-                result.result.optJSONArray("items")?.let { array ->
-                    items = (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("summary") }
-                        .filter { it.isNotBlank() }
+                if (result.result.has("items")) {
+                    items = ImportedRun.parseList(result.result)
+                    countLabel = result.result.optString("countLabel").ifBlank { countLabelFallback(items.size) }
                 }
             }
         }
@@ -174,6 +336,13 @@ class ActivityImportViewModel(private val raceDay: RaceDayBridge) : ViewModel() 
     }
 
     companion object {
+        /** Only for an older runtime without `countLabel`; client-core owns this copy. */
+        fun countLabelFallback(count: Int): String = when {
+            count < 1 -> "No runs imported yet"
+            count == 1 -> "1 run imported"
+            else -> "$count runs imported"
+        }
+
         /** client-core returns the user-facing message for every status, server errors included. */
         fun messageFor(result: RuntimeResult): String = when (result) {
             is RuntimeResult.Failure -> if (result.offline) ACTIVITY_IMPORT_OFFLINE else ACTIVITY_IMPORT_ERROR

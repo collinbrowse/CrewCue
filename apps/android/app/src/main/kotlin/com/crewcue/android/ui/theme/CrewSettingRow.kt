@@ -6,6 +6,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -39,10 +41,26 @@ import androidx.compose.ui.unit.dp
 
 /** A titled card of compact rows (Settings, Race tools). Put [RowDivider] between rows. */
 @Composable
-fun SettingsGroup(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun SettingsGroup(
+    title: String,
+    modifier: Modifier = Modifier,
+    /** A small control on the title's row, at its trailing edge (Room members' Invite pill). */
+    accessory: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
     val colors = MaterialTheme.colorScheme
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader(title, Modifier.padding(horizontal = 8.dp))
+        if (accessory == null) {
+            SectionHeader(title, Modifier.padding(horizontal = 8.dp))
+        } else {
+            androidx.compose.foundation.layout.Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                SectionHeader(title, Modifier.weight(1f))
+                accessory()
+            }
+        }
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.medium,
@@ -122,7 +140,7 @@ private fun RowText(title: String, hint: String?, titleColor: Color) {
     }
 }
 
-/** Small capsule button for a row's trailing edge. */
+/** Small capsule button for a row's trailing edge. [destructive] tints it red; [icon] leads the label. */
 @Composable
 fun PillButton(
     label: String,
@@ -131,11 +149,21 @@ fun PillButton(
     prominent: Boolean = false,
     enabled: Boolean = true,
     busy: Boolean = false,
-    spoken: String = label
+    spoken: String = label,
+    icon: ImageVector? = null,
+    destructive: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
-    val container = if (prominent) colors.primary else colors.surfaceContainerHigh
-    val content = if (prominent) colors.onPrimary else colors.onSurface
+    val container = when {
+        prominent -> colors.primary
+        destructive -> colors.errorContainer.copy(alpha = 0.6f)
+        else -> colors.surfaceContainerHigh
+    }
+    val content = when {
+        prominent -> colors.onPrimary
+        destructive -> colors.error
+        else -> colors.onSurface
+    }
     Button(
         onClick = onClick,
         enabled = enabled && !busy,
@@ -150,7 +178,11 @@ fun PillButton(
         )
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (busy) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = content)
+            if (busy) {
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = content)
+            } else if (icon != null) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            }
             Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
     }
@@ -162,16 +194,21 @@ fun CompactTextField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    spoken: String = placeholder
 ) {
     val colors = MaterialTheme.colorScheme
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
         singleLine = true,
+        keyboardOptions = keyboardOptions,
+        keyboardActions = keyboardActions,
         textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface),
         cursorBrush = SolidColor(colors.primary),
-        modifier = modifier.semantics { contentDescription = placeholder },
+        modifier = modifier.semantics { contentDescription = spoken },
         decorationBox = { field ->
             Box(
                 Modifier

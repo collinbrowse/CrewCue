@@ -28,6 +28,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.crewcue.android.ui.theme.MetricStyle
+import com.crewcue.android.ui.theme.PillButton
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material3.DropdownMenu
@@ -63,7 +71,6 @@ import com.crewcue.android.ui.brand.CairnLoader
 import com.crewcue.android.ui.theme.ChipStyle
 import com.crewcue.android.ui.theme.CircleIconButton
 import com.crewcue.android.ui.theme.CrewClock
-import com.crewcue.android.ui.theme.CrewProgressBar
 import com.crewcue.android.ui.theme.CrewTextField
 import com.crewcue.android.ui.theme.Kicker
 import com.crewcue.android.ui.theme.LocalCrewExtras
@@ -83,14 +90,16 @@ fun MapScreen(
     /** Set on an unpaid race: Start tracking opens the paywall instead. */
     onLocked: (() -> Unit)? = null,
     /** A tool the shell opens (a tracking push opens Location, at Start tracking). */
-    toolRequest: MapToolRequest? = null
+    toolRequest: MapToolRequest? = null,
+    /** Where the chips start under the shell's top bar, which grows with its course strip. */
+    topInset: Dp = 76.dp
 ) {
     val role = shell.session?.role.orEmpty()
     val model: MapViewModel = viewModel(
         key = "map-$roomId-$role",
         factory = MapViewModelFactory(shell.container.raceDay, roomId, role)
     )
-    MapContent(model, roomId, focus, modifier, bottomInset = bottomInset, onLocked = onLocked, toolRequest = toolRequest)
+    MapContent(model, roomId, focus, modifier, bottomInset = bottomInset, onLocked = onLocked, toolRequest = toolRequest, topInset = topInset)
 }
 
 /**
@@ -117,7 +126,8 @@ fun MapContent(
     framing: CourseFraming = CourseFraming.Screen,
     glide: (() -> RunnerGlideFrame?)? = null,
     pathPings: Int? = null,
-    toolRequest: MapToolRequest? = null
+    toolRequest: MapToolRequest? = null,
+    topInset: Dp = 76.dp
 ) {
     LaunchedEffect(roomId) { model.load() }
     // Back from the lock screen or another app: read the runner now, not at the next tick.
@@ -182,6 +192,7 @@ fun MapContent(
                 onTool = { tool = it },
                 underTopBar = underTopBar,
                 pathPings = pathPings,
+                topInset = topInset,
                 modifier = Modifier.align(Alignment.TopStart)
             )
         }
@@ -207,13 +218,14 @@ private fun MapOverlay(
     onTool: (String) -> Unit,
     underTopBar: Boolean,
     pathPings: Int?,
+    topInset: Dp = 76.dp,
     modifier: Modifier = Modifier
 ) {
     var menu by remember { mutableStateOf(false) }
     Row(
         modifier
             .fillMaxWidth()
-            .then(if (underTopBar) Modifier.statusBarsPadding().padding(top = 76.dp) else Modifier.padding(top = 12.dp))
+            .then(if (underTopBar) Modifier.statusBarsPadding().padding(top = topInset) else Modifier.padding(top = 12.dp))
             .padding(start = 16.dp, end = 16.dp),
         verticalAlignment = Alignment.Top
     ) {
@@ -327,30 +339,23 @@ private fun AidContent(model: MapViewModel, expanded: Boolean) {
         )
     }
     if (expanded) {
-        val page = model.aidPages.getOrNull(model.aidIndex)
         Column(Modifier.padding(horizontal = 24.dp).padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(32.dp))
-                    .padding(24.dp)
+            // The whole race, whichever aid the pager shows. Course progress is in the top bar.
+            Row(
+                Modifier.semantics(mergeDescendants = true) {}.testTag("crewcue.aid-race-stats"),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Kicker("Course progress", modifier = Modifier.weight(1f))
-                    Text(model.readout.progressLabel, style = MaterialTheme.typography.titleLarge)
-                }
-                CrewProgressBar(model.readout.progressFraction, Modifier.padding(top = 12.dp))
+                MetricColumn("Race time", model.readout.elapsedLabel, Modifier.weight(1f), compact = true)
+                VerticalDivider(Modifier.height(40.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                MetricColumn("Avg pace", model.readout.averagePaceLabel, Modifier.weight(1f), compact = true)
             }
-            if (page != null) {
-                Row {
-                    MetricColumn("Planned stop", page.stoppageDurationLabel, Modifier.weight(1f))
-                    MetricColumn("Elapsed", page.elapsedLabel, Modifier.weight(1f))
-                    MetricColumn("Delay", page.delayLabel ?: "—", Modifier.weight(1f))
-                }
-            }
-            val live = model.aidLiveNext
-            if (!model.aidFollow && live != null && live != model.aidIndex) {
-                SecondaryButton("Next station", onClick = model::jumpToNextAid)
+            if (model.aidShowsBackToNext) {
+                PillButton(
+                    "Back to next aid",
+                    onClick = model::jumpToNextAid,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    icon = Icons.AutoMirrored.Outlined.Undo
+                )
             }
         }
     }
@@ -409,50 +414,99 @@ private fun AidPager(model: MapViewModel) {
         }
     }
     val colors = MaterialTheme.colorScheme
-    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { index ->
-        val page = pages[index]
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .semantics(mergeDescendants = true) { contentDescription = page.scheduleLine }
-        ) {
-            Row(verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f)) {
-                    Kicker(aidKicker(page.kicker), color = colors.primary)
+    val scope = rememberCoroutineScope()
+    // A caret or a swipe: one page either way.
+    val step: (Int) -> Unit = { delta ->
+        val next = pagerState.currentPage + delta
+        if (next in pages.indices) scope.launch { pagerState.animateScrollToPage(next) }
+    }
+    Box(Modifier.fillMaxWidth()) {
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { index ->
+            AidPeek(pages[index])
+        }
+        // Gray carets say there's another aid that way; a tap steps to it.
+        if (pagerState.currentPage > 0) {
+            AidCaret(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous aid station", Modifier.align(Alignment.CenterStart)) { step(-1) }
+        }
+        if (pagerState.currentPage < pages.lastIndex) {
+            AidCaret(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next aid station", Modifier.align(Alignment.CenterEnd)) { step(1) }
+        }
+    }
+}
+
+/** A small gray chevron at the pager's edge. */
+@Composable
+private fun AidCaret(icon: ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .size(width = 24.dp, height = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f))
+    }
+}
+
+/**
+ * One aid station in the pager. Everything on it belongs to that aid, so it all changes with a
+ * swipe: its arrival (estimated, or the runner's real arrival once passed), the climb and distance
+ * to it, and its planned stop.
+ */
+@Composable
+private fun AidPeek(page: AidPage) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 28.dp)
+            .semantics(mergeDescendants = true) { contentDescription = page.scheduleLine }
+    ) {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                Kicker(aidKicker(page.kicker), color = if (page.passed) colors.onSurfaceVariant else colors.primary)
+                Text(
+                    page.title.lowercase().split(" ").joinToString(" ") { it.replaceFirstChar(Char::uppercase) },
+                    modifier = Modifier.padding(top = 4.dp),
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    CrewClock.short(page.arrivalAt) ?: page.clockLabel,
+                    style = MetricStyle,
+                    color = if (page.passed) colors.onSurface else colors.primary
+                )
+                Text(page.arrivalCaption, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                if (!page.passed && page.countdownLabel.isNotBlank()) {
                     Text(
-                        page.title.lowercase().split(" ").joinToString(" ") { it.replaceFirstChar(Char::uppercase) },
-                        modifier = Modifier.padding(top = 6.dp),
-                        style = MaterialTheme.typography.headlineSmall,
-                        maxLines = 2
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        CrewClock.short(page.arrivalAt) ?: page.clockLabel,
-                        style = MetricLargeStyle,
-                        color = colors.primary
-                    )
-                    Text("EST. ARRIVAL", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
-                    Text(
-                        page.remainLabel,
+                        page.countdownLabel,
                         modifier = Modifier
-                            .padding(top = 6.dp)
+                            .padding(top = 4.dp)
                             .background(colors.primaryContainer, CircleShape)
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.titleLarge,
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                         color = colors.onPrimaryContainer
                     )
                 }
             }
-            HorizontalDivider(Modifier.padding(vertical = 16.dp), color = colors.outlineVariant)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                MetricColumn("Distance\nremaining", page.distanceLabel.uppercase(), Modifier.weight(1f))
-                VerticalDivider(Modifier.height(52.dp), color = colors.outlineVariant)
-                MetricColumn("Elevation\nremaining", page.elevationLabel ?: "—", Modifier.weight(1f))
-                VerticalDivider(Modifier.height(52.dp), color = colors.outlineVariant)
-                MetricColumn("Avg\npace", model.readout.averagePaceLabel, Modifier.weight(1f))
+        }
+        HorizontalDivider(Modifier.padding(vertical = 12.dp), color = colors.outlineVariant)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (page.passed) {
+                MetricColumn("Left", CrewClock.short(page.actualDepartureAt) ?: "—", Modifier.weight(1f), compact = true)
+                VerticalDivider(Modifier.height(40.dp), color = colors.outlineVariant)
+                MetricColumn("Stopped", page.actualStopLabel ?: "—", Modifier.weight(1f), compact = true)
+            } else {
+                MetricColumn("Distance to", page.distanceLabel.uppercase(), Modifier.weight(1f), compact = true)
+                // A course with no elevation (a GPX without <ele>) shows no climb, not a 0.
+                page.elevationLabel?.let { climb ->
+                    VerticalDivider(Modifier.height(40.dp), color = colors.outlineVariant)
+                    MetricColumn("Climb to", climb, Modifier.weight(1f), compact = true)
+                }
             }
+            VerticalDivider(Modifier.height(40.dp), color = colors.outlineVariant)
+            MetricColumn("Planned stop", page.plannedStopLabel, Modifier.weight(1f), compact = true)
         }
     }
 }
@@ -461,6 +515,9 @@ private fun aidKicker(kicker: String): String = when (kicker) {
     "NEXT" -> "Next aid station"
     "START" -> "Start"
     "FINISHED" -> "Finished"
+    "PASSED" -> "Passed"
+    "AHEAD" -> "Later aid station"
+    "FINISH" -> "Finish"
     else -> kicker
 }
 
@@ -523,7 +580,13 @@ private fun CheckpointSection(model: MapViewModel, tagged: Boolean) {
         CrewTextField(model.pickLatitude, model::updatePickLatitude, "Latitude")
         CrewTextField(model.pickLongitude, model::updatePickLongitude, "Longitude")
         Text(model.pickMessage, modifier = Modifier.semantics { contentDescription = model.pickMessage })
-        PrimaryButton("Save checkpoint", onClick = model::saveCheckpoint, busy = model.pickBusy)
+        PillButton(
+            "Save checkpoint",
+            onClick = model::saveCheckpoint,
+            modifier = Modifier.align(Alignment.End),
+            prominent = true,
+            busy = model.pickBusy
+        )
     }
 }
 
@@ -540,20 +603,21 @@ private fun NavigateSection(model: MapViewModel, tagged: Boolean) {
                 SecondaryButton(label, onClick = { model.chooseDestination(checkpoint.id) })
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(
-                "Hike",
-                onClick = { model.startRoute("hike") },
-                enabled = !model.navigateBusy,
-                busy = model.navigateMode == "hike",
-                modifier = Modifier.weight(1f)
-            )
-            SecondaryButton(
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            PillButton(
                 "Drive",
                 onClick = { model.startRoute("drive") },
                 enabled = !model.navigateBusy,
                 busy = model.navigateMode == "drive",
-                modifier = Modifier.weight(1f)
+                spoken = "Start navigation, drive"
+            )
+            PillButton(
+                "Hike",
+                onClick = { model.startRoute("hike") },
+                prominent = true,
+                enabled = !model.navigateBusy,
+                busy = model.navigateMode == "hike",
+                spoken = "Start navigation, hike"
             )
         }
     }
@@ -586,18 +650,22 @@ private fun LocationSection(model: MapViewModel, tagged: Boolean, onLocked: (() 
             style = MaterialTheme.typography.bodyMedium
         )
         if (model.trackingActive) {
-            SecondaryButton(
+            PillButton(
                 "Stop tracking",
-                onClick = { model.stopTracking { RaceTrackingService.stop(context) } }
+                onClick = { model.stopTracking { RaceTrackingService.stop(context) } },
+                modifier = Modifier.align(Alignment.End),
+                destructive = true
             )
         } else {
-            PrimaryButton(
+            PillButton(
                 "Start tracking",
+                modifier = Modifier.align(Alignment.End),
+                prominent = true,
                 onClick = {
                     // An unpaid race takes no pings: the paywall first.
                     if (onLocked != null) {
                         onLocked()
-                        return@PrimaryButton
+                        return@PillButton
                     }
                     val granted = ContextCompat.checkSelfPermission(
                         context,
