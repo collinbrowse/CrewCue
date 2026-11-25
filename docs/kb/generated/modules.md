@@ -220,18 +220,18 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### iOS app (SwiftUI)
 
-88 files under `apps/ios/CrewCue/`.
+89 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
 | `App` | 15 | 2107 |
-| `Brand` | 1 | 184 |
-| `Design` | 8 | 1937 |
+| `Brand` | 2 | 286 |
+| `Design` | 8 | 1933 |
 | `Logging` | 2 | 18 |
 | `Screens/ActivityImport` | 4 | 490 |
 | `Screens/AthleteSetup` | 2 | 146 |
-| `Screens/Auth` | 2 | 222 |
+| `Screens/Auth` | 2 | 223 |
 | `Screens/Billing` | 2 | 457 |
 | `Screens/BrandLoader` | 1 | 47 |
 | `Screens/Chat` | 4 | 955 |
@@ -242,7 +242,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Notifications` | 2 | 116 |
 | `Screens/Onboarding` | 15 | 4499 |
 | `Screens/Pace` | 2 | 1913 |
-| `Screens/Profile` | 2 | 627 |
+| `Screens/Profile` | 2 | 623 |
 | `Screens/RoomMembers` | 2 | 216 |
 | `Screens/Settings` | 2 | 365 |
 | `Screens/Shell` | 4 | 793 |
@@ -250,7 +250,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-125 files under `apps/android/app/src/main/`.
+126 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -268,9 +268,9 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui` | 5 | 2001 |
 | `kotlin/com/crewcue/android/ui/activity` | 2 | 645 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
-| `kotlin/com/crewcue/android/ui/auth` | 1 | 230 |
+| `kotlin/com/crewcue/android/ui/auth` | 1 | 233 |
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 511 |
-| `kotlin/com/crewcue/android/ui/brand` | 1 | 234 |
+| `kotlin/com/crewcue/android/ui/brand` | 2 | 342 |
 | `kotlin/com/crewcue/android/ui/brandloader` | 1 | 54 |
 | `kotlin/com/crewcue/android/ui/chat` | 7 | 1273 |
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 298 |
@@ -282,7 +282,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/onboarding` | 11 | 5954 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1503 |
-| `kotlin/com/crewcue/android/ui/profile` | 1 | 403 |
+| `kotlin/com/crewcue/android/ui/profile` | 1 | 389 |
 | `kotlin/com/crewcue/android/ui/settings` | 2 | 383 |
 | `kotlin/com/crewcue/android/ui/strava` | 1 | 247 |
-| `kotlin/com/crewcue/android/ui/theme` | 3 | 886 |
+| `kotlin/com/crewcue/android/ui/theme` | 3 | 873 |
