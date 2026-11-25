@@ -47,7 +47,9 @@ object DevRoutes {
         "dev/race-rename" to "race-rename",
         "dev/course-locked" to "course-locked",
         "dev/invite-share" to "invite-share",
-        "dev/join-link" to "join-link"
+        "dev/join-link" to "join-link",
+        "dev/onboarding-runner-tour" to "onboarding-runner-tour",
+        "dev/onboarding-crew" to "onboarding-crew"
     ) + (if (BuildConfig.STRAVA_ENABLED) mapOf("dev/strava" to "strava") else emptyMap())
 
     /** Feature for a link from outside the app. Release builds open no fixture routes from links. */

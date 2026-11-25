@@ -58,6 +58,19 @@ class RunnerSetupBackTest {
         }
     }
 
+    /**
+     * System Back, sent once the activity's window has focus. On a slow emulator the key can
+     * otherwise go to a window that hasn't taken focus yet (or a system dialog) and be lost.
+     */
+    private fun pressSystemBack(scenario: ActivityScenario<MainActivity>) {
+        compose.waitUntil(15_000) {
+            var focused = false
+            scenario.onActivity { focused = it.hasWindowFocus() }
+            focused
+        }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+    }
+
     /** The setup route on show is the dev link's (ShellViewModel.setupFromLink). */
     private fun setupOpenedByLink(scenario: ActivityScenario<MainActivity>): Boolean {
         var opened = false
@@ -83,7 +96,7 @@ class RunnerSetupBackTest {
             waitFor(chooser)
             // System Back does the same, and the app stays open.
             openTheAccountStep()
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            pressSystemBack(scenario)
             waitFor(chooser)
             assertEquals(Lifecycle.State.RESUMED, scenario.state)
         }

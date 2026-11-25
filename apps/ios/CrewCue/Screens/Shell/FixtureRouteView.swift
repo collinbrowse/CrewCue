@@ -28,6 +28,17 @@ struct FixtureRouteView: View {
             } else {
                 RacePreviewFixtureScreen(screen: screen)
             }
+        case "onboarding-runner-tour", "onboarding-crew":
+            if let shell {
+                TourDevRoute(
+                    tour: shell.tour,
+                    role: route.featureId == "onboarding-crew" ? .crew : .runner,
+                    state: route.state,
+                    onFinish: { shell.leaveTourDevRoute() }
+                )
+            } else {
+                FeatureScreenView(screen: screen)
+            }
         default:
             FeatureScreenView(screen: screen)
         }
@@ -92,6 +103,8 @@ struct ProductRouteView: View {
             RunnerSetupView(model: model.runnerSetup)
         case "onboarding-race-preview":
             RacePreviewDevRoute(shell: model, state: model.route.state)
+        case "onboarding-runner-tour", "onboarding-crew":
+            FixtureRouteView(route: model.route, screen: model.screen, shell: model)
         case "auth-sign-in":
             AuthOrShell(model: model)
         case "billing-purchase", "billing-redeem", "billing-upgrade":

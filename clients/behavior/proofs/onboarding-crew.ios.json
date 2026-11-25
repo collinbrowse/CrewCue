@@ -1,0 +1,20 @@
+{
+  "id": "onboarding-crew",
+  "platform": "ios",
+  "entry": "crewcue://dev/onboarding-crew",
+  "device": "iPhone 18 Pro simulator (CrewCue mac-storage-management-b09afa, 3845127D, 402x874 pt), iOS 27.2, Debug build; iPhone Duo simulator (CrewCue mac-storage-management-b09afa Duo, A0DADC7E), iOS 27.2 (iPhone19-4 runtime), Debug build: outer display (466x678 pt, closed) and inner display (951x669 pt, open), folded and unfolded with the simulator's posture control mid-flow.",
+  "date": "2026-11-25",
+  "commit": "claude/onboarding-11-ios-tour: db83f8a4 (client-core tour, location test, checklist, crew demo), 2b89e3e8 (iOS tour, coach marks, checklist card, start-line zoom) and the follow-up commit with these checklists.",
+  "session": "Dev sessions (HS256 dev JWTs) against the API in memory mode on 127.0.0.1:3411, seeded by a script: a runner's race 'Leadville 2027' created, set paid (POST /entitlement, unlimited crew), course from fixtures/pacing/course-50k-with-aids.gpx (gpx-preview then PUT /course, start 2027-08-15 12:00Z), and a crew member joined by code. Each user's onboarding progress file was written as a phone that finished setup leaves it (runner: account, history, teaser, preview done; crew: choice crew), then the app was launched with --deeplink crewcue://dev/app-shell --api-base-url <api> --dev-session <user> <athlete|crew_member> <token> <roomId>. Offline: the app talked to the API through a TCP proxy on 127.0.0.1:3412 that was then killed. Location: simctl location set at the course start (39.1502,-120.2501); denial via simctl privacy revoke location.",
+  "action": "Standard iPhone, crew tour-crew of the paid race: card 1 of 8 'Your runner's dot' above the Map tab, Example race 'Runner Ada · Mile 13.0', while the real chip behind it read 'LAST PING: 3 MIN AGO' (the runner's test ping from the API). Next walked Last update, ETA and PLAN on Pace (Aid 2 ETA 10:12 AM, PLAN 10:00 AM in the simulator's zone), Planned stops, Check in without service, Directions to the next aid on Map (Aid 2 · 2.5 mi ahead), Chat and alerts on Chat, and Turn on notifications (8 of 8), then the plain Chat tab with no checklist card. No location prompt on the crew phone. Duo crew duo-crew: inner display card 1 of 8, Next to card 3 of 8 on Pace, folded to the outer display with card 3 kept; Skip tour left the plain Pace tab. Dev route signed out: card 1 of 8 on the fixture tab bar with the example race. The join before the tour (link, sign-up, PendingJoin) was not run here: it is join-link and join-crew, and the seed joined by code.",
+  "checked": {
+    "Success": "Card 1: 'The dot is where Ada's phone last sent a ping. Every crew phone sees the same dot.' with Example race lines.",
+    "Empty": "crewcue://dev/onboarding-crew?state=empty shows 'Join your runner's race to start the tour.' (fixture copy); an unpaid joined race shows the race-locked banner and no tour (client-core resolve, raceLocked).",
+    "Error": "crewcue://dev/onboarding-crew?state=error fixture copy only: 'Couldn't load the race. The tour uses an example race.' The tour itself never loads anything.",
+    "Offline": "Fixture copy 'Offline. The tour plays from an example race on this phone.'; the cards' example lines are computed on the phone and need no network.",
+    "Action": "Eight cards in order, tab switching with each card, Skip tour, fold/unfold keeping the step.",
+    "Accessibility labels": "crewcue.onboarding-crew on the overlay root, crewcue.onboarding.tour.example on the example box. Not read with snapshot_ui this round.",
+    "Adaptive": "As onboarding-runner-tour: card above the ringed tab on iPhone, Duo outer and inner; the fold kept card 3 of 8."
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
