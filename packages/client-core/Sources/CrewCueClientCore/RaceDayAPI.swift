@@ -330,11 +330,16 @@ public enum RaceDayAPI {
     }
 
     /// Brings `track` up to date, reading at most `maxPages` pages (a long dead zone can leave
-    /// thousands of new points); the next refresh continues from the cursor.
+    /// thousands of new points); the next refresh continues from the cursor. When the start moved
+    /// since the last read, the track is read again from the beginning.
     public static func refreshTrack(graph: ClientGraph, roomId: String, track: RunnerTrack, maxPages: Int = 5) async throws -> RunnerTrack {
         var next = track
         for _ in 0..<maxPages {
-            let page = try await pingTrack(graph: graph, roomId: roomId, after: next.cursor)
+            var page = try await pingTrack(graph: graph, roomId: roomId, after: next.cursor)
+            if next.isReadUnderAnotherStart(page) {
+                next = .empty
+                page = try await pingTrack(graph: graph, roomId: roomId, after: nil)
+            }
             next.append(page)
             if page.nextCursor == nil || page.points.isEmpty {
                 break

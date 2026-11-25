@@ -105,10 +105,24 @@ public struct RunnerTrack: Equatable, Sendable {
     public private(set) var points: [RunnerTrackPoint]
     /// The newest `recordedAt` (wire string) read so far; pass as `after`.
     public private(set) var cursor: String?
+    /// The race start the held points' `preStart` marks were judged against (the last page's
+    /// `raceStartAt`; nil when the room had no start).
+    public private(set) var raceStartAt: String?
+    /// Whether `raceStartAt` came from a page. A track rebuilt from a bare cursor doesn't know it.
+    public private(set) var knowsRaceStart: Bool
 
-    public init(points: [RunnerTrackPoint], cursor: String?) {
+    public init(points: [RunnerTrackPoint], cursor: String?, raceStartAt: String? = nil, knowsRaceStart: Bool = false) {
         self.points = points
         self.cursor = cursor
+        self.raceStartAt = raceStartAt
+        self.knowsRaceStart = knowsRaceStart
+    }
+
+    /// The server judged `page` against another start than the points held. Moving the start
+    /// re-marks the whole stored track, so the held points and cursor are stale: read again from
+    /// the beginning, and every phone draws the same line (the `RaceRoomPingTrackResponse` contract).
+    public func isReadUnderAnotherStart(_ page: RaceRoomPingTrackResponse) -> Bool {
+        cursor != nil && knowsRaceStart && page.raceStartAt != raceStartAt
     }
 
     /// Adds a page. Points with an unreadable time or position, or not newer than what's held, are
@@ -132,6 +146,8 @@ public struct RunnerTrack: Equatable, Sendable {
             cursor = wire.recordedAt
             last = at
         }
+        raceStartAt = page.raceStartAt
+        knowsRaceStart = true
     }
 }
 

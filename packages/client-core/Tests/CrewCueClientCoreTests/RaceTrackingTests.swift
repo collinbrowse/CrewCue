@@ -246,6 +246,73 @@ private actor TrackServer: HTTPTransport {
     #expect(again == track)
 }
 
+/// Three stored pings at 0, 180 and 360 s, marked `preStart` against the room's start as it is now
+/// (like the API, which re-marks the whole stored track when the start moves).
+private actor MovableStartTrackServer: HTTPTransport {
+    private(set) var afters: [String?] = []
+    private var startSeconds: Double
+    private let stored: [Double] = [0, 180, 360]
+
+    init(startSeconds: Double) {
+        self.startSeconds = startSeconds
+    }
+
+    func moveStart(to seconds: Double) {
+        startSeconds = seconds
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let query = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let after = query.first { $0.name == "after" }?.value
+        afters.append(after)
+        let afterSeconds = after.flatMap { a in stored.first { iso($0) == a } }
+        let page = stored.filter { afterSeconds == nil || $0 > afterSeconds! }
+        let body: [String: Any] = [
+            "roomId": "room",
+            "raceStartAt": iso(startSeconds),
+            "points": page.map { seconds -> [String: Any] in
+                var point: [String: Any] = ["recordedAt": iso(seconds), "latitude": 40 + seconds / 100_000, "longitude": -105]
+                if seconds < startSeconds { point["preStart"] = true }
+                return point
+            }
+        ]
+        return HTTPResponse(status: 200, body: try JSONSerialization.data(withJSONObject: body))
+    }
+}
+
+@Test func movingTheStartEarlierDrawsThePathReadPastAsPreStart() async throws {
+    // The start was set 10 minutes late, so the first race pings read as pre-start and aren't drawn.
+    let server = MovableStartTrackServer(startSeconds: 600)
+    let before = try await RaceDayAPI.refreshTrack(graph: graph(server), roomId: "room", track: .empty)
+    #expect(before.points.isEmpty)
+    // The owner corrects the start. The server now marks every stored ping as part of the race.
+    await server.moveStart(to: 0)
+    let after = try await RaceDayAPI.refreshTrack(graph: graph(server), roomId: "room", track: before)
+    #expect(after.points.map(\.recordedAt) == [0, 180, 360].map { base.addingTimeInterval($0) },
+            "a phone that read the track before the start moved draws the same line as a fresh one")
+    let fresh = try await RaceDayAPI.refreshTrack(graph: graph(server), roomId: "room", track: .empty)
+    #expect(after.points == fresh.points)
+}
+
+@Test func movingTheStartLaterDropsThePathThatIsNowPreStart() async throws {
+    let server = MovableStartTrackServer(startSeconds: 0)
+    let before = try await RaceDayAPI.refreshTrack(graph: graph(server), roomId: "room", track: .empty)
+    #expect(before.points.count == 3)
+    // A delayed gun: the pings so far were taken before the new start.
+    await server.moveStart(to: 600)
+    let after = try await RaceDayAPI.refreshTrack(graph: graph(server), roomId: "room", track: before)
+    #expect(after.points.isEmpty, "points now marked pre-start are not the race's path")
+    #expect(after.cursor == iso(360))
+}
+
+@Test func anUnchangedStartKeepsReadingFromTheCursor() async throws {
+    let server = MovableStartTrackServer(startSeconds: 0)
+    let before = try await RaceDayAPI.refreshTrack(graph: graph(server), roomId: "room", track: .empty)
+    let again = try await RaceDayAPI.refreshTrack(graph: graph(server), roomId: "room", track: before)
+    #expect(again == before)
+    #expect(await server.afters == [nil, iso(360)])
+}
+
 // MARK: Live ETAs
 
 private func core(
