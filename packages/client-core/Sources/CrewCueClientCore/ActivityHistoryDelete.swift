@@ -11,6 +11,8 @@ public enum ActivityHistoryDelete {
     public static let removedMessage = "Run removed. Your next estimate leaves it out."
     public static let recalculatePrompt = "Run removed. Recalculate your estimate without it?"
     public static let recalculateButton = "Recalculate"
+    public static let recalculatedMessage = "Estimate recalculated. Open Pace to see it."
+    public static let recalculateFailedMessage = "Couldn't recalculate the estimate. Try again."
     public static let offlineMessage = "You're offline. The run was not removed."
     public static let failureMessage = "Couldn't remove the run. Try again."
 
@@ -25,6 +27,8 @@ public enum ActivityHistoryDelete {
             "removedMessage": removedMessage,
             "recalculatePrompt": recalculatePrompt,
             "recalculateButton": recalculateButton,
+            "recalculatedMessage": recalculatedMessage,
+            "recalculateFailedMessage": recalculateFailedMessage,
             "offlineMessage": offlineMessage,
             "failureMessage": failureMessage
         ]

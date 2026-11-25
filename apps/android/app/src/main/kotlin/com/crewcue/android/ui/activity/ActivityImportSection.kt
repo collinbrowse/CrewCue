@@ -15,6 +15,8 @@ import com.crewcue.android.ui.theme.SettingRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -130,17 +132,32 @@ fun ActivityImportSection(shell: ShellViewModel, modifier: Modifier = Modifier) 
         }
     )
     if (showsRuns) {
-        ImportedRunsSheet(model.items, model.countLabel, onDismiss = { showsRuns = false })
+        val session = shell.session
+        ImportedRunsSheet(
+            model,
+            canRecalculate = recalculatesOwnHistory(session?.roomId, session?.role),
+            roomId = session?.roomId,
+            onDismiss = {
+                showsRuns = false
+                model.dismissRemovalStatus()
+            }
+        )
     }
 }
 
-/** Every run in the pacing history, newest first, with its distance, time and pace. */
+/**
+ * Every run in the pacing history, newest first, with its distance, time and pace. Swipe a run
+ * left and confirm to remove it, so it stops shaping the pace estimate.
+ */
 @Composable
-fun ImportedRunsSheet(items: List<ImportedRun>, countLabel: String, onDismiss: () -> Unit) {
+fun ImportedRunsSheet(model: ActivityImportViewModel, canRecalculate: Boolean, roomId: String?, onDismiss: () -> Unit) {
+    LaunchedEffect(Unit) { model.loadRemovalCopy() }
+    val copy = model.removalCopy
+    val items = model.items
     ToolSheet(title = "Imported runs", onDismiss = onDismiss) {
         Column(Modifier.testTag("crewcue.activity-import.list"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                "$countLabel. Each one shapes your pace estimate.",
+                if (items.isEmpty()) model.countLabel else "${model.countLabel}. Each one shapes your pace estimate.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(horizontal = 8.dp)
@@ -150,14 +167,30 @@ fun ImportedRunsSheet(items: List<ImportedRun>, countLabel: String, onDismiss: (
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerLowest
             ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                Column(Modifier.padding(vertical = 4.dp)) {
                     ImportedRun.newestFirst(items).forEachIndexed { index, item ->
-                        if (index > 0) RowDivider()
-                        ImportedRunRow(item)
+                        if (index > 0) Box(Modifier.padding(horizontal = 16.dp)) { RowDivider() }
+                        key(item.id) {
+                            RemovableRunRow(item, copy, removing = model.removingId == item.id, onRemove = { model.pendingRemoval = it }) {
+                                Box(Modifier.padding(horizontal = 16.dp)) { ImportedRunRow(item) }
+                            }
+                        }
                     }
                 }
             }
+            model.removalMessage?.let { message ->
+                RemovalStatus(message, model.offersRecalculate, model.recalculating, copy) {
+                    roomId?.let(model::recalculate)
+                }
+            }
         }
+    }
+    model.pendingRemoval?.let { item ->
+        RemoveRunDialog(
+            copy,
+            onConfirm = { model.remove(item, canRecalculate) },
+            onDismiss = { model.pendingRemoval = null }
+        )
     }
 }
 
@@ -299,6 +332,81 @@ class ActivityImportViewModel(private val raceDay: RaceDayBridge) : ViewModel() 
         private set
     var busy by mutableStateOf(false)
         private set
+    /** The run waiting on the Remove confirm. Kept here so a fold or rotation keeps the dialog. */
+    var pendingRemoval by mutableStateOf<ImportedRun?>(null)
+    var removingId by mutableStateOf<String?>(null)
+        private set
+    var removalMessage by mutableStateOf<String?>(null)
+        private set
+    var offersRecalculate by mutableStateOf(false)
+        private set
+    var recalculating by mutableStateOf(false)
+        private set
+    var removalCopy by mutableStateOf(RunRemovalCopy())
+        private set
+    private var removalCopyLoaded = false
+
+    fun loadRemovalCopy() {
+        if (removalCopyLoaded) return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { raceDay.activityDeleteCopy() }
+            if (result is RuntimeResult.Success) {
+                removalCopy = RunRemovalCopy.parse(result.result)
+                removalCopyLoaded = true
+            }
+        }
+    }
+
+    /** The runner confirmed: remove the run, reload the list, and offer Recalculate for their own race. */
+    fun remove(item: ImportedRun, canRecalculate: Boolean) {
+        pendingRemoval = null
+        if (removingId != null) return
+        viewModelScope.launch {
+            removingId = item.id
+            offersRecalculate = false
+            try {
+                val result = withContext(Dispatchers.IO) { raceDay.deleteActivity(item.id) }
+                val outcome = RemovalOutcome.of(result, removalCopy, canRecalculate)
+                if (outcome.removed) items = items.filterNot { it.id == item.id }
+                removalMessage = outcome.message
+                offersRecalculate = outcome.offersRecalculate
+                if (outcome.removed) refresh()
+            } finally {
+                removingId = null
+            }
+        }
+    }
+
+    /**
+     * Recalculate the open race's estimate without the removed run. `loadEstimate` reads the new
+     * history fingerprint first, so Pace records it and does not recompute again on its own.
+     */
+    fun recalculate(roomId: String) {
+        if (recalculating) return
+        viewModelScope.launch {
+            recalculating = true
+            try {
+                val attached = withContext(Dispatchers.IO) {
+                    val loaded = raceDay.loadEstimate(roomId)
+                    val loadedJson = (loaded as? RuntimeResult.Success)?.result
+                    val fingerprint = loadedJson?.optString("historyFingerprint")?.ifBlank { null }
+                    val usable = loadedJson?.optInt("usableHistoryCount") ?: items.size
+                    raceDay.computeEstimate(roomId, fingerprint, usable, "recalculate", hasPlanOfRecord = true)
+                } is RuntimeResult.Success
+                offersRecalculate = !attached
+                removalMessage = if (attached) removalCopy.recalculatedMessage else removalCopy.recalculateFailedMessage
+            } finally {
+                recalculating = false
+            }
+        }
+    }
+
+    /** The runs sheet closed: drop its one-off status. */
+    fun dismissRemovalStatus() {
+        removalMessage = null
+        offersRecalculate = false
+        pendingRemoval = null
+    }
 
     fun refresh() {
         viewModelScope.launch {

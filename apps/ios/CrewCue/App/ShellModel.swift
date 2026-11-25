@@ -131,14 +131,14 @@ final class ShellModel {
         self.sharedRunImport.onImported = { [activityImportModel] in
             await activityImportModel.activate()
         }
-        self.activityImportModel.canRecalculate = { [paceModel] in
-            paceModel.recalculatesOwnHistory
-        }
-        self.activityImportModel.recalculate = { [paceModel] in
-            await paceModel.recalculate()
-        }
         self.racePreview = RacePreviewModel(client: client)
         self.tour = OnboardingTourModel(clock: client.graph.clock)
+        self.activityImportModel.canRecalculate = { [weak self] in
+            self?.recalculableOwnRace != nil
+        }
+        self.activityImportModel.recalculate = { [weak self] in
+            await self?.recalculateOwnRace() ?? false
+        }
         self.authModel.bindSession { [weak self] session in
             self?.adopt(session)
         }
@@ -1143,6 +1143,35 @@ final class ShellModel {
             client.graph.logger.log("session save failed")
         }
     }
+
+    /// The signed-in race when its estimate reads this user's own runs: they are its runner.
+    private var recalculableOwnRace: String? {
+        guard let roomId = signedInRoomId, PlanAuthority.mayAutoRecompute(role: signedInRole ?? "") else { return nil }
+        return roomId
+    }
+
+    /// Settings removed a run: recalculate the runner's race. Through Pace when it has that race
+    /// loaded, so its screen and history record update; otherwise straight to the plan of record,
+    /// which Pace reads fresh when it next opens.
+    private func recalculateOwnRace() async -> Bool {
+        guard let roomId = recalculableOwnRace else { return false }
+        if paceModel.loadedRoomId == roomId {
+            return await paceModel.recalculateAfterHistoryChange()
+        }
+        do {
+            _ = try await PlanOfRecord.recompute(
+                graph: client.graph,
+                roomId: roomId,
+                role: signedInRole ?? "",
+                trigger: .recalculate,
+                hasPlanOfRecord: true
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
 }
 
 /// Where the Race Pass page was opened from (`ShellModel.leaveBilling`).

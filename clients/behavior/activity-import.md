@@ -32,6 +32,13 @@ Removing: You're offline. The run was not removed.
 
 ## Accessibility labels
 - crewcue.activity-import
+- crewcue.activity-import.runs
+- crewcue.activity-import.list
+- crewcue.activity-import.run
+- crewcue.activity-import.remove
+- crewcue.activity-import.remove-confirm
+- crewcue.activity-import.removal-status
+- crewcue.activity-import.recalculate
 
 ## Native SDK pocket
 none

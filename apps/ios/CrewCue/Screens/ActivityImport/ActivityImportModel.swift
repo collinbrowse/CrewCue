@@ -17,10 +17,13 @@ final class ActivityImportModel {
     private(set) var removalMessage: String?
     /// After a removal, the sheet offers Recalculate for the open race.
     private(set) var offersRecalculate = false
+    private(set) var recalculating = false
+    /// The run whose removal is waiting on the confirm. Kept here so a fold or resize keeps the confirm.
+    var pendingRemoval: ActivityHistoryItem?
 
     /// Whether an open race's estimate reads these runs, and how to recalculate it. Wired by the shell.
     var canRecalculate: @MainActor () -> Bool = { false }
-    var recalculate: @MainActor () async -> Void = {}
+    var recalculate: @MainActor () async -> Bool = { false }
 
     private let client: AppClient
     private var generation = 0
@@ -42,10 +45,12 @@ final class ActivityImportModel {
         removingId = nil
         removalMessage = nil
         offersRecalculate = false
+        pendingRemoval = nil
     }
 
     /// Settings → Imported runs: the athlete confirmed removing one run from pacing history.
     func remove(_ item: ActivityHistoryItem) async {
+        pendingRemoval = nil
         guard removingId == nil else { return }
         removingId = item.id
         defer { removingId = nil }
@@ -64,15 +69,19 @@ final class ActivityImportModel {
 
     /// The Recalculate offer after a removal.
     func recalculateAfterRemoval() async {
-        offersRecalculate = false
-        removalMessage = nil
-        await recalculate()
+        guard !recalculating else { return }
+        recalculating = true
+        let attached = await recalculate()
+        recalculating = false
+        offersRecalculate = !attached
+        removalMessage = attached ? ActivityHistoryDelete.recalculatedMessage : ActivityHistoryDelete.recalculateFailedMessage
     }
 
     /// The runs sheet closed: drop its one-off status.
     func dismissRemovalStatus() {
         removalMessage = nil
         offersRecalculate = false
+        pendingRemoval = nil
     }
 
     /// The picker returned a file, or failed to. Answers how the import ended, nil when it didn't.
