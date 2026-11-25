@@ -7,7 +7,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | --- | --- |
 | Routes with no auth guard detected | 8 |
 | Room-scoped routes with no membership check detected | 0 |
-| Source files ≥ 800 lines | 19 |
+| Source files ≥ 800 lines | 20 |
 | In-process timers in the API | 4 |
 | API lib modules with no same-named test | 45 |
 | Native features not passing on both platforms | 18 |
@@ -41,7 +41,7 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | File | Lines |
 | --- | --- |
 | [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 6041 |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2124 |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2134 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RunnerSetupViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RunnerSetupViewModel.kt) | 1485 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1464 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1435 |
@@ -59,6 +59,7 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt) | 838 |
 | [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift) | 818 |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 817 |
+| [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | 809 |
 
 ## In-process timers (API)
 
