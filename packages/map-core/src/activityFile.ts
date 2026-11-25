@@ -62,11 +62,30 @@ export const MAX_ACTIVITY_NAME_CHARS = 120;
 
 const XML_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 
+/** Longest raw name text read before cleaning, so a hostile file can't make cleaning slow. */
+const MAX_RAW_NAME_CHARS = 4096;
+
+/** Unwraps `<![CDATA[...]]>` sections in one linear pass (no backtracking regex). */
+function unwrapCdata(text: string): string {
+  const open = "<![CDATA[";
+  const close = "]]>";
+  let out = "";
+  let from = 0;
+  for (;;) {
+    const start = text.indexOf(open, from);
+    if (start < 0) break;
+    const end = text.indexOf(close, start + open.length);
+    if (end < 0) break;
+    out += text.slice(from, start) + text.slice(start + open.length, end);
+    from = end + close.length;
+  }
+  return out + text.slice(from);
+}
+
 /** Trim and collapse whitespace, decode XML entities and CDATA, cap the length. Null when blank. */
 export function cleanActivityName(raw: string | null | undefined): string | null {
   if (typeof raw !== "string") return null;
-  const decoded = raw
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+  const decoded = unwrapCdata(raw.slice(0, MAX_RAW_NAME_CHARS))
     .replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (whole, entity: string) => {
       if (entity[0] === "#") {
         const code = entity[1] === "x" || entity[1] === "X" ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
