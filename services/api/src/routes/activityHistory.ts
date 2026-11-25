@@ -20,6 +20,7 @@ import {
   ACTIVITY_FILE_SOURCES,
   ActivityFileError,
   fingerprintActivityFile,
+  gunzipActivityFile,
   MAX_ACTIVITY_FILE_BYTES,
   parseActivityFileMetrics
 } from "../lib/activityFileHistory.js";
@@ -91,7 +92,8 @@ export const BULK_WINDOW_DAYS = 365;
 export const MAX_UNREADABLE_LISTED = 50;
 /** A background upload lets the event loop run at least this often (ms). */
 const UPLOAD_YIELD_EVERY_MS = 20;
-const ACTIVITY_EXTENSIONS = /\.(gpx|fit|tcx)$/i;
+/** Activity files in a .zip, plain or gzipped (Strava's bulk export gzips each original FIT and TCX). */
+const ACTIVITY_EXTENSIONS = /\.(gpx|fit|tcx)(\.gz)?$/i;
 
 /** Metrics-only ingest (preferred for mobile — avoids multi‑MB JSON GPX bodies). */
 const ingestMetricsInput = z
@@ -129,6 +131,7 @@ function refFromFile(bytes: Uint8Array, fileName: string, externalId?: string): 
     externalId: externalId ?? fingerprintActivityFile(bytes),
     recordedAt: metrics.recordedAt ?? ingestedAt,
     ingestedAt,
+    ...(metrics.name !== undefined ? { name: metrics.name } : {}),
     distanceMeters: metrics.distanceMeters,
     ...(metrics.elapsedSeconds !== undefined ? { elapsedSeconds: metrics.elapsedSeconds } : {}),
     ...(metrics.elevationGainMeters !== undefined ? { elevationGainMeters: metrics.elevationGainMeters } : {}),
@@ -217,8 +220,12 @@ async function readUpload(
       continue;
     }
     let parsed;
+    let activity: { bytes: Uint8Array; fileName: string };
     try {
-      parsed = parseActivityFile(file.bytes, file.fileName);
+      // A gzipped activity (`123.fit.gz` from a Strava export) is read as the file inside. Its row's
+      // fingerprint is the unpacked file's, so it dedupes against the same run imported plain.
+      activity = gunzipActivityFile(file.bytes, file.fileName);
+      parsed = parseActivityFile(activity.bytes, activity.fileName);
     } catch (err) {
       if (err instanceof ActivityFileError) {
         unread({ fileName: file.fileName, error: err.message });
@@ -232,13 +239,14 @@ async function readUpload(
       continue;
     }
     const ref = withProfiles
-      ? refFromFile(file.bytes, file.fileName)
+      ? refFromFile(activity.bytes, activity.fileName)
       : parseActivityHistoryRef({
           id: randomUUID(),
           source: ACTIVITY_FILE_SOURCES[parsed.format],
-          externalId: fingerprintActivityFile(file.bytes),
+          externalId: fingerprintActivityFile(activity.bytes),
           recordedAt: new Date(parsed.startTimestampMs ?? Date.now()).toISOString(),
           ingestedAt: toIsoNow(),
+          ...(parsed.name ? { name: parsed.name } : {}),
           distanceMeters: parsed.distanceMeters,
           ...(parsed.elapsedSeconds !== null ? { elapsedSeconds: parsed.elapsedSeconds } : {}),
           ...(parsed.elevationGainMeters !== null ? { elevationGainMeters: parsed.elevationGainMeters } : {})
@@ -398,7 +406,8 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
     const bytes = new Uint8Array(Buffer.from(parsedBody.data.contentBase64, "base64"));
     let ref: ActivityHistoryRef;
     try {
-      ref = refFromFile(bytes, parsedBody.data.fileName, parsedBody.data.externalId);
+      const activity = gunzipActivityFile(bytes, parsedBody.data.fileName);
+      ref = refFromFile(activity.bytes, activity.fileName, parsedBody.data.externalId);
     } catch (err) {
       if (err instanceof ActivityFileError) {
         return reply.code(err.code === "file_too_large" ? 413 : 400).send({ error: err.message, code: err.code });
@@ -418,6 +427,7 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       runs: upload.runs.map(({ fileName, ref, track }) => ({
         fileName,
         source: ref.source,
+        ...(ref.name !== undefined ? { name: ref.name } : {}),
         recordedAt: ref.recordedAt,
         distanceMeters: ref.distanceMeters,
         ...(ref.elapsedSeconds !== undefined ? { elapsedSeconds: ref.elapsedSeconds } : {}),

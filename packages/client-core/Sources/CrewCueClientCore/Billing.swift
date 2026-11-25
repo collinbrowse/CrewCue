@@ -81,6 +81,12 @@ public struct RoomBillingState: Equatable, Sendable {
         }
     }
 
+    /// The line under the Race Pass paywall's title: nothing while the race is unpaid (the
+    /// title and subtitle already say what to buy), the unlock message once it is paid.
+    public var paywallStatus: String {
+        isPaid ? PurchasePhase.unlocked(self).message : ""
+    }
+
     /// One line for the room screen.
     public var summary: String {
         if !isPaid { return "No Race Pass yet. Buy one to open this race." }
@@ -287,7 +293,8 @@ enum BillingBridge {
             "crewCount": state.crewCount,
             "hasCrewSeat": state.hasCrewSeat,
             "offers": state.offers.map(\.rawValue),
-            "summary": state.summary
+            "summary": state.summary,
+            "paywallStatus": state.paywallStatus
         ]
         if let limit = state.crewLimit {
             row["crewLimit"] = limit

@@ -50,7 +50,6 @@ private func plain(_ text: String?) -> String? {
     #expect(OnboardingCopy.paywallFullCrewTitle == "Your whole crew")
     #expect(OnboardingCopy.paywallFullCrewProduct == "Race Pass + Full Crew")
     #expect(OnboardingCopy.paywallFullCrewPrice == "$19.99")
-    #expect(OnboardingCopy.paywallPitch == "Give your crew this on race day.")
     #expect(OnboardingCopy.unpaidBanner == "Unlock race")
     #expect(OnboardingCopy.courseSaveLimit == "You've changed the course a lot this hour. Try again in a bit.")
     #expect(OnboardingCopy.startTimeDstGap
@@ -96,7 +95,7 @@ private func plain(_ text: String?) -> String? {
         OnboardingCopy.chooserRunner, OnboardingCopy.chooserCrew, OnboardingCopy.replaySkip,
         OnboardingCopy.replayPause, OnboardingCopy.replayPlay, OnboardingCopy.replayEmpty,
         OnboardingCopy.replayError, OnboardingCopy.replayOffline,
-        OnboardingCopy.paywallRunnerPlusOneTitle, OnboardingCopy.paywallFullCrewTitle, OnboardingCopy.paywallPitch,
+        OnboardingCopy.paywallRunnerPlusOneTitle, OnboardingCopy.paywallFullCrewTitle,
         OnboardingCopy.unpaidBanner, OnboardingCopy.courseSaveLimit, OnboardingCopy.startTimeDstGap,
         OnboardingCopy.replayMapTitle, OnboardingCopy.replayPaceTitle, OnboardingCopy.replayChatTitle,
         OnboardingCopy.paywallBuyLabel(product: .racePass, price: BillingProduct.racePass.fallbackPrice),
@@ -247,4 +246,9 @@ private func runtimeResult(_ fields: [String: Any]) async throws -> [String: Any
     let json = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
     #expect(json["ok"] as? Bool == true, "\(json)")
     return json["result"] as? [String: Any] ?? [:]
+}
+
+@Test func theFinishTimeStepHasOneSubtitleTheChecklistsSuccessLine() {
+    // One line under "Your finish time" on both platforms, never a near-duplicate pair.
+    #expect(OnboardingCopy.explanation(for: .projectionTeaser) == CrewCueClientCore.featureScreen(id: "onboarding-runner-setup", state: .success).body)
 }

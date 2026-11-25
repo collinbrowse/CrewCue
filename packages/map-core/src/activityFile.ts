@@ -49,7 +49,38 @@ export type ParsedActivityFile = {
   elevationGainMeters: number | null;
   /** What the activity was, when the file says (FIT session sport, TCX Sport, GPX type). */
   sport: ActivitySport | null;
+  /**
+   * The activity's own title when the file carries one ("Morning Run" in a Strava GPX), else null.
+   * GPX `<trk><name>` or `<metadata><name>`, TCX Activity `<Notes>`, FIT workout `wkt_name`.
+   * Trimmed, whitespace collapsed, at most {@link MAX_ACTIVITY_NAME_CHARS} characters.
+   */
+  name: string | null;
 };
+
+/** Longest activity name kept. Matches the contracts' ActivityHistoryRef.name cap. */
+export const MAX_ACTIVITY_NAME_CHARS = 120;
+
+const XML_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+
+/** Trim and collapse whitespace, decode XML entities and CDATA, cap the length. Null when blank. */
+export function cleanActivityName(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const decoded = raw
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (whole, entity: string) => {
+      if (entity[0] === "#") {
+        const code = entity[1] === "x" || entity[1] === "X" ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
+        return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+      }
+      return XML_ENTITIES[entity.toLowerCase()] ?? whole;
+    })
+    // Control characters (a FIT string's padding, stray tabs and newlines) read as spaces.
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (decoded.length === 0) return null;
+  return [...decoded].slice(0, MAX_ACTIVITY_NAME_CHARS).join("").trim();
+}
 
 export type ActivitySport = "running" | "trail_running" | "walking" | "hiking" | "cycling" | "other";
 
@@ -123,7 +154,8 @@ function summarize(
   format: ActivityFileFormat,
   points: GpxTrackPoint[],
   summary: { distanceMeters?: number; startTimestampMs?: number; elapsedSeconds?: number; ascentMeters?: number },
-  sport: ActivitySport | null = null
+  sport: ActivitySport | null = null,
+  name: string | null = null
 ): ParsedActivityFile {
   const positioned = points.filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
   const trackDistance = positioned.length >= 2 ? computeTrackDistanceMeters(positioned) : 0;
@@ -155,7 +187,8 @@ function summarize(
     startTimestampMs,
     elapsedSeconds,
     elevationGainMeters,
-    sport
+    sport,
+    name: cleanActivityName(name)
   };
 }
 
@@ -181,8 +214,22 @@ function parseGpxActivity(xml: string): ParsedActivityFile {
       distanceMeters: parsed.totalDistanceMeters,
       ...(timed ? { startTimestampMs: parsed.startTimestampMs, elapsedSeconds: parsed.totalDurationSeconds } : {})
     },
-    sportFromText(type)
+    sportFromText(type),
+    gpxName(xml)
   );
+}
+
+/** The track's `<name>` (Strava, Garmin), else the file's `<metadata><name>`. Never a waypoint's or route's. */
+function gpxName(xml: string): string | null {
+  const nameIn = (block: string | undefined) => {
+    if (!block) return null;
+    // Only the block's own name: cut nested segments and links before looking.
+    const own = block.replace(/<trkseg\b[\s\S]*?(<\/trkseg>|$)/gi, "").replace(/<link\b[\s\S]*?<\/link>/gi, "");
+    return cleanActivityName(own.match(/<name\b[^>]*>([\s\S]*?)<\/name>/i)?.[1]);
+  };
+  const track = xml.match(/<trk\b[^>]*>([\s\S]*?)(<\/trk>|$)/i)?.[1];
+  const metadata = xml.match(/<metadata\b[^>]*>([\s\S]*?)<\/metadata>/i)?.[1];
+  return nameIn(track) ?? nameIn(metadata);
 }
 
 // MARK: TCX
@@ -249,12 +296,14 @@ export function parseTcxActivity(xml: string): ParsedActivityFile {
   const times = points.map((point) => point.timestampMs).filter((value): value is number => value !== null);
   const trackSeconds = times.length >= 2 ? (times[times.length - 1]! - times[0]!) / 1000 : 0;
   const sportAttr = text.match(/<(?:\w+:)?Activity\b[^>]*Sport="([^"]+)"/i)?.[1];
+  // The Activity's own Notes (its title in Strava and Garmin exports), not a Lap's.
+  const activityNotes = tagText(activity.replace(/<(?:\w+:)?Lap\b[\s\S]*?<\/(?:\w+:)?Lap>/gi, ""), "Notes");
   return summarize("tcx", points, {
     distanceMeters: lapDistance > 0 ? lapDistance : lastCumulative,
     ...(firstLapStart !== undefined ? { startTimestampMs: firstLapStart } : {}),
     // Elapsed includes stops; lap TotalTimeSeconds is moving time on some watches.
     elapsedSeconds: trackSeconds > 0 ? trackSeconds : lapSeconds
-  }, sportFromText(sportAttr));
+  }, sportFromText(sportAttr), activityNotes);
 }
 
 // MARK: FIT
@@ -266,6 +315,9 @@ const SEMICIRCLES_TO_DEGREES = 180 / 2 ** 31;
 const MESG_FILE_ID = 0;
 const MESG_SESSION = 18;
 const MESG_RECORD = 20;
+const MESG_WORKOUT = 26;
+const WORKOUT_FIELD_NAME = 8;
+const FIT_BASE_TYPE_STRING = 0x07;
 const FIT_FILE_TYPE_ACTIVITY = 4;
 
 type FieldDefinition = { num: number; size: number; baseType: number };
@@ -392,6 +444,7 @@ export function parseFitActivity(bytes: Uint8Array): ParsedActivityFile {
   const records: FitRecord[] = [];
   const sessions: FitSession[] = [];
   let fileType: number | null = null;
+  let workoutName: string | null = null;
 
   // A FIT file may hold several chained FIT files back to back.
   let fileStart = 0;
@@ -458,6 +511,16 @@ export function parseFitActivity(bytes: Uint8Array): ParsedActivityFile {
       const values = new Map<number, number | null>();
       for (const field of definition.fields) {
         if (offset + field.size > dataEnd) throw fitCorrupt();
+        if (
+          definition.globalNum === MESG_WORKOUT &&
+          field.num === WORKOUT_FIELD_NAME &&
+          (field.baseType & 0x1f) === FIT_BASE_TYPE_STRING &&
+          workoutName === null
+        ) {
+          const raw = bytes.subarray(offset, offset + field.size);
+          const end = raw.indexOf(0);
+          workoutName = cleanActivityName(new TextDecoder("utf-8", { fatal: false }).decode(end >= 0 ? raw.subarray(0, end) : raw));
+        }
         const baseSize = [1, 1, 1, 2, 2, 4, 4, 1, 4, 8, 1, 2, 4, 1, 8, 8, 8][field.baseType & 0x1f] ?? field.size;
         values.set(field.num, field.size >= baseSize ? readFieldInt(view, offset, field, definition.littleEndian) : null);
         offset += field.size;
@@ -526,6 +589,7 @@ export function parseFitActivity(bytes: Uint8Array): ParsedActivityFile {
       ...(sessionElapsed > 0 ? { elapsedSeconds: sessionElapsed } : {}),
       ...(ascents.length > 0 ? { ascentMeters: ascents.reduce((sum, value) => sum + value, 0) } : {})
     },
-    first ? fitSport(first.sport, first.subSport) : null
+    first ? fitSport(first.sport, first.subSport) : null,
+    workoutName
   );
 }

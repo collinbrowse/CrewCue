@@ -87,6 +87,8 @@ struct SettingsNameSection: View {
     var userId: String?
     var roomId: String?
     var onSaved: (String) -> Void
+    @FocusState private var fieldFocused: Bool
+    @Environment(\.crew) private var theme
 
     var body: some View {
         Group {
@@ -98,20 +100,32 @@ struct SettingsNameSection: View {
                     trailing: { EmptyView() },
                     below: {
                         HStack(spacing: CrewSpace.base) {
-                            TextField("Display name", text: $model.nameDraft)
-                                .textFieldStyle(.crewCompact)
-                                .textContentType(.name)
-                                .accessibilityLabel("Display name")
-                            Button("Save") {
-                                Task {
-                                    if let saved = await model.saveDisplayName() {
-                                        onSaved(saved)
-                                    }
+                            if model.editingName {
+                                TextField("Display name", text: $model.nameDraft)
+                                    .textFieldStyle(.crewCompact)
+                                    .textContentType(.name)
+                                    .submitLabel(.done)
+                                    .focused($fieldFocused)
+                                    .onSubmit(save)
+                                    .accessibilityLabel("Display name")
+                                Button("Save", action: save)
+                                    .buttonStyle(.crewPillProminent)
+                                    .crewBusy(model.working)
+                                    .disabled(model.working)
+                                    .accessibilityLabel("Save name")
+                            } else {
+                                Text(verbatim: model.savedName)
+                                    .font(.system(.subheadline, weight: .medium))
+                                    .foregroundStyle(theme.ink)
+                                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                                    .accessibilityIdentifier("crewcue.settings.display-name")
+                                Button("Edit") {
+                                    model.beginNameEdit()
+                                    fieldFocused = true
                                 }
+                                .buttonStyle(.crewPill)
+                                .accessibilityLabel("Edit name")
                             }
-                            .buttonStyle(.crewPillProminent)
-                            .disabled(model.working)
-                            .accessibilityLabel("Save name")
                         }
                     }
                 )
@@ -125,6 +139,16 @@ struct SettingsNameSection: View {
         }
         .task(id: "\(userId ?? "")|\(roomId ?? "")") {
             await model.activate(userId: userId, roomId: roomId)
+        }
+    }
+
+    /// Save closes the keyboard; a saved name shows as text with Edit beside it.
+    private func save() {
+        fieldFocused = false
+        Task {
+            if let saved = await model.saveDisplayName() {
+                onSaved(saved)
+            }
         }
     }
 

@@ -233,6 +233,9 @@ private struct DeleteMeServer: HTTPTransport {
     #expect(rows.compactMap { $0["hasEstimate"] as? Bool } == [true, false])
     #expect(rows.compactMap { $0["role"] as? String } == ["athlete", "crew_member"])
     #expect(rows.compactMap { $0["activatedAt"] as? String } == ["2026-08-14T12:00:00.000Z"])
+    // Delete race: only the owner is offered it, and a paid race warns that its pass goes too.
+    #expect(rows.compactMap { $0["owner"] as? Bool } == [true, false])
+    #expect(rows.compactMap { $0["paid"] as? Bool } == [false, true])
 
     // The rows go straight back to readOnboarding: the crew race is the crew flow.
     _ = try result(try await runtime(["op": "markOnboardingStep", "step": "account", "storageDir": storage, "userId": "runner-1"]))
@@ -276,7 +279,7 @@ private struct DeleteMeServer: HTTPTransport {
     #expect(lockedRead["flow"] as? String == "raceLocked")
     #expect(lockedRead["showsTabBar"] as? Bool == true)
     #expect(lockedRead["step"] is NSNull)
-    #expect(lockedRead["reason"] as? String == "The runner hasn't unlocked this race yet.")
+    #expect(lockedRead["reason"] as? String == "Waiting for the runner to unlock this race.")
 
     // An existing account: a first loaded list with a paid race, no progress, both tours done.
     let existing: [String: Any] = ["storageDir": storage, "userId": "old", "token": "t"]

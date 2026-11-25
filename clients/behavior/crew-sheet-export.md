@@ -4,7 +4,7 @@
 crewcue://dev/crew-sheet-export
 
 ## Action
-From Pace, share a plaintext crew sheet built on device from the loaded schedule.
+From Pace, share a plaintext crew sheet built on device from the loaded schedule. Each stop shows its checkpoint's title, a checkpoint added on the map included, never its id.
 
 ## API
 none. Uses the schedule already on device.

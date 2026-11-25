@@ -382,7 +382,7 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     let locked = resolve(races: races, active: "theirs", progress: OnboardingProgress(account: [.account: .done]))
     #expect(locked.flow == .raceLocked && locked.role == .crew && locked.roomId == "theirs")
     #expect(locked.showsTabBar && locked.step == nil && locked.phase == nil && locked.steps.isEmpty)
-    #expect(locked.reason == "The runner hasn't unlocked this race yet.")
+    #expect(locked.reason == "Waiting for the runner to unlock this race.")
     // Also from the saved list while the live one hasn't answered.
     let saved = OnboardingProgress(knownRaces: races)
     #expect(resolve(races: nil, active: "theirs", progress: saved).flow == .raceLocked)

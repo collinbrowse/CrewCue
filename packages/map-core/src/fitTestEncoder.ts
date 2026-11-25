@@ -22,7 +22,8 @@ export type FitTestActivity = {
   records: FitTestRecord[];
   session?: { startMs: number; elapsedSeconds: number; distanceMeters: number; ascentMeters?: number; sport?: number; subSport?: number };
   /** Write records after the first with compressed-timestamp headers (needs ≤31 s gaps). */
-  compressedTimestamps?: boolean;
+  compressedTimestamps?: boolean;  /** A workout message with this `wkt_name` (FIT message 26, field 8), padded to 16 bytes. */
+  workoutName?: string;
 };
 
 class Writer {
@@ -59,6 +60,14 @@ export function encodeFitActivity(activity: FitTestActivity): Uint8Array {
   body.define(0, 0, [[0, 1, 0x00]]);
   body.u8(0);
   body.u8(activity.fileType ?? 4);
+
+  if (activity.workoutName !== undefined) {
+    const encoded = new TextEncoder().encode(activity.workoutName);
+    const size = Math.max(16, encoded.length + 1);
+    body.define(4, 26, [[8, size, 0x07]]);
+    body.u8(4);
+    for (let index = 0; index < size; index += 1) body.u8(encoded[index] ?? 0);
+  }
 
   const recordFields: Array<[number, number, number]> = [
     [253, 4, 0x86],

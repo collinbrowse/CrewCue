@@ -92,7 +92,9 @@ struct ProductRouteView: View {
     var body: some View {
         switch model.route.featureId {
         case "join-crew":
-            JoinCrewView(model: model.joinModel, signedIn: model.isSignedIn, onBack: model.isSignedIn ? { model.showProfile() } : {
+            // Opened on its own: the X at the top right returns to where it was opened from.
+            JoinCrewView(model: model.joinModel, signedIn: model.isSignedIn, onBack: model.isSignedIn ? { model.leaveJoin() } : {
+                model.joinModel.clear()
                 model.show(Route(featureId: "auth-sign-in", state: .success))
             })
         case "athlete-setup":
@@ -132,7 +134,7 @@ struct AuthOrShell: View {
         } else {
             AuthSignInView(
                 model: model.authModel,
-                onJoin: { model.show(Route(featureId: "join-crew", state: .success)) },
+                onJoin: { model.openJoin() },
                 onBack: { model.leaveSignIn() }
             )
         }
@@ -161,7 +163,7 @@ struct OnboardingGate: View {
 
     var body: some View {
         Group {
-            switch model.onboarding.entry {
+            switch model.gateEntry {
             case .chooser:
                 OnboardingChooserView(
                     onRunner: { choose(.runner) },
@@ -184,12 +186,13 @@ struct OnboardingGate: View {
                     OnboardingLoadingView()
                 }
             case .crewJoin:
-                JoinCrewView(model: model.joinModel, signedIn: model.isSignedIn, onBack: { model.leaveCrewJoin() })
+                // An onboarding step: the same Back as the other steps, back to the chooser.
+                JoinCrewView(model: model.joinModel, signedIn: model.isSignedIn, onBack: { model.leaveCrewJoin() }, exit: .back)
             case .signIn:
                 // Signed out after confirming an invite: sign-up joins it. Back gives the invite up.
                 AuthSignInView(
                     model: model.authModel,
-                    onJoin: { model.show(Route(featureId: "join-crew", state: .success)) },
+                    onJoin: { model.openJoin() },
                     onBack: { model.leaveCrewJoin() }
                 )
             case .loading:
@@ -209,14 +212,14 @@ struct OnboardingGate: View {
                 }
             }
         }
-        .animation(.snappy(duration: 0.3), value: model.onboarding.entry)
+        .animation(.snappy(duration: 0.3), value: model.gateEntry)
     }
 
     /// Signed in, onboarding replaces the tab bar (and its settings) on these screens. The menu
     /// is the way out: sign out, or open another of the person's races.
     private var showsAccountMenu: Bool {
         guard model.isSignedIn else { return false }
-        switch model.onboarding.entry {
+        switch model.gateEntry {
         case .chooser, .runnerSetup, .crewJoin: return true
         default: return false
         }
@@ -290,7 +293,7 @@ struct BillingRouteView: View {
                     model: model.billingModel,
                     roomId: model.signedInRoomId,
                     onContinue: openRace,
-                    onLeave: { model.showProfile() }
+                    onClose: { model.leaveBilling() }
                 )
             }
         }

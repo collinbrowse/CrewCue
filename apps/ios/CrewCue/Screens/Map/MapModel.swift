@@ -75,6 +75,8 @@ final class MapModel {
     private(set) var aidLiveNextIndex: Int?
     private(set) var aidIndex = 0
     private(set) var aidFollow = true
+    /// The pager is off the runner's next aid (a GPX aid or a dropped pin): offer the way back.
+    private(set) var aidShowsBackToNext = false
     private(set) var readout = RaceDayReadouts.make(sheet: nil, checkpoints: [], runner: .none, now: Date())
     /// Bumped to ask the map to fit the course again.
     private(set) var recenterRequest = 0
@@ -321,6 +323,7 @@ final class MapModel {
         aidPages = []
         aidIndex = 0
         aidFollow = true
+        aidShowsBackToNext = false
         courseOffline = false
         courseFailed = false
         styleOffline = false
@@ -423,6 +426,14 @@ final class MapModel {
         }
         guard let roomId else {
             pickMessage = "Couldn't save the checkpoint."
+            return false
+        }
+        if let rejection = CheckpointPlacement.rejection(
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            route: route.map { CourseRoutePoint(latitude: $0.latitude, longitude: $0.longitude) }
+        ) {
+            pickMessage = rejection
             return false
         }
         guard !pickBusy else { return false }
@@ -724,7 +735,8 @@ final class MapModel {
             points = next
             route = line.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
             courseCheckpoints = Self.aidCheckpoints(from: envelope.room.course)
-            elevation = envelope.room.course?.baselineTrack.map { ElevationProfile(points: $0.points) }
+            // The baseline track carries no elevation from the server: the climb comes from the line.
+            elevation = ElevationProfile.course(baseline: envelope.room.course?.baselineTrack?.points, route: line)
             if let loaded = try? await RaceDayAPI.loadScheduleResult(
                 graph: client.graph,
                 roomId: roomId,
@@ -732,7 +744,12 @@ final class MapModel {
             ) {
                 schedule = loaded.sheet
             }
+            // A checkpoint added or removed moves the pages: stay on the aid that was on show.
+            let selected = aidPages.indices.contains(aidIndex) ? aidPages[aidIndex].checkpointId : nil
             reproject(follow: aidFollow, selected: aidIndex)
+            if !aidFollow, let selected, let moved = aidPages.firstIndex(where: { $0.checkpointId == selected }), moved != aidIndex {
+                reproject(follow: false, selected: moved)
+            }
             courseOffline = false
             courseFailed = false
             if next.isEmpty {
@@ -854,7 +871,9 @@ final class MapModel {
             paceSecondsPerKm: nil,
             selectedIndex: selected,
             follow: follow,
-            elevation: elevation
+            elevation: elevation,
+            liveArrivals: live?.arrivals ?? [:],
+            track: track.points
         )
         readout = RaceDayReadouts.withLive(
             RaceDayReadouts.make(sheet: schedule, checkpoints: courseCheckpoints, runner: runner, now: now),
@@ -864,6 +883,7 @@ final class MapModel {
         aidLiveNextIndex = projection.liveNextIndex
         aidIndex = projection.selectedIndex
         aidFollow = follow
+        aidShowsBackToNext = projection.showsBackToNext
     }
 
     private static func aidCheckpoints(from course: RaceCourse?) -> [AidStationCheckpoint] {

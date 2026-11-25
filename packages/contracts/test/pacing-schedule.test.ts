@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  ACTIVITY_HISTORY_NAME_MAX_CHARS,
   ACTIVITY_HISTORY_SOURCES,
   WAYPOINT_TAGS,
   isWaypointTag,
@@ -308,4 +309,23 @@ test("activity history ref keeps a valid grade profile and rejects a bad one", (
     /ascending/
   );
   assert.throws(() => parseActivityHistoryRef({ ...base, gradeProfile: { ...gradeProfile, quality: "great" } }), /quality/);
+});
+
+test("activity history name is optional, trimmed and capped", () => {
+  const base = {
+    id: "hist-1",
+    source: "gpx_upload",
+    externalId: "upload-abc",
+    recordedAt: "2026-06-01T14:00:00.000Z",
+    ingestedAt: "2026-08-01T09:00:00.000Z"
+  };
+  assert.equal(parseActivityHistoryRef(base).name, undefined);
+  assert.equal(parseActivityHistoryRef({ ...base, name: "  Morning \n Run " }).name, "Morning Run");
+  assert.equal(parseActivityHistoryRef({ ...base, name: "   " }).name, undefined);
+  assert.equal(parseActivityHistoryRef({ ...base, name: null }).name, undefined);
+  assert.equal(
+    parseActivityHistoryRef({ ...base, name: "y".repeat(ACTIVITY_HISTORY_NAME_MAX_CHARS + 5) }).name?.length,
+    ACTIVITY_HISTORY_NAME_MAX_CHARS
+  );
+  assert.throws(() => parseActivityHistoryRef({ ...base, name: 7 }), /name must be a string/);
 });

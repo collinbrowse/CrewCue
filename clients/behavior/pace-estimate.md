@@ -4,7 +4,7 @@
 crewcue://dev/pace-estimate
 
 ## Action
-Athlete opens Pace after history changes and the client recomputes. Crew sees the estimate and may tap Recalculate, which is an explicit request, not an automatic one.
+Athlete opens Pace after history changes and the client recomputes. The runner and crew see the estimate and may tap Recalculate (client-core `PlanAuthority.mayExplicitRecalculate`), which is an explicit request, not an automatic one.
 
 ## API
 POST /pacing-estimates then PUT /race-rooms/:roomId/pacing-estimate

@@ -75,7 +75,7 @@ struct ProductTabPage: View {
                     races: model.roster.races,
                     onSelect: { model.selectRace($0) },
                     onCreate: { model.selectedTab = .profile },
-                    onJoin: { model.show(Route(featureId: "join-crew", state: .success)) }
+                    onJoin: { model.openJoin() }
                 )
             }
         } else {
@@ -104,7 +104,13 @@ struct ProductTabPage: View {
                 }
             )
         case .pace:
-            ShellPage(title: model.topBarTitle, onSettings: onSettings, access: model.raceAccess, onUnlock: { model.showBilling() }) {
+            ShellPage(
+                title: model.topBarTitle,
+                onSettings: onSettings,
+                access: model.raceAccess,
+                onUnlock: { model.showBilling() },
+                courseStrip: CourseProgressStrip(readout: model.mapModel.readout)
+            ) {
                 PaceView(
                     model: model.paceModel,
                     userId: model.signedInUserId,
@@ -176,7 +182,7 @@ struct RaceChooserSheet: View {
                     },
                     onJoin: {
                         dismiss()
-                        model.show(Route(featureId: "join-crew", state: .success))
+                        model.openJoin()
                     }
                 )
             }
@@ -213,10 +219,12 @@ struct RaceChoices: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("crewcue.race-choices")
             }
-            Button("Create new race", action: onCreate)
-                .buttonStyle(races.isEmpty ? CrewButtonStyle.crewPrimary : CrewButtonStyle.crewSecondary)
-            Button("Join race room", action: onJoin)
-                .buttonStyle(.crewSecondary)
+            HStack(spacing: CrewSpace.base) {
+                Button("Create new race", action: onCreate)
+                    .buttonStyle(races.isEmpty ? CrewPillButtonStyle(prominent: true) : CrewPillButtonStyle())
+                Button("Join race room", action: onJoin)
+                    .buttonStyle(.crewPill)
+            }
         }
     }
 }
@@ -229,6 +237,8 @@ struct ShellPage<Content: View>: View {
     var onSettings: () -> Void
     var access: RaceAccess? = nil
     var onUnlock: () -> Void = {}
+    /// Pace: the runner's course progress in the bar, as on the Map.
+    var courseStrip: CourseProgressStrip? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -237,7 +247,7 @@ struct ShellPage<Content: View>: View {
             .background(CrewBackground())
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: CrewSpace.base) {
-                    CrewTopBar(title: title, onSettings: onSettings)
+                    CrewTopBar(title: title, onSettings: onSettings, courseStrip: courseStrip)
                         .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
                         .padding(.horizontal, 8)
                     if let access {

@@ -7,19 +7,23 @@ struct BillingPurchaseView: View {
     var fixture: FeatureScreen?
     var roomId: String?
     var onContinue: () -> Void = {}
-    var onLeave: (() -> Void)?
-    var leaveLabel = "Back to Profile"
+    /// The X at the top right: back to wherever the page was opened from (`ShellModel.leaveBilling`).
+    var onClose: (() -> Void)?
     @Environment(\.crew) private var theme
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                ProductTitle(title: "Race Pass", subtitle: "Unlock this race for you and your crew.")
-                Text(verbatim: status)
-                    .font(CrewFont.bodyLarge)
-                    .foregroundStyle(theme.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("crewcue.billing-purchase.status")
+                // One title and one subtitle. An unpaid race shows no extra status line: the
+                // subtitle already says what the page is for.
+                ProductTitle(title: OnboardingCopy.racePassTitle, subtitle: OnboardingCopy.racePassSubtitle)
+                if !status.isEmpty {
+                    Text(verbatim: status)
+                        .font(CrewFont.bodyLarge)
+                        .foregroundStyle(theme.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("crewcue.billing-purchase.status")
+                }
                 if unlocked {
                     Button("Open race", action: onContinue)
                         .buttonStyle(.crewPrimary)
@@ -39,15 +43,11 @@ struct BillingPurchaseView: View {
                         action: { Task { await model?.redeem() } }
                     )
                 }
-                if let onLeave {
-                    Button(leaveLabel, action: onLeave)
-                        .buttonStyle(.crewSecondary)
-                        .accessibilityIdentifier("crewcue.billing-purchase.leave")
-                }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .crewCueScreen(identifier: "crewcue.billing-purchase", label: "Race Pass")
+        .crewCueScreen(identifier: "crewcue.billing-purchase", label: OnboardingCopy.racePassTitle)
+        .barClose(identifier: "crewcue.billing-purchase.close", enabled: !working, action: onClose)
         .task(id: roomId ?? "") {
             if fixture == nil {
                 await model?.activate(roomId: roomId)
@@ -92,7 +92,7 @@ struct BillingOfferButton: View {
             Button(action: action) {
                 Text(verbatim: "\(product.title) \u{00B7} \(price)")
             }
-            .buttonStyle(.crewPrimary)
+            .buttonStyle(.crewPillProminent)
             .disabled(!enabled)
             .crewBusy(busy)
             .accessibilityLabel(Text(verbatim: "Buy \(product.title), \(price)"))
@@ -115,7 +115,7 @@ struct BillingRedeemSection: View {
                 .foregroundStyle(theme.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button("Redeem code", action: action)
-                .buttonStyle(.crewSecondary)
+                .buttonStyle(.crewPill)
                 .disabled(!enabled)
                 .accessibilityIdentifier("crewcue.billing-redeem.open")
         }
@@ -198,7 +198,7 @@ struct CrewUpgradeCard: View {
                 } label: {
                     Text(verbatim: "Add Full Crew \u{00B7} \(price)")
                 }
-                .buttonStyle(.crewPrimary)
+                .buttonStyle(.crewPillProminent)
                 .disabled(fixture != nil || model?.working == true)
                 .crewBusy(model?.working == true)
                 .accessibilityLabel(Text(verbatim: "Add Full Crew, \(price)"))
@@ -218,6 +218,7 @@ struct CrewUpgradeView: View {
     var fixture: FeatureScreen?
     var roomId: String?
     var role: String?
+    /// The X at the top right: back to where the page was opened from.
     var onBack: (() -> Void)?
     @Environment(\.crew) private var theme
 
@@ -226,16 +227,13 @@ struct CrewUpgradeView: View {
             VStack(alignment: .leading, spacing: 18) {
                 ProductTitle(title: "Full Crew", subtitle: "Room for your whole crew on race day.")
                 CrewUpgradeCard(model: model, fixture: fixture)
-                if let onBack {
-                    Button("Back to Profile", action: onBack)
-                        .buttonStyle(.crewSecondary)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(CrewBackground())
+        .barClose(identifier: "crewcue.billing-upgrade.close", action: onBack)
         .task(id: "\(roomId ?? "")|\(role ?? "")") {
             if fixture == nil {
                 await model?.activate(roomId: roomId, role: role)

@@ -109,6 +109,19 @@ import Testing
     #expect(rows.first?["title"] as? String == "Aid 1")
     #expect((rows.first?["arrival"] as? String)?.hasPrefix("8:10") == true)
     #expect(rows.first?["elapsed"] as? String == "1:10:00")
+
+    // A checkpoint added on the map has a generated id; the crew sheet shows its title.
+    let titled = try resultObject(try await runtimeCall([
+        "op": "exportCrewSheet",
+        "storageDir": directory.path,
+        "roomId": "room-1",
+        "raceName": "Western 50K",
+        "timeZone": "America/Denver",
+        "titles": ["aid-1": "Robinson Flat"]
+    ]))
+    let titledRows = try #require(titled["rows"] as? [[String: Any]])
+    #expect(titledRows.first?["title"] as? String == "Robinson Flat")
+    #expect((titled["text"] as? String)?.contains("Robinson Flat: due 8:10") == true)
 }
 
 @Test func runtimeCheckInRejectsEmptyAndListsQueuedWork() async throws {

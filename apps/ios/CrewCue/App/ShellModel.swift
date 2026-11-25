@@ -14,6 +14,14 @@ final class ShellModel {
     /// one. Until they do, no race is active (the race list never picks one for them).
     var choosingRace = false
     var settingsFocus: String?
+    /// Where the Race Pass page was opened from, so its X returns there (`leaveBilling`).
+    private var billingOrigin: BillingOrigin?
+    /// The tab the join page was opened from by hand (`openJoin`).
+    private var joinReturnRoute: Route?
+    /// The runner closed a Race Pass page they opened from the tab bar, on a race whose setup
+    /// isn't finished: the tab bar stays for that race (Profile, not the setup flow) until they
+    /// pick Finish race setup on Profile.
+    private(set) var shellOverSetupRoomId: String?
     var screen: FeatureScreen
     /// True when a dev URL included `?state=`. That query is fixture copy, not product state.
     var fixtureOverlay: Bool
@@ -870,15 +878,90 @@ final class ShellModel {
         Task { await loadRaces() }
     }
 
-    /// A race the runner just created: note it, then open its Race Pass paywall.
+    /// A race the runner just created: note it, then open its Race Pass paywall. The page's X
+    /// returns to where the race was created (Profile), not to the new race's setup flow.
     func noteCreated(roomId: String) {
+        let origin = currentBillingOrigin()
         noteJoined(roomId: roomId, role: "athlete")
-        showBilling()
+        showBilling(from: origin)
     }
 
     /// The Race Pass paywall for the active race. A full-screen route, like join.
     func showBilling() {
+        showBilling(from: currentBillingOrigin())
+    }
+
+    private func showBilling(from origin: BillingOrigin) {
+        // Opened again from the page itself (a gated action under it): keep where it came from.
+        if route.featureId != "billing-purchase" {
+            billingOrigin = origin
+        }
         show(Route(featureId: "billing-purchase", state: .success))
+    }
+
+    /// Where a Race Pass page opened now would return to: this route, and whether it is the tab
+    /// bar (rather than a setup screen the onboarding gate shows).
+    private func currentBillingOrigin() -> BillingOrigin {
+        BillingOrigin(route: route, fromShell: gateEntry == .shell)
+    }
+
+    /// The Race Pass page's X: back to wherever it was opened from. From the tab bar (Profile's
+    /// Race Pass row, Create race, the Unlock race banner) that is the same tab, even when the
+    /// race's setup isn't finished; from runner setup it is setup. Opened by a link or a push with
+    /// nothing behind it, Profile.
+    func leaveBilling() {
+        let origin = billingOrigin ?? BillingOrigin(route: Route(featureId: "profile", state: .success), fromShell: true)
+        billingOrigin = nil
+        if origin.fromShell {
+            if onboarding.entry == .runnerSetup {
+                shellOverSetupRoomId = signedInRoomId
+            }
+            show(ShellTab.matching(featureId: origin.route.featureId) == nil ? Route(featureId: "profile", state: .success) : origin.route)
+            enterShellIfNeeded()
+        } else {
+            show(origin.route)
+        }
+    }
+
+    /// The join page opened by hand (Profile's Join race room, a race-less tab, sign-in): a fresh
+    /// page every time, never the code or answer left from the last visit. A pending invite (a
+    /// link, a code kept through sign-in) is filled in again.
+    func openJoin() {
+        joinReturnRoute = route.featureId == "join-crew" ? joinReturnRoute : route
+        joinModel.clear()
+        if let pending = onboarding.pendingJoin {
+            joinModel.adopt(code: pending.code)
+        }
+        show(Route(featureId: "join-crew", state: .success))
+    }
+
+    /// The join page's X, signed in: back to the tab it was opened from (Profile when unknown).
+    func leaveJoin() {
+        let back = joinReturnRoute.flatMap { ShellTab.matching(featureId: $0.featureId) == nil ? nil : $0 }
+        joinReturnRoute = nil
+        joinModel.clear()
+        show(back ?? Route(featureId: "profile", state: .success))
+        enterShellIfNeeded()
+    }
+
+    /// Profile's Finish race setup: the setup flow for the active race again.
+    func resumeRaceSetup() {
+        shellOverSetupRoomId = nil
+        show(Route(featureId: "app-shell", state: .success))
+        syncOnboarding()
+    }
+
+    /// The screen the onboarding gate shows: the onboarding entry, except a race whose Race Pass
+    /// page was closed back to the tab bar keeps the tab bar.
+    var gateEntry: OnboardingEntry {
+        let entry = onboarding.entry
+        if entry == .runnerSetup, let held = shellOverSetupRoomId, held == signedInRoomId { return .shell }
+        return entry
+    }
+
+    /// The active race's setup isn't finished but the person is in the tab bar (`gateEntry`).
+    var canResumeRaceSetup: Bool {
+        onboarding.entry == .runnerSetup && gateEntry == .shell
     }
 
     /// Leaves a full-screen route for the shell's Profile tab.
@@ -928,6 +1011,8 @@ final class ShellModel {
         racesGeneration += 1
         roster = RaceRoster()
         choosingRace = false
+        shellOverSetupRoomId = nil
+        billingOrigin = nil
         racesMessage = ""
         racesLoading = false
         pushTaps.clear()
@@ -1052,4 +1137,11 @@ final class ShellModel {
             client.graph.logger.log("session save failed")
         }
     }
+}
+
+/// Where the Race Pass page was opened from (`ShellModel.leaveBilling`).
+struct BillingOrigin: Equatable {
+    var route: Route
+    /// The tab bar was on screen, not a setup screen the onboarding gate showed.
+    var fromShell: Bool
 }

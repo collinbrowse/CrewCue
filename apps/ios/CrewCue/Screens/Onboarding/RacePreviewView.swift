@@ -157,15 +157,22 @@ struct RacePreviewView: View {
                         .transition(.opacity)
                 }
             }
+            // Where to look: the view the beat is about, ringed while it plays.
+            .overlay { ReplayFocusRing(active: model.status == .playing && focusPanel == (splits ? .map : model.panel)) }
             .fullWidthClearOfOcclusions()
         }
     }
+
+    /// The view the beat on screen is about (Map, Pace, Map for the dead zone, then Chat).
+    private var focusPanel: RacePreviewModel.Panel { RacePreviewModel.panel(for: model.beat) }
 
     /// Regular width: Pace beside the Map, or Chat at its beat.
     private var secondaryPane: some View {
         Group {
             if let replay = model.replay {
-                panelView(model.panel == .chat ? .chat : .pace, replay)
+                let shown: RacePreviewModel.Panel = model.panel == .chat ? .chat : .pace
+                panelView(shown, replay)
+                    .overlay { ReplayFocusRing(active: model.status == .playing && focusPanel == shown) }
             }
         }
         .avoidsReservedRegions()
@@ -319,11 +326,38 @@ struct RacePreviewCaption: View {
                     .contentTransition(.opacity)
                     .animation(.snappy(duration: 0.25), value: model.beat)
             }
+            // Where to look, bold, for the view ringed below. Laid out like the captions so the
+            // card keeps one height.
+            ZStack(alignment: .topLeading) {
+                ForEach(DemoRaceBeat.allCases, id: \.self) { beat in
+                    focusText(OnboardingCopy.replayFocus(beat))
+                        .hidden()
+                        .accessibilityHidden(true)
+                }
+                focusText(OnboardingCopy.replayFocus(model.beat))
+                    .contentTransition(.opacity)
+                    .animation(.snappy(duration: 0.25), value: model.beat)
+                    .accessibilityIdentifier("crewcue.onboarding-race-preview.focus")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .crewGlassCard(padding: CrewSpace.gutter)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("crewcue.onboarding-race-preview.caption")
+    }
+
+    private func focusText(_ text: String) -> some View {
+        Label {
+            Text(text)
+                .font(CrewFont.button)
+                .foregroundStyle(theme.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } icon: {
+            Image(systemName: "eye")
+                .foregroundStyle(theme.primary)
+                .accessibilityHidden(true)
+        }
     }
 
     private func captionText(_ text: String) -> some View {
@@ -400,5 +434,33 @@ struct RacePreviewFixtureScreen: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(screen.accessibilityIdentifier)
             .accessibilityLabel(screen.title)
+    }
+}
+
+/// The ring around the replay view the beat is about: an accent border that pulses gently (held
+/// still under Reduce Motion). Never takes a touch.
+struct ReplayFocusRing: View {
+    let active: Bool
+    @Environment(\.crew) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: CrewRadius.lg, style: .continuous)
+        Group {
+            if active {
+                if reduceMotion {
+                    shape.strokeBorder(theme.primary, lineWidth: 3)
+                } else {
+                    shape.strokeBorder(theme.primary, lineWidth: 3)
+                        .phaseAnimator([0.35, 1.0]) { ring, opacity in
+                            ring.opacity(opacity)
+                        } animation: { _ in .easeInOut(duration: 0.9) }
+                }
+            }
+        }
+        .padding(2)
+        .animation(.snappy(duration: 0.25), value: active)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

@@ -7,15 +7,27 @@ extension CrewFont {
 }
 
 /// A titled card of compact rows with hairlines between them (Settings, Race tools).
-struct CrewSettingsGroup<Content: View>: View {
+struct CrewSettingsGroup<Content: View, Accessory: View>: View {
     let title: String
+    /// A small control on the title's row, at its trailing edge (Room members' Invite pill).
+    var accessory: Accessory
     @ViewBuilder var content: Content
     @Environment(\.crew) private var theme
 
+    init(title: String, @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.accessory = accessory()
+        self.content = content()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: CrewSpace.base) {
-            CrewSectionHeader(title: title)
-                .padding(.horizontal, CrewSpace.base)
+            HStack(alignment: .center, spacing: CrewSpace.stackSm) {
+                CrewSectionHeader(title: title)
+                Spacer(minLength: 0)
+                accessory
+            }
+            .padding(.horizontal, CrewSpace.base)
             VStack(alignment: .leading, spacing: 0) {
                 Group(subviews: content) { rows in
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
@@ -30,6 +42,12 @@ struct CrewSettingsGroup<Content: View>: View {
             .padding(.vertical, 4)
             .background(theme.card, in: RoundedRectangle(cornerRadius: CrewRadius.lg, style: .continuous))
         }
+    }
+}
+
+extension CrewSettingsGroup where Accessory == EmptyView {
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.init(title: title, accessory: { EmptyView() }, content: content)
     }
 }
 

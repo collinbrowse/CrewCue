@@ -285,6 +285,9 @@ private struct CrewButtonLabel: View {
                     Capsule().stroke(theme.ink, lineWidth: 2)
                 }
             }
+            // The whole capsule takes the tap, edge to edge and top to bottom: without this a
+            // ghost button's clear fill, and the padding around a short label, missed touches.
+            .contentShape(Capsule())
             .opacity(isEnabled || isBusy ? 1 : 0.45)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
