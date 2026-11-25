@@ -60,8 +60,8 @@ final class ShellModel {
     private(set) var signedInUserId: String? { didSet { syncChat() } }
     private(set) var signedInRole: String? { didSet { syncChat() } }
     private(set) var signedInRoomId: String? { didSet { syncChat() } }
-    /// A tapped chat push for a race the roster has not loaded yet.
-    private var pendingChatRoomId: String?
+    /// A tapped push waiting for sign-in or for the race list (clients/behavior/push-tap.md).
+    private var pushTaps = PushTapInbox()
     private(set) var signedInDisplayName: String?
     /// Every race the user belongs to. `signedInRoomId` is the active one; every tab follows it.
     private(set) var roster = RaceRoster()
@@ -137,8 +137,8 @@ final class ShellModel {
         self.profileModel.bindSignOut { [weak self] in
             self?.signOut()
         }
-        PushRouter.shared.handler = { [weak self] roomId in
-            self?.openChat(roomId: roomId)
+        PushRouter.shared.handler = { [weak self] route in
+            self?.receivePushTap(route)
         }
         bindRunnerSetup()
         syncOnboarding()
@@ -161,7 +161,10 @@ final class ShellModel {
     }
 
     var raceAccess: RaceAccess? {
-        if isUnpaidRunnerRace { return .unlock }
+        if isUnpaidRunnerRace {
+            let expiresAt = roster.races.first(where: { $0.id == signedInRoomId })?.unpaidExpiresAt
+            return .unlock(expiry: OnboardingCopy.unpaidExpiry(expiresAt: expiresAt, now: client.graph.clock.now()))
+        }
         if onboarding.state.flow == .raceLocked, let reason = onboarding.state.reason {
             return .locked(reason: reason)
         }
@@ -396,21 +399,54 @@ final class ShellModel {
         }
     }
 
-    /// A tapped chat notification: switch to that race and show its chat.
-    func openChat(roomId: String) {
-        guard isSignedIn else { return }
-        if roomId != signedInRoomId {
-            if roster.races.contains(where: { $0.id == roomId }) {
-                selectRace(roomId)
-            } else {
-                pendingChatRoomId = roomId
+    // MARK: Push taps
+
+    /// A tapped notification (`PushRouter`): cold launch, from the background, or with the app
+    /// open. Signed out, it's held until someone signs in in this launch, then opens only if the
+    /// race is in that account's list. A race the list doesn't have is dropped.
+    func receivePushTap(_ route: PushTapRoute) {
+        pushTaps.receive(route)
+        routePendingPushTap()
+    }
+
+    private func routePendingPushTap() {
+        switch pushTaps.take(signedIn: isSignedIn, userId: signedInUserId, races: roster.races) {
+        case nil, .holdUntilSignIn:
+            return
+        case .awaitRaces:
+            // The race isn't listed yet (a new race, or a launch before the list answered).
+            // `loadRaces` resolves it again when the list answers.
+            if !racesLoading {
                 Task { await loadRaces() }
-                return
             }
+        case .drop:
+            client.graph.logger.log("push tap for a race not in the list")
+        case .open(let roomId, let destination):
+            open(pushDestination: destination, roomId: roomId)
+        }
+    }
+
+    private func open(pushDestination destination: PushTapDestination, roomId: String) {
+        if roomId != signedInRoomId {
+            selectRace(roomId)
         }
         fixtureOverlay = false
-        show(Route(featureId: "chat-thread", state: .success))
-        enterShellIfNeeded()
+        racePreviewDevStart = nil
+        showsSettings = false
+        choosingRace = false
+        switch destination {
+        case .chat:
+            show(Route(featureId: "chat-thread", state: .success))
+            enterShellIfNeeded()
+        case .startTracking:
+            show(Route(featureId: "location-heartbeat", state: .success))
+            enterShellIfNeeded()
+        case .map:
+            show(Route(featureId: "map-track", state: .success))
+            enterShellIfNeeded()
+        case .paywall:
+            showBilling()
+        }
     }
 
     private func syncChat() {
@@ -607,12 +643,6 @@ final class ShellModel {
             }
             roster = next
             racesMessage = races.isEmpty ? "No races yet." : ""
-            if let pending = pendingChatRoomId {
-                pendingChatRoomId = nil
-                if next.races.contains(where: { $0.id == pending }) {
-                    openChat(roomId: pending)
-                }
-            }
             if let active = next.active {
                 if active.id != signedInRoomId || active.role != signedInRole {
                     apply(active)
@@ -621,6 +651,9 @@ final class ShellModel {
                 clearActiveRoom()
             }
             syncOnboarding(races: rooms.map { OnboardingRace(room: $0, userId: userId) })
+            // After the active race is applied, so the tapped race isn't switched back.
+            pushTaps.noteRacesListed()
+            routePendingPushTap()
         } catch {
             guard ticket == racesGeneration else { return }
             racesMessage = APIFailure.isOffline(error) ? "Offline. Showing your last race." : "Couldn't load your races."
@@ -758,7 +791,7 @@ final class ShellModel {
         choosingRace = false
         racesMessage = ""
         racesLoading = false
-        pendingChatRoomId = nil
+        pushTaps.clear()
         profileModel.clear()
         stravaModel.clear()
         activityImportModel.clear()
