@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { iosSimulatorNames } from "./lib/agentDevice.mjs";
+import { removeOldCheckoutDerivedData } from "./lib/iosBuild.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const deleteSims = process.argv.includes("--delete");
@@ -37,10 +38,4 @@ for (const entry of fs.existsSync(evidence) ? fs.readdirSync(evidence) : []) {
 }
 if (removed) console.log(`agent-ios-done: deleted ${removed} .xcresult bundle(s)`);
 
-// Builds now go to this checkout's folder in ~/Library/Developer/Xcode/DerivedData. The older
-// in-checkout build folder (with its own copy of the Swift packages) is no longer used locally.
-const oldDerived = path.join(evidence, "ios-derived");
-if (!process.env.CI && fs.existsSync(oldDerived)) {
-  fs.rmSync(oldDerived, { recursive: true, force: true });
-  console.log("agent-ios-done: deleted the unused .agent-pr-evidence/ios-derived");
-}
+removeOldCheckoutDerivedData(repoRoot, (line) => console.log(`agent-ios-done: ${line}`));

@@ -32,7 +32,8 @@ Many sessions share this Mac, so heavy commands (`test:ios`, `agent:ios:ready`, 
 
 The Mac is short on disk. Reuse shared caches. Free what only this worktree uses.
 
-- **Shared, never delete:** Gradle, npm and SwiftPM caches, and `~/Library/Caches/CrewCue/SourcePackages` (iOS scripts clone Swift packages there once per `Package.resolved`, not per worktree). Also the Swift Android toolchain, the installed simulator runtimes and the `crewcue_api_35` AVD.
+- **Shared, never delete:** Gradle, npm and SwiftPM caches, and `~/Library/Caches/CrewCue/SourcePackages`: iOS scripts clone Swift packages into one `<Package.resolved hash>/` subfolder per pinned set, not per worktree, and a new subfolder starts as an APFS clone of the newest one. Also the Swift Android toolchain, the installed simulator runtimes and the `crewcue_api_35` AVD.
+- **One DerivedData per checkout** at `~/Library/Developer/Xcode/DerivedData/CrewCue-<worktree>-<hash>` (`test:ios`, `agent:ios:ready`, `verify:ios`). `test:ios`, `agent:ios:ready` and `agent:ios:done` delete a worktree's old `.agent-pr-evidence/ios-derived` when they find it.
 - **Yours, free when done:** after simulator work, `npm run agent:ios:done` shuts down `CrewCue <worktree>` and its Duo twin and deletes `.xcresult` bundles. After Android work, `npm run agent:android:done`. Do not create other simulators or AVDs, and do not boot more than you use.
 - **Never** delete DerivedData, simulators or worktrees that belong to another checkout. `~/.claude/scripts/devtrim.mjs` (outside this repo) cleans those across worktrees and runs at session start.
 

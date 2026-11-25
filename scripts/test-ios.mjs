@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureIosSimulator, sharedDevice } from "./lib/agentDevice.mjs";
-import { derivedDataArgs, IOS_PROJECT, IOS_SCHEME, prepareSharedPackages, xcodebuildCommand } from "./lib/iosBuild.mjs";
+import { derivedDataArgs, IOS_PROJECT, IOS_SCHEME, prepareSharedPackages, removeOldCheckoutDerivedData, xcodebuildCommand } from "./lib/iosBuild.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 if (process.platform !== "darwin") {
@@ -58,6 +58,7 @@ function pickDestination() {
 const destination = pickDestination();
 const evidenceDir = path.join(repoRoot, ".agent-pr-evidence");
 fs.mkdirSync(evidenceDir, { recursive: true });
+removeOldCheckoutDerivedData(repoRoot, (line) => console.log(`test:ios: ${line}`));
 let packagesArgs;
 try {
   packagesArgs = prepareSharedPackages(repoRoot);

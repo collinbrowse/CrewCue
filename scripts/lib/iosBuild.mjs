@@ -59,3 +59,17 @@ export function xcodebuildCommand(args, label, env = process.env) {
   const job = slotted("xcodebuild", ["-jobs", String(BUILD_JOBS), ...args], { credits: BUILD_JOBS, label, kind: "xcodebuild" }, env);
   return job.queued ? job : { command: "xcodebuild", args, queued: false };
 }
+
+/**
+ * Builds used to go to <checkout>/.agent-pr-evidence/ios-derived, with their own copy of the Swift
+ * packages (0.8-4.4 GB). With the shared layout nothing reads it, so delete it. Not in CI, where
+ * agent:ios:ready still builds there. Returns whether it deleted anything.
+ */
+export function removeOldCheckoutDerivedData(repoRoot, log = console.log, env = process.env) {
+  if (!iosDerivedDataDir(repoRoot, env)) return false;
+  const old = path.join(repoRoot, ".agent-pr-evidence", "ios-derived");
+  if (!fs.existsSync(old)) return false;
+  fs.rmSync(old, { recursive: true, force: true });
+  log(`deleted the unused ${path.relative(repoRoot, old)} (builds now use ${iosDerivedDataDir(repoRoot, env)})`);
+  return true;
+}

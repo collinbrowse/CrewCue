@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { androidPort, androidSerial, checkoutKey, emulatorGpu, FIRST_PORT, IOS_PACKAGE_RESOLVED, iosDerivedDataDir, iosSimulatorName, iosSimulatorNames, packageResolvedKey, PORT_SLOTS, sharedDevice, sharedSourcePackagesArgs, SOFTWARE_GPU } from "./lib/agentDevice.mjs";
+import { removeOldCheckoutDerivedData } from "./lib/iosBuild.mjs";
 import { slotAvailable, slotPath, slotted } from "./lib/slot.mjs";
 
 const worktree = (name) => `/Users/x/CrewCue/.claude/worktrees/${name}`;
@@ -122,5 +123,21 @@ test("heavy commands go through slot only when it is installed", () => {
     });
   } finally {
     rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("the old in-checkout DerivedData is deleted locally, kept in CI", () => {
+  const repo = mkdtempSync(path.join(tmpdir(), "crewcue-old-derived-"));
+  try {
+    const old = path.join(repo, ".agent-pr-evidence", "ios-derived", "SourcePackages");
+    mkdirSync(old, { recursive: true });
+    const lines = [];
+    assert.equal(removeOldCheckoutDerivedData(repo, (line) => lines.push(line), { CI: "true" }), false);
+    assert.equal(removeOldCheckoutDerivedData(repo, (line) => lines.push(line), {}), true);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0], /deleted the unused \.agent-pr-evidence\/ios-derived/);
+    assert.equal(removeOldCheckoutDerivedData(repo, (line) => lines.push(line), {}), false, "nothing left to delete");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
   }
 });

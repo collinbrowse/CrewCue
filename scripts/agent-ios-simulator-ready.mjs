@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { openIosSimulatorUi } from "./lib/openIosSimulatorUi.mjs";
 import { ensureIosSimulator, sharedDevice } from "./lib/agentDevice.mjs";
-import { derivedDataArgs, prepareSharedPackages, xcodebuildCommand } from "./lib/iosBuild.mjs";
+import { derivedDataArgs, prepareSharedPackages, removeOldCheckoutDerivedData, xcodebuildCommand } from "./lib/iosBuild.mjs";
 import { runShowingQueue } from "./lib/slot.mjs";
 
 const execFile = promisify(execFileCb);
@@ -137,6 +137,7 @@ function findApp(products) {
 }
 
 async function installApp(udid) {
+  removeOldCheckoutDerivedData(repoRoot, (line) => process.stdout.write(`agent-ios-ready: ${line}\n`));
   fs.mkdirSync(DERIVED, { recursive: true });
   const packagesArgs = prepareSharedPackages(repoRoot);
   const job = xcodebuildCommand(
