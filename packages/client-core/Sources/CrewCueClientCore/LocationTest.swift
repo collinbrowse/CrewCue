@@ -28,6 +28,9 @@ public struct LocationTest: Equatable, Sendable {
 
     /// How long the test waits for its ping before it gives up.
     public static let timeoutSeconds: TimeInterval = 45
+    /// After a ping sent with When In Use only, how long tracking stays on for the Always prompt
+    /// the OS shows next, so choosing Always there still counts.
+    public static let alwaysPromptSeconds: TimeInterval = 20
 
     public private(set) var phase: Phase = .idle
     /// The runner allowed When In Use only: tracking works with the app open, and the copy asks for Always.
@@ -47,6 +50,11 @@ public struct LocationTest: Equatable, Sendable {
     }
 
     public mutating func permission(_ permission: Permission) {
+        // The ping can arrive while the Always prompt is still up: Always chosen after it counts.
+        if phase == .sent, permission == .always {
+            whenInUseOnly = false
+            return
+        }
         guard phase == .asking || phase == .waitingForPing else { return }
         switch permission {
         case .notDetermined:
@@ -82,6 +90,12 @@ public struct LocationTest: Equatable, Sendable {
     }
 
     public var isRunning: Bool { phase == .asking || phase == .waitingForPing }
+
+    /// Sent with When In Use only, and still inside `alwaysPromptSeconds` of `sentAt`: keep
+    /// tracking (and listening for Always) a little longer before stopping.
+    public func waitsForAlways(sentAt: Date, now: Date) -> Bool {
+        phase == .sent && whenInUseOnly && !wasTracking && now.timeIntervalSince(sentAt) < Self.alwaysPromptSeconds
+    }
 
     /// Tracking should stop now: the test ended, and tracking wasn't on before it.
     public var stopsTracking: Bool {
@@ -128,7 +142,7 @@ public enum LocationTestCopy {
     public static let waiting = "Sending a test ping…"
     public static let waitingWhenInUse = "Sending a test ping… Choose Always so tracking keeps going while your phone is locked."
     public static let sent = "Test ping sent. Your crew will see your dot. Tracking is off until you start it on race day."
-    public static let sentWhenInUse = "Test ping sent. Tracking is off again. Choose Always in Settings so tracking keeps going while your phone is locked."
+    public static let sentWhenInUse = "Test ping sent. Choose Always so tracking keeps going while your phone is locked. You can change it later in Settings."
     public static let sentStillTracking = "Test ping sent. Tracking stays on."
     public static let denied = "Location is off for CrewCue. Turn it on in Settings, or test on race morning."
     public static let offline = "Offline. The test ping is saved on this phone and goes when you're back online."

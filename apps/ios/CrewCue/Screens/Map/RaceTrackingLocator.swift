@@ -17,6 +17,8 @@ final class RaceTrackingLocator: NSObject, CLLocationManagerDelegate {
     var onDenied: (@MainActor () -> Void)?
     /// Called once When In Use is granted; the app then asks for Always.
     var onWhenInUseOnly: (@MainActor () -> Void)?
+    /// Called when Always is granted.
+    var onAlways: (@MainActor () -> Void)?
 
     override init() {
         super.init()
@@ -80,6 +82,7 @@ final class RaceTrackingLocator: NSObject, CLLocationManagerDelegate {
         switch status {
         case .authorizedAlways:
             run()
+            onAlways?()
         case .authorizedWhenInUse:
             // Starting while the app is open keeps updates alive in the background with the blue
             // indicator; Always also lets significant-change wake a killed app.

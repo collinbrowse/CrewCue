@@ -179,9 +179,19 @@ private func progress(_ marks: [(OnboardingStep, OnboardingOutcome, OnboardingCh
     test.start(alreadyTracking: false, at: Date())
     test.permission(.whenInUse)
     #expect(test.message == LocationTestCopy.waitingWhenInUse)
+    let sentAt = Date(timeIntervalSince1970: 100)
     test.pingSent()
     #expect(test.outcome == .done)
     #expect(test.message == LocationTestCopy.sentWhenInUse)
+    // The Always prompt comes after the ping: tracking waits for it a little.
+    #expect(test.waitsForAlways(sentAt: sentAt, now: sentAt.addingTimeInterval(5)))
+    #expect(!test.waitsForAlways(sentAt: sentAt, now: sentAt.addingTimeInterval(LocationTest.alwaysPromptSeconds)))
+    test.permission(.always)
+    #expect(test.message == LocationTestCopy.sent)
+    #expect(!test.waitsForAlways(sentAt: sentAt, now: sentAt.addingTimeInterval(5)))
+    // A denial after the ping changes nothing.
+    test.permission(.denied)
+    #expect(test.phase == .sent)
 }
 
 @Test func locationTestDeniedOfflineAndTimeoutWaitForRaceMorning() {

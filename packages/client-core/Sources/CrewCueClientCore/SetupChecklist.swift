@@ -55,12 +55,23 @@ public struct SetupChecklistItem: Equatable, Sendable, Identifiable {
     public var kind: SetupChecklistItemKind
     public var done: Bool
     public var id: String { kind.rawValue }
+
+    public init(kind: SetupChecklistItemKind, done: Bool) {
+        self.kind = kind
+        self.done = done
+    }
 }
 
 public struct SetupChecklist: Equatable, Sendable {
     public var items: [SetupChecklistItem]
     /// The first item not done: the card leads with it.
     public var next: SetupChecklistItemKind?
+
+    public init(items: [SetupChecklistItem], next: SetupChecklistItemKind?) {
+        self.items = items
+        self.next = next
+    }
+
     public var doneCount: Int { items.filter(\.done).count }
 
     /// "2 of 5 done".

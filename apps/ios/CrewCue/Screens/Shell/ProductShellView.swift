@@ -25,6 +25,11 @@ struct ProductShellView: View {
                 // Below a camera column (iPhone Duo's outer display) the bar spans the display.
                 .fullWidthClearOfOcclusions()
         }
+        .coachMarks { frames in
+            if let card = model.tourCard {
+                ShellTourOverlay(model: model, card: card, frames: frames)
+            }
+        }
         .toolbar(.hidden, for: .navigationBar)
         // Contain the children, or the shell's label replaces every tab button's own label.
         .accessibilityElement(children: .contain)
@@ -37,6 +42,7 @@ struct ProductShellView: View {
             RaceChooserSheet(model: model)
         }
         .onAppear { model.enterShellIfNeeded() }
+        .task { await model.tour.refreshNotifications() }
         .task(id: raceDayID) {
             await model.mapModel.activate(userId: model.signedInUserId, roomId: model.signedInRoomId, role: model.signedInRole)
             await model.mapModel.followRunner()
@@ -45,6 +51,8 @@ struct ProductShellView: View {
             // Back from the lock screen or another app: read the runner now, not at the next tick.
             if phase == .active {
                 Task { await model.mapModel.refreshNow() }
+                // Back from Settings: notifications may have been turned on there.
+                Task { await model.tour.refreshNotifications() }
             }
         }
     }
@@ -85,7 +93,15 @@ struct ProductTabPage: View {
                 title: model.topBarTitle,
                 onSettings: onSettings,
                 access: model.raceAccess,
-                onUnlock: model.isUnpaidRunnerRace ? { model.showBilling() } : nil
+                onUnlock: model.isUnpaidRunnerRace ? { model.showBilling() } : nil,
+                checklist: model.setupChecklist.map { checklist in
+                    SetupChecklistCardConfig(
+                        checklist: checklist,
+                        expanded: Binding(get: { model.tour.checklistExpanded }, set: { model.tour.checklistExpanded = $0 }),
+                        onItem: { model.openChecklistItem($0) },
+                        onHide: { model.hideChecklist() }
+                    )
+                }
             )
         case .pace:
             ShellPage(title: model.topBarTitle, onSettings: onSettings, access: model.raceAccess, onUnlock: { model.showBilling() }) {
@@ -276,6 +292,8 @@ struct CrewTabBar: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                // The tour's coach marks ring this button's real frame, wherever the bar sits.
+                .coachMarkAnchor(tab.accessibilityIdentifier)
                 .accessibilityLabel(tab.title)
                 .accessibilityValue(tab == .chat && chatBadge > 0 ? "\(chatBadge) unread" : "")
                 .accessibilityAddTraits(selection == tab ? .isSelected : [])
@@ -301,5 +319,34 @@ private extension ShellTab {
         case .chat: "text.bubble"
         case .profile: "person"
         }
+    }
+}
+
+/// The tab-bar tour over the shell: the coach mark rings the card's tab and the card sits beside
+/// it (clients/behavior/onboarding-runner-tour.md, onboarding-crew.md).
+struct ShellTourOverlay: View {
+    var model: ShellModel
+    var card: TourCard
+    var frames: [String: CGRect]
+
+    var body: some View {
+        CoachMarkOverlay(
+            anchor: card.anchor.flatMap { frames[$0.accessibilityIdentifier] },
+            identifier: card.role == .runner ? "crewcue.onboarding-runner-tour" : "crewcue.onboarding-crew"
+        ) { _ in
+            TourCardView(
+                card: card,
+                tour: model.tour,
+                inviteShareText: model.tourInviteShareText,
+                actions: TourCardActions(
+                    primary: { model.tourPrimary(card) },
+                    secondary: { model.tourSecondary(card) },
+                    skipTour: { model.skipTour() },
+                    shared: { model.tour.inviteShared = true }
+                )
+            )
+        }
+        .task(id: card.step) { model.tourCardAppeared(card) }
+        .transition(.opacity)
     }
 }

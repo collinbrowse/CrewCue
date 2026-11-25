@@ -116,6 +116,14 @@ final class MapModel {
     private(set) var navigateMessage = "No destination."
     private(set) var navigateBusy = false
     private(set) var locationMessage = "No location sample yet."
+    /// What the location manager last reported while tracking (the tour's location test reads it).
+    private(set) var locationPermission = LocationTest.Permission.notDetermined
+    /// Samples from this phone the server accepted, and samples queued with no network, since
+    /// launch. The tour's location test watches them for its one ping.
+    private(set) var pingsSent = 0
+    private(set) var pingsQueuedOffline = 0
+    /// Bumped to move the camera to the course's start line (the runner tour's `mapStartLine`).
+    private(set) var startLineRequest = 0
 
     init(client: AppClient, storage: ModelStorage = .app) {
         self.client = client
@@ -123,10 +131,15 @@ final class MapModel {
         locator.onSample = { [weak self] latitude, longitude, accuracy, time in
             self?.receive(latitude: latitude, longitude: longitude, accuracy: accuracy, at: time)
         }
+        locator.onAlways = { [weak self] in
+            self?.locationPermission = .always
+        }
         locator.onDenied = { [weak self] in
+            self?.locationPermission = .denied
             self?.locationMessage = "Location permission was denied. Turn it on in Settings to share your position."
         }
         locator.onWhenInUseOnly = { [weak self] in
+            self?.locationPermission = .whenInUse
             self?.locationMessage = "Tracking. Choose \"Always\" so it keeps going while the phone is locked."
         }
     }
@@ -499,6 +512,16 @@ final class MapModel {
         recenterRequest += 1
     }
 
+    /// Where the course starts: the saved line's first point, else the first checkpoint.
+    var startLineCoordinate: CLLocationCoordinate2D? {
+        route.first ?? points.first.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+    }
+
+    /// Moves the camera to the start line.
+    func showStartLine() {
+        startLineRequest += 1
+    }
+
     /// Where the runner's phone last was: the latest ping from the API, else the end of their path.
     /// Nil until the runner's phone sends a position.
     var runnerCoordinate: CLLocationCoordinate2D? {
@@ -654,6 +677,7 @@ final class MapModel {
               ticket == generation else { return }
         if report.accepted.isEmpty == false {
             locationMessage = "Location sent."
+            pingsSent += report.accepted.count
             await refreshRunner(ticket: ticket)
         }
     }
@@ -668,12 +692,14 @@ final class MapModel {
             }
             let sent = !report.pending.contains(operation.id)
             locationMessage = sent ? "Location sample sent." : "Offline. Sample queued in the outbox."
+            if sent { pingsSent += 1 } else { pingsQueuedOffline += 1 }
             if sent {
                 await refreshRunner(ticket: ticket)
             }
         } catch {
             guard ticket == generation else { return }
             locationMessage = "Offline. Sample queued in the outbox."
+            pingsQueuedOffline += 1
         }
     }
 

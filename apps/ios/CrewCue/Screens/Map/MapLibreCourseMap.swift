@@ -58,6 +58,10 @@ struct MapLibreCourseMap: UIViewRepresentable {
     var runnerCoordinate: CLLocationCoordinate2D?
     var runnerFocusRequest = 0
     var focusAnchor: CGPoint?
+    /// Where the course starts. Bumping `startLineRequest` zooms the camera in on it, centered on
+    /// `focusAnchor` (the runner tour's start-line step).
+    var startLine: CLLocationCoordinate2D?
+    var startLineRequest = 0
 
     /// OpenFreeMap: free, keyless vector tiles (OpenStreetMap data). The style's TileJSON carries the
     /// OpenFreeMap / OpenMapTiles / OpenStreetMap attribution shown by the map's attribution button.
@@ -148,6 +152,12 @@ struct MapLibreCourseMap: UIViewRepresentable {
             context.coordinator.fitCourse(animated: true)
         }
         context.coordinator.updatePick(anchor: pickAnchor, target: pickTarget, holding: pickCoordinate)
+        if context.coordinator.startLineRequest != startLineRequest {
+            context.coordinator.startLineRequest = startLineRequest
+            if let startLine {
+                context.coordinator.zoomToStart(startLine, anchor: focusAnchor)
+            }
+        }
         if context.coordinator.runnerFocusRequest != runnerFocusRequest {
             context.coordinator.runnerFocusRequest = runnerFocusRequest
             if let runnerCoordinate {
@@ -180,6 +190,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
         weak var mapView: MLNMapView?
         var recenterRequest = 0
         var runnerFocusRequest = 0
+        var startLineRequest = 0
         /// The runner's latest ping: the dot when there is no path yet.
         var latestPing: CLLocationCoordinate2D?
         private var drawnDot: CLLocationCoordinate2D?
@@ -295,7 +306,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
         }
 
         /// Zooms to `coordinate` (at least street level) with it at `anchor`, a window point.
-        func focus(on coordinate: CLLocationCoordinate2D, anchor: CGPoint?) {
+        func focus(on coordinate: CLLocationCoordinate2D, anchor: CGPoint?, minimumZoom: Double = 14) {
             guard let mapView, CLLocationCoordinate2DIsValid(coordinate) else { return }
             let size = mapView.bounds.size
             var padding = UIEdgeInsets.zero
@@ -307,7 +318,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
                 let dx = size.width - 2 * point.x
                 if dx > 0 { padding.right = dx } else { padding.left = -dx }
             }
-            let zoom = max(mapView.zoomLevel, 14)
+            let zoom = max(mapView.zoomLevel, minimumZoom)
             let altitude = MLNAltitudeForZoomLevel(zoom, 0, coordinate.latitude, size)
             let camera = MLNMapCamera(lookingAtCenter: coordinate, altitude: altitude, pitch: 0, heading: mapView.direction)
             mapView.setCamera(camera, withDuration: 0.6, animationTimingFunction: CAMediaTimingFunction(name: .easeInEaseOut), edgePadding: padding, completionHandler: nil)
@@ -393,6 +404,11 @@ struct MapLibreCourseMap: UIViewRepresentable {
                 b.withUnsafeBufferPointer { right in left.baseAddress == right.baseAddress }
             }
             return shared || zip(a, b).allSatisfy { $0.latitude == $1.latitude && $0.longitude == $1.longitude }
+        }
+
+        /// Zooms in on the start line (street level, closer than `focus`) with it at `anchor`.
+        func zoomToStart(_ coordinate: CLLocationCoordinate2D, anchor: CGPoint?) {
+            focus(on: coordinate, anchor: anchor, minimumZoom: 15)
         }
 
         /// Frames the course above the bottom sheet and below the top chips.
