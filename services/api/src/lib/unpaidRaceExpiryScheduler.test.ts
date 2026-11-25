@@ -10,7 +10,13 @@
  * store, so assertions filter outcomes by the test's own rooms, and accounts are fresh because
  * Postgres runs share one database.
  */
-import test from "node:test";
+import test, { after } from "node:test";
+
+// The scheduler unrefs its interval so it never holds a server process open. On Node 20 that lets
+// the event loop go empty while a test awaits a tick, and the runner cancels the rest of the file.
+// Keep the loop alive for this file; each test's own timeout still catches a real hang.
+const keepAlive = setInterval(() => undefined, 1_000);
+after(() => clearInterval(keepAlive));
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { RaceRoom } from "@crewcue/contracts";
