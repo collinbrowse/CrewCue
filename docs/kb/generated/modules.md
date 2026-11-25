@@ -192,6 +192,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift) | `RuntimeChatThreads` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeDemoRace.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeDemoRace.swift) | `DemoRuntimes` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeOnboarding.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeOnboarding.swift) |  |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimePushTap.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimePushTap.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeRunnerSetup.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeRunnerSetup.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift) | `ScheduleStopFixture`, `ScheduleFixture` |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift) | `ScheduleFormat` |
@@ -207,11 +208,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-118 files under `packages/client-core/Sources/`.
+119 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 68 | 14976 |
+| `CrewCueClientCore` | 69 | 15089 |
 | `CrewCueClientCore/Generated` | 50 | 984 |
 
 ### iOS app (SwiftUI)
@@ -221,7 +222,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 15 | 1967 |
+| `App` | 15 | 1973 |
 | `Brand` | 1 | 184 |
 | `Design` | 7 | 1869 |
 | `Logging` | 2 | 18 |
@@ -250,32 +251,32 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `kotlin/com/crewcue/android` | 2 | 169 |
+| `kotlin/com/crewcue/android` | 2 | 171 |
 | `kotlin/com/crewcue/android/auth` | 3 | 201 |
 | `kotlin/com/crewcue/android/billing` | 3 | 252 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 797 |
+| `kotlin/com/crewcue/android/data` | 3 | 829 |
 | `kotlin/com/crewcue/android/di` | 1 | 107 |
 | `kotlin/com/crewcue/android/generated` | 50 | 517 |
 | `kotlin/com/crewcue/android/invite` | 1 | 123 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
 | `kotlin/com/crewcue/android/nav` | 2 | 145 |
 | `kotlin/com/crewcue/android/session` | 4 | 284 |
-| `kotlin/com/crewcue/android/ui` | 5 | 1924 |
+| `kotlin/com/crewcue/android/ui` | 5 | 1998 |
 | `kotlin/com/crewcue/android/ui/activity` | 2 | 640 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 230 |
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 511 |
 | `kotlin/com/crewcue/android/ui/brand` | 1 | 234 |
 | `kotlin/com/crewcue/android/ui/brandloader` | 1 | 54 |
-| `kotlin/com/crewcue/android/ui/chat` | 7 | 1234 |
+| `kotlin/com/crewcue/android/ui/chat` | 7 | 1273 |
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 298 |
 | `kotlin/com/crewcue/android/ui/invite` | 1 | 273 |
 | `kotlin/com/crewcue/android/ui/join` | 2 | 257 |
-| `kotlin/com/crewcue/android/ui/map` | 6 | 1950 |
+| `kotlin/com/crewcue/android/ui/map` | 6 | 1956 |
 | `kotlin/com/crewcue/android/ui/members` | 1 | 317 |
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
-| `kotlin/com/crewcue/android/ui/onboarding` | 11 | 5945 |
+| `kotlin/com/crewcue/android/ui/onboarding` | 11 | 5954 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1503 |
 | `kotlin/com/crewcue/android/ui/profile` | 1 | 403 |
