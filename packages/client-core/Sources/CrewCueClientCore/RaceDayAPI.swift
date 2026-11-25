@@ -196,27 +196,62 @@ public enum RaceDayAPI {
     }
 
     /// What a shared file (one run, or a .zip up to a whole watch-app export) holds. Saves nothing.
-    /// Sent raw to `POST /activity-history/upload?mode=preview`.
-    public static func previewActivityUpload(graph: ClientGraph, fileName: String, data: Data) async throws -> ActivityUploadPreview {
-        let response = try await postUpload(graph, mode: "preview", fileName: fileName, data: data)
+    /// Sent raw to `POST /activity-history/upload?mode=preview`, then polled until the server is done.
+    public static func previewActivityUpload(
+        graph: ClientGraph, fileName: String, data: Data, poll: UploadPoll = .standard
+    ) async throws -> ActivityUploadPreview {
+        let response = try await runUpload(graph, mode: "preview", fileName: fileName, data: data, poll: poll)
         return try JSONDecoder().decode(ActivityUploadPreview.self, from: response.body)
     }
 
     /// Import every run in a shared file (`mode=import`). Already imported runs count as duplicates.
-    public static func importActivityUpload(graph: ClientGraph, fileName: String, data: Data) async throws -> ActivityUploadResult {
-        let response = try await postUpload(graph, mode: "import", fileName: fileName, data: data)
+    public static func importActivityUpload(
+        graph: ClientGraph, fileName: String, data: Data, poll: UploadPoll = .standard
+    ) async throws -> ActivityUploadResult {
+        let response = try await runUpload(graph, mode: "import", fileName: fileName, data: data, poll: poll)
         return try JSONDecoder().decode(ActivityUploadResult.self, from: response.body)
     }
 
-    private static func postUpload(_ graph: ClientGraph, mode: String, fileName: String, data: Data) async throws -> HTTPResponse {
+    /// How often, and how long, the app waits on a bulk upload job.
+    public struct UploadPoll: Sendable {
+        public var intervalSeconds: Double
+        public var maxWaitSeconds: Double
+        public init(intervalSeconds: Double, maxWaitSeconds: Double) {
+            self.intervalSeconds = intervalSeconds
+            self.maxWaitSeconds = maxWaitSeconds
+        }
+        /// Every 1.5 s for up to 10 minutes (the server keeps a finished result that long).
+        public static let standard = UploadPoll(intervalSeconds: 1.5, maxWaitSeconds: 600)
+    }
+
+    /// The upload returns 202 `{jobId}` at once; the result comes from
+    /// `GET /activity-history/upload-jobs/:jobId` (202 while running). A server that answers the
+    /// upload directly (an older API) is taken as the result.
+    private static func runUpload(
+        _ graph: ClientGraph, mode: String, fileName: String, data: Data, poll: UploadPoll
+    ) async throws -> HTTPResponse {
         guard let baseURL = graph.baseURL,
               let url = APIClient.endpoint(baseURL, "/activity-history/upload", query: ["mode": mode, "fileName": fileName]) else {
             throw ClientHTTPError(status: 0, message: "API base URL is not set.")
         }
-        let token = await graph.tokenProvider?.accessToken()
-        var request = APIClient.authorized(url: url, method: .post, token: token, body: data)
+        var request = APIClient.authorized(url: url, method: .post, token: await graph.tokenProvider?.accessToken(), body: data)
         request.headers["Content-Type"] = "application/octet-stream"
-        return try await APIClient.send(request, transport: graph.transport)
+        let started = try await APIClient.send(request, transport: graph.transport)
+        guard started.status == 202 else { return started }
+        struct Job: Decodable { var jobId: String }
+        let job = try JSONDecoder().decode(Job.self, from: started.body)
+        guard let jobURL = APIClient.endpoint(baseURL, "/activity-history/upload-jobs/\(job.jobId)") else {
+            throw ClientHTTPError(status: 0, message: "API base URL is not set.")
+        }
+        var waited = 0.0
+        while waited < poll.maxWaitSeconds {
+            try await Task.sleep(nanoseconds: UInt64(max(poll.intervalSeconds, 0) * 1_000_000_000))
+            waited += poll.intervalSeconds
+            let check = APIClient.authorized(url: jobURL, method: .get, token: await graph.tokenProvider?.accessToken())
+            let response = try await APIClient.send(check, transport: graph.transport)
+            if response.status != 202 { return response }
+        }
+        throw ClientHTTPError(status: 504, message: "Upload timed out", bodyError: nil, decision: "upload_timeout", reason: "upload_timeout", serverMessage: nil)
     }
 
     public static func updateDisplayName(graph: ClientGraph, roomId: String, userId: String, displayName: String) async throws -> RoomEnvelope {

@@ -6,7 +6,9 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +26,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -59,7 +64,16 @@ const val RUN_SHARE_UNREADABLE = "Couldn't read that file. Choose a .gpx, .fit, 
 /** Matches client-core `SharedRunImport.maxUploadBytes`; bigger files are refused before reading them all. */
 private const val MAX_UPLOAD_BYTES = 200L * 1024 * 1024
 
-data class SharedRun(val summary: String, val alreadyImported: Boolean, val track: List<Pair<Double, Double>>)
+/** One labeled value in a preview row ("Distance" over "14.6 km"), worded by client-core. */
+data class SharedRunDetail(val label: String, val value: String)
+
+data class SharedRun(
+    val dateLabel: String,
+    val details: List<SharedRunDetail>,
+    val spokenSummary: String,
+    val alreadyImported: Boolean,
+    val track: List<Pair<Double, Double>>
+)
 
 /** What the sheet shows. Mirrors client-core `SharedRunImportState`. */
 sealed interface SharedRunUi {
@@ -73,8 +87,12 @@ sealed interface SharedRunUi {
         val runs: List<SharedRun>,
         val unreadableLine: String?,
         val unreadable: List<String>,
-        val moreRunsLine: String? = null,
-        val skippedLine: String? = null
+        val skippedLine: String? = null,
+        /** Runs listed before Show more. */
+        val firstListedRuns: Int = 10,
+        /** "Show 164 more", or null when every run fits. */
+        val showMoreLabel: String? = null,
+        val alreadyImportedBadge: String = "Already imported"
     ) : SharedRunUi
 }
 
@@ -82,6 +100,13 @@ sealed interface SharedRunUi {
 class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel() {
     var ui by androidx.compose.runtime.mutableStateOf<SharedRunUi?>(null)
         private set
+    /** The runner tapped Show more. Held here so a fold or rotation keeps the list open. */
+    var showsAllRuns by androidx.compose.runtime.mutableStateOf(false)
+        private set
+
+    fun showAllRuns() {
+        showsAllRuns = true
+    }
     /** Display name and the cached copy's path, held between preview and confirm. */
     private var file: Pair<String, String>? = null
     private var ticket = 0
@@ -89,6 +114,7 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
     /** [path] is a readable copy of the shared file, or null when the sender didn't let CrewCue read it. */
     fun receive(fileName: String, path: String?, signedIn: Boolean) {
         ticket += 1
+        showsAllRuns = false
         val mine = ticket
         if (path == null && signedIn) {
             // The sending app didn't let CrewCue read the file.
@@ -109,6 +135,7 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
 
     fun showTip() {
         ticket += 1
+        showsAllRuns = false
         file = null
         ui = SharedRunUi.Message(RUN_SHARE_TIP)
     }
@@ -129,6 +156,7 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
 
     fun dismiss() {
         ticket += 1
+        showsAllRuns = false
         ui = null
         file = null
     }
@@ -151,8 +179,14 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
                     runs = (0 until (runs?.length() ?: 0)).mapNotNull { index ->
                         val run = runs?.optJSONObject(index) ?: return@mapNotNull null
                         val track = run.optJSONArray("track")
+                        val details = run.optJSONArray("details")
                         SharedRun(
-                            summary = run.optString("summary"),
+                            dateLabel = run.optString("dateLabel"),
+                            details = (0 until (details?.length() ?: 0)).mapNotNull { i ->
+                                val d = details?.optJSONObject(i) ?: return@mapNotNull null
+                                SharedRunDetail(d.optString("label"), d.optString("value"))
+                            },
+                            spokenSummary = run.optString("spokenSummary"),
                             alreadyImported = run.optBoolean("alreadyImported"),
                             track = (0 until (track?.length() ?: 0)).mapNotNull { i ->
                                 val pair = track?.optJSONArray(i) ?: return@mapNotNull null
@@ -161,7 +195,9 @@ class SharedRunImportViewModel(private val raceDay: RaceDayBridge) : ViewModel()
                         )
                     },
                     unreadableLine = json.optString("unreadableLine").ifBlank { null },
-                    moreRunsLine = json.optString("moreRunsLine").ifBlank { null },
+                    firstListedRuns = json.optInt("firstListedRuns", 10),
+                    showMoreLabel = json.optString("showMoreLabel").ifBlank { null },
+                    alreadyImportedBadge = json.optString("alreadyImportedBadge").ifBlank { "Already imported" },
                     skippedLine = json.optString("skippedLine").ifBlank { null },
                     unreadable = (0 until (unreadable?.length() ?: 0)).mapNotNull { index ->
                         unreadable?.optJSONObject(index)?.let { "${it.optString("fileName")}: ${it.optString("error")}" }
@@ -246,25 +282,22 @@ fun SharedRunImportSheet(model: SharedRunImportViewModel) {
                 }
                 is SharedRunUi.Preview -> {
                     Text(ui.title, style = MaterialTheme.typography.titleMedium)
-                    ui.runs.forEach { run ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                run.summary,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (run.alreadyImported) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f)
+                    val listed = if (model.showsAllRuns) ui.runs else ui.runs.take(ui.firstListedRuns)
+                    Column(
+                        Modifier.fillMaxWidth().animateContentSize().testTag("crewcue.run-share-import.runs"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listed.forEach { run -> PreviewRunRow(run, ui.alreadyImportedBadge) }
+                    }
+                    if (!model.showsAllRuns) {
+                        ui.showMoreLabel?.let { label ->
+                            SecondaryButton(
+                                label,
+                                onClick = { model.showAllRuns() },
+                                modifier = Modifier.fillMaxWidth().testTag("crewcue.run-share-import.show-more")
                             )
-                            if (run.alreadyImported) {
-                                Text(
-                                    "Already imported",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 8.dp)
-                                )
-                            }
                         }
                     }
-                    ui.moreRunsLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     ui.skippedLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     val single = ui.runs.singleOrNull()
                     if (single != null && single.track.size >= 2) RouteSketch(single.track)
@@ -302,6 +335,73 @@ fun SharedRunImportSheet(model: SharedRunImportViewModel) {
                 }
             }
         }
+    }
+}
+
+/**
+ * One previewed run: the date as the heading, then Distance, Time and Climb as small labels over
+ * bold values. Side by side; stacked at large font scales so nothing clips.
+ */
+@Composable
+private fun PreviewRunRow(run: SharedRun, badge: String) {
+    val colors = MaterialTheme.colorScheme
+    val stacked = LocalDensity.current.fontScale >= 1.5f
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, colors.outlineVariant, RoundedCornerShape(12.dp))
+            .background(colors.surface, RoundedCornerShape(12.dp))
+            .padding(12.dp)
+            .clearAndSetSemantics { contentDescription = run.spokenSummary },
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                run.dateLabel,
+                style = MaterialTheme.typography.titleSmall,
+                color = colors.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            if (run.alreadyImported) {
+                Text(
+                    badge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .border(1.dp, colors.outline, RoundedCornerShape(50))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+        }
+        val dim = Modifier.alpha(if (run.alreadyImported) 0.6f else 1f)
+        if (stacked) {
+            Column(dim, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                run.details.forEach { DetailCell(it, Modifier) }
+            }
+        } else {
+            Row(dim.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                run.details.forEach { DetailCell(it, Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailCell(detail: SharedRunDetail, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            detail.label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        Text(
+            detail.value,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1
+        )
     }
 }
 
