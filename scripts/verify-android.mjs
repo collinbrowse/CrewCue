@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { androidSdkEnv, androidSdkRoot } from "./lib/androidSdkEnv.mjs";
+import { slotted } from "./lib/slot.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const required = process.env.CREWCUE_REQUIRE_ANDROID_BUILD === "1";
@@ -18,7 +19,8 @@ if (!fs.existsSync(path.join(sdk, "platforms"))) {
   process.exit(0);
 }
 const gradle = fs.existsSync(path.join(repoRoot, "apps/android/gradlew")) ? path.join(repoRoot, "apps/android/gradlew") : "gradle";
-const result = spawnSync(gradle, ["-p", path.join(repoRoot, "apps/android"), ":app:assembleDebug"], {
+const job = slotted(gradle, ["-p", path.join(repoRoot, "apps/android"), ":app:assembleDebug"], { label: "CrewCue Android build check", kind: "gradle assembleDebug" });
+const result = spawnSync(job.command, job.args, {
   stdio: "inherit",
   env: androidSdkEnv()
 });

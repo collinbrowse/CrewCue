@@ -12,6 +12,7 @@
  * host GPU crashes it); unset, the emulator uses the host GPU and falls back to software once.
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -166,17 +167,46 @@ export function iosSimulatorNames(repoRoot) {
   return [own, `${own} Duo`];
 }
 
+/** The iOS app's pinned package versions. Worktrees with the same file share one checkout folder. */
+export const IOS_PACKAGE_RESOLVED = "apps/ios/CrewCue.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved";
+
+/** First 16 hex digits of the SHA-256 of Package.resolved, or "unresolved" when it is missing. */
+export function packageResolvedKey(repoRoot) {
+  try {
+    return createHash("sha256").update(fs.readFileSync(path.join(repoRoot, IOS_PACKAGE_RESOLVED))).digest("hex").slice(0, 16);
+  } catch {
+    return "unresolved";
+  }
+}
+
 /*
- * Swift packages are cloned once per machine, not once per worktree (about 3.7 GB each).
- * CI keeps xcodebuild's default. CREWCUE_SPM_CACHE overrides the folder.
+ * Swift packages are cloned once per machine, not once per worktree (about 3.7 GB each), into
+ * <base>/<packageResolvedKey>, so worktrees pinned to different versions never share a folder.
+ * CI keeps xcodebuild's default. CREWCUE_SPM_CACHE overrides the base folder.
  */
-export function sharedSourcePackagesDir(env = process.env) {
+export function sharedSourcePackagesBase(env = process.env) {
   if (env.CI) return undefined;
   return env.CREWCUE_SPM_CACHE || path.join(os.homedir(), "Library", "Caches", "CrewCue", "SourcePackages");
 }
 
+export function sharedSourcePackagesDir(repoRoot, env = process.env) {
+  const base = sharedSourcePackagesBase(env);
+  return base ? path.join(base, packageResolvedKey(repoRoot)) : undefined;
+}
+
 /** xcodebuild arguments that point package checkouts at the shared folder (none in CI). */
-export function sharedSourcePackagesArgs(env = process.env) {
-  const dir = sharedSourcePackagesDir(env);
+export function sharedSourcePackagesArgs(repoRoot, env = process.env) {
+  const dir = sharedSourcePackagesDir(repoRoot, env);
   return dir ? ["-clonedSourcePackagesDirPath", dir] : [];
+}
+
+/**
+ * One DerivedData folder per checkout, shared by test:ios and agent:ios:ready so a worktree
+ * builds the app once. It lives under ~/Library because the simulator loads the unit-test bundle
+ * from it in place and may not read ~/Documents, where worktrees live. CI keeps the default.
+ */
+export function iosDerivedDataDir(repoRoot, env = process.env) {
+  if (env.CI) return undefined;
+  const id = fnv1a(path.resolve(repoRoot)).toString(16).padStart(8, "0");
+  return path.join(os.homedir(), "Library", "Developer", "Xcode", "DerivedData", `CrewCue-${checkoutKey(repoRoot)}-${id}`);
 }

@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { BUILD_JOBS, slotAvailable, slotted } from "./lib/slot.mjs";
 import { swiftForAndroid } from "./lib/swiftAndroidToolchain.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -233,7 +234,11 @@ for (const triple of triples) {
     console.error(`build-swift-android: unsupported triple ${triple}`);
     process.exit(1);
   }
-  run(swift, ["build", "--package-path", packageDir, "--swift-sdk", triple, "-c", configuration]);
+  // Queued when the machine-wide queue is installed. Inside a queued Gradle build this runs at once.
+  const args = ["build", "--package-path", packageDir, "--swift-sdk", triple, "-c", configuration];
+  if (slotAvailable()) args.push("-j", String(BUILD_JOBS));
+  const job = slotted(swift, args, { label: `CrewCue client-core for Android (${info.abi})`, kind: "swift build" });
+  run(job.command, job.args);
   const staged = stageProduct(triple, info);
   const ndk = findNdk();
   if (!ndk) {

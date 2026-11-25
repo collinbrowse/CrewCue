@@ -8,7 +8,13 @@
  * Every tick would see every unpaid room in the store (Postgres runs share one database), so the
  * schedulers here list only the test's own rooms, and assertions filter pushes by room.
  */
-import test from "node:test";
+import test, { after } from "node:test";
+
+// The scheduler unrefs its interval so it never holds a server process open. On Node 20 that lets
+// the event loop go empty while a test awaits a tick, and the runner cancels the rest of the file.
+// Keep the loop alive for this file; each test's own timeout still catches a real hang.
+const keepAlive = setInterval(() => undefined, 1_000);
+after(() => clearInterval(keepAlive));
 import assert from "node:assert/strict";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import type { RaceRoom } from "@crewcue/contracts";
@@ -1167,11 +1173,16 @@ test("a failing listing is logged and the tick returns nothing; a malformed room
   });
 });
 
-test("the scheduler ticks on its interval from start and stops on stop; stop doesn't wait on a hung tick past its bound", async () => {
+// Waits on events, not the wall clock, so a busy machine can't fail it. A scheduler that never
+// ticks, or a stop that waits on the hung tick, never settles; the test timeout reports that.
+test("the scheduler ticks on its interval from start and stops on stop; stop doesn't wait on a hung tick past its bound", { timeout: 60_000 }, async () => {
   let calls = 0;
+  let tickedThrice: () => void = () => undefined;
+  const threeTicks = new Promise<void>((resolve) => (tickedThrice = resolve));
   const ticking = createUnpaidRaceReminderScheduler({
     listRooms: async () => {
       calls += 1;
+      if (calls === 3) tickedThrice();
       return [];
     },
     log: recordingLog(),
@@ -1180,10 +1191,7 @@ test("the scheduler ticks on its interval from start and stops on stop; stop doe
   assert.equal(ticking.running, false);
   ticking.start();
   assert.equal(ticking.running, true);
-  const deadline = Date.now() + 2000;
-  while (calls < 3 && Date.now() < deadline) {
-    await sleep(5);
-  }
+  await threeTicks;
   assert.ok(calls >= 3, `ticked ${calls} times`);
   await ticking.stop();
   assert.equal(ticking.running, false);
@@ -1191,22 +1199,19 @@ test("the scheduler ticks on its interval from start and stops on stop; stop doe
   await sleep(30);
   assert.equal(calls, afterStop, "no tick after stop");
 
-  let listed = false;
+  let markListed: () => void = () => undefined;
+  const listed = new Promise<void>((resolve) => (markListed = resolve));
   const hung = createUnpaidRaceReminderScheduler({
     listRooms: () => {
-      listed = true;
+      markListed();
       return new Promise(() => undefined);
     },
     log: recordingLog(),
     stopWaitMs: 20
   });
   hung.start();
-  const hungDeadline = Date.now() + 2000;
-  while (!listed && Date.now() < hungDeadline) {
-    await sleep(5);
-  }
-  assert.ok(listed, "the first tick runs on start");
-  const stopping = Date.now();
+  await listed; // the first tick runs on start
+  // The tick never settles, so this returns only because stop gives up after stopWaitMs.
   await hung.stop();
-  assert.ok(Date.now() - stopping < 2000, "stop returned without waiting for the hung tick");
+  assert.equal(hung.running, false);
 });
