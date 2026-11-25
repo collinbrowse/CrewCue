@@ -14,6 +14,7 @@ import com.crewcue.android.billing.BillingInfo
 import com.crewcue.android.billing.FakeStorePurchaser
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.optText
+import com.crewcue.android.ui.chat.PushTapPayload
 import com.crewcue.android.di.AppContainer
 import com.crewcue.android.nav.DevRoutes
 import com.crewcue.android.nav.InboundLink
@@ -60,8 +61,13 @@ data class RaceChoice(
     val role: String,
     /** From client-core `RaceRole.label`, e.g. "Crew member". Never the wire value. */
     val roleLabel: String,
-    val displayName: String?
+    val displayName: String?,
+    /** When the server deletes this unpaid race (`unpaidExpiresAt`, ISO); null when paid or unknown. */
+    val unpaidExpiresAt: String? = null
 )
+
+/** A Map tool the shell asks the Map to open; [id] makes a second request for the same tool new. */
+data class MapToolRequest(val tool: String, val id: Int)
 
 enum class ShellTab(val title: String, val url: String) {
     Map("Map", "crewcue://dev/map"),
@@ -346,17 +352,14 @@ class ShellViewModel(
                                     name = row.optString("name"),
                                     role = row.optString("role"),
                                     roleLabel = row.optString("roleLabel"),
-                                    displayName = row.optText("displayName").trim().ifBlank { null }
+                                    displayName = row.optText("displayName").trim().ifBlank { null },
+                                    unpaidExpiresAt = row.optText("unpaidExpiresAt").trim().ifBlank { null }
                                 )
                             )
                         }
                     }
                     races = loaded
                     racesMessage = if (loaded.isEmpty()) "No races yet." else ""
-                    pendingChatRoomId?.let { pending ->
-                        pendingChatRoomId = null
-                        if (loaded.any { it.id == pending }) openChat(pending)
-                    }
                     val activeId = result.result.optString("activeRoomId").takeUnless {
                         result.result.isNull("activeRoomId") || it.isBlank()
                     }
@@ -369,6 +372,8 @@ class ShellViewModel(
                         }
                     }
                     refreshOnboarding(forceOnboarding)
+                    // After the active race is applied, so the tapped race isn't switched back.
+                    routePendingPushTap(racesListed = true)
                 }
             }
         }
@@ -587,22 +592,78 @@ class ShellViewModel(
         if (!showAppShell) showShell(ShellTab.Map)
     }
 
-    /** A chat push this race list has not loaded yet; applied after [loadRaces]. */
-    private var pendingChatRoomId: String? = null
+    /**
+     * A tapped push waiting for sign-in or for the race list (clients/behavior/push-tap.md): the
+     * `inbox` client-core's `pushTapReceive` and `pushTapTake` answer. In memory only, so it never
+     * outlives the launch.
+     */
+    private var pushTapInbox: JSONObject? = null
 
-    /** A tapped chat notification: switch to that race and show its chat. */
-    fun openChat(roomId: String) {
-        if (session == null) return
-        if (roomId != session?.roomId) {
-            if (races.none { it.id == roomId }) {
-                pendingChatRoomId = roomId
-                loadRaces()
-                return
-            }
-            selectRace(roomId)
-        }
-        showShell(ShellTab.Chat)
+    /**
+     * A tapped notification (MainActivity: cold launch, from the background, or with the app open).
+     * client-core reads the payload; one it doesn't route leaves the app where it was. A newer tap
+     * replaces a held one.
+     */
+    fun receivePushTap(payload: PushTapPayload) {
+        val inbox = container.raceDay.pushTapReceive(payload.type, payload.roomId) ?: return
+        pushTapInbox = inbox
+        routePendingPushTap(racesListed = false)
     }
+
+    private fun routePendingPushTap(racesListed: Boolean) {
+        val held = pushTapInbox ?: return
+        val result = container.raceDay.pushTapTake(held, session != null, raceRows, racesListed)
+        val answer = (result as? RuntimeResult.Success)?.result ?: return
+        pushTapInbox = answer.optJSONObject("inbox")
+        when (answer.optText("resolution")) {
+            // The race isn't listed yet (a new race, or a launch before the list answered):
+            // [loadRaces] resolves it again when the list answers.
+            "awaitRaces" -> if (!racesLoading) loadRaces()
+            "open" -> openPushDestination(answer.optText("roomId"), answer.optText("destination"))
+            // "holdUntilSignIn", "drop" (not this user's race) and "none" open nothing.
+            else -> Unit
+        }
+    }
+
+    private fun openPushDestination(roomId: String, destination: String) {
+        if (roomId.isBlank()) return
+        if (roomId != session?.roomId) selectRace(roomId)
+        if (roomId != session?.roomId) return
+        closeSettings()
+        mapToolRequest = null
+        when (destination) {
+            "chat" -> selectTab(ShellTab.Chat)
+            "startTracking" -> {
+                selectTab(ShellTab.Map)
+                mapToolRequest = MapToolRequest("location", ++mapToolRequests)
+            }
+            "paywall" -> {
+                // The paywall shows on a race tab only.
+                selectTab(ShellTab.Map)
+                openPaywall()
+            }
+            else -> selectTab(ShellTab.Map)
+        }
+    }
+
+    /**
+     * A Map tool to open when the Map next draws (a tracking push opens Location, at Start
+     * tracking). Picking a tab clears it, so coming back to Map shows the map.
+     */
+    var mapToolRequest by mutableStateOf<MapToolRequest?>(null)
+        private set
+    private var mapToolRequests = 0
+
+    /** client-core's "Expires in N days" for the active race when it is unpaid, or null. */
+    fun unpaidExpiry(): String? {
+        val expiresAt = races.firstOrNull { it.id == session?.roomId }?.unpaidExpiresAt ?: return null
+        // Whole days, so one read per date and launch is enough for every frame.
+        expiryCache?.let { (cached, line) -> if (cached == expiresAt) return line }
+        val line = container.raceDay.unpaidExpiry(expiresAt)
+        expiryCache = expiresAt to line
+        return line
+    }
+    private var expiryCache: Pair<String, String?>? = null
 
     /** Switch every tab to another loaded race. */
     fun selectRace(roomId: String) {
@@ -673,6 +734,7 @@ class ShellViewModel(
     }
 
     fun selectTab(tab: ShellTab) {
+        mapToolRequest = null
         if (tab == ShellTab.Profile) profilePane = "profile"
         if (tab == ShellTab.Pace) paceFocus = "schedule-sheet"
         paywallOpen = false
@@ -889,6 +951,8 @@ class ShellViewModel(
         racesFailed = false
         racesFailedOffline = false
         raceRows = null
+        // A tap held for this account never opens for the next one.
+        pushTapInbox = null
         onboarding = null
         onboardingTicket++
         paywallOpen = false

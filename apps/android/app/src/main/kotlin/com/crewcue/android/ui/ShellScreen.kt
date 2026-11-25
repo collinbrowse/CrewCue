@@ -101,6 +101,7 @@ private fun AppShell(viewModel: ShellViewModel) {
     val gate = RaceGate.of(access, paywallOpen = viewModel.paywallOpen, onRaceTab = viewModel.selectedTab != ShellTab.Profile)
     val race = if (roomId.isNullOrBlank() || !access.loadsRace) null else rememberRaceDay(viewModel, roomId, sampleLocation = access.samplesLocation)
     val unlockBanner = viewModel.onboardingText.unpaidBanner
+    val unlockExpiry = viewModel.unpaidExpiry()
     // Start tracking and chat send open the paywall on an unpaid race.
     val onLocked: (() -> Unit)? = if (access.gatesActions) viewModel::openPaywall else null
     if (!roomId.isNullOrBlank()) {
@@ -137,7 +138,7 @@ private fun AppShell(viewModel: ShellViewModel) {
                     if (roomId.isNullOrBlank()) {
                         NoRaceScreen(viewModel, Modifier.weight(1f))
                     } else {
-                        if (onLocked != null) UnlockRaceBanner(unlockBanner, onLocked, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                        if (onLocked != null) UnlockRaceBanner(unlockBanner, onLocked, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), expiry = unlockExpiry)
                         PaceScreen(viewModel, roomId, Modifier.weight(1f), viewModel.paceFocus, race)
                     }
                 }
@@ -145,14 +146,22 @@ private fun AppShell(viewModel: ShellViewModel) {
                     if (roomId.isNullOrBlank()) {
                         NoRaceScreen(viewModel, Modifier.weight(1f))
                     } else {
-                        MapScreen(viewModel, roomId, "map-track", Modifier.weight(1f), bottomInset = TAB_BAR_SPACE, onLocked = onLocked)
+                        MapScreen(
+                            viewModel,
+                            roomId,
+                            "map-track",
+                            Modifier.weight(1f),
+                            bottomInset = TAB_BAR_SPACE,
+                            onLocked = onLocked,
+                            toolRequest = viewModel.mapToolRequest
+                        )
                     }
                 }
                 ShellTab.Chat -> {
                     if (roomId.isNullOrBlank()) {
                         NoRaceScreen(viewModel, Modifier.weight(1f))
                     } else {
-                        if (onLocked != null) UnlockRaceBanner(unlockBanner, onLocked, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                        if (onLocked != null) UnlockRaceBanner(unlockBanner, onLocked, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), expiry = unlockExpiry)
                         ChatPane(viewModel, roomId, Modifier.weight(1f), race = race, onLocked = onLocked)
                     }
                 }
@@ -167,7 +176,8 @@ private fun AppShell(viewModel: ShellViewModel) {
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
                     .padding(top = TOP_BAR_SPACE + 48.dp)
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = 16.dp),
+                expiry = unlockExpiry
             )
         }
         CrewTopBar(

@@ -42,4 +42,4 @@ Real phone only (`"proof": "physical"` in deeplinks.json): the timing, expiry an
 - Both with the app in the background and in the foreground.
 
 ## Today
-iOS routes the tap (push-tap, simulator proof) and shows the days left on the banner; there is no real-phone proof yet. Android doesn't route `unlock` taps or show the days left yet (a later PR).
+iOS routes the tap (push-tap, simulator proof) and shows the days left on the banner; there is no real-phone proof yet. Android routes the tap and shows the days left on the banner too (push-tap, emulator proof); no real-phone proof yet.
