@@ -212,7 +212,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 69 | 15089 |
+| `CrewCueClientCore` | 69 | 15113 |
 | `CrewCueClientCore/Generated` | 50 | 984 |
 
 ### iOS app (SwiftUI)
@@ -226,7 +226,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Brand` | 1 | 184 |
 | `Design` | 7 | 1869 |
 | `Logging` | 2 | 18 |
-| `Screens/ActivityImport` | 4 | 487 |
+| `Screens/ActivityImport` | 4 | 490 |
 | `Screens/AthleteSetup` | 2 | 146 |
 | `Screens/Auth` | 2 | 222 |
 | `Screens/Billing` | 2 | 457 |
@@ -263,7 +263,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/nav` | 2 | 145 |
 | `kotlin/com/crewcue/android/session` | 4 | 284 |
 | `kotlin/com/crewcue/android/ui` | 5 | 1998 |
-| `kotlin/com/crewcue/android/ui/activity` | 2 | 640 |
+| `kotlin/com/crewcue/android/ui/activity` | 2 | 645 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 230 |
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 511 |
