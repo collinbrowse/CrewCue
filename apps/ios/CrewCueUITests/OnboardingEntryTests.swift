@@ -141,7 +141,8 @@ final class OnboardingEntryTests: XCTestCase {
         XCTAssertTrue(signedOut.waitForExistence(timeout: 5))
         app.buttons["Join your crew with a code"].tap()
         XCTAssertTrue(element(app, "crewcue.join-crew").waitForExistence(timeout: 5))
-        app.buttons["Back"].firstMatch.tap()
+        // Opened from sign-in, the join page closes with the X at the top right.
+        app.buttons["crewcue.join-crew.close"].firstMatch.tap()
         XCTAssertTrue(signedOut.waitForExistence(timeout: 5))
         app.navigationBars.buttons["crewcue.auth-sign-in.back"].tap()
         XCTAssertTrue(chooser.waitForExistence(timeout: 5))

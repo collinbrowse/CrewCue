@@ -18,8 +18,10 @@ final class JoinLinkTests: XCTestCase {
 
     /// Back gives the invite up, so the saved code doesn't open the join screen in later tests.
     private func leaveJoin(_ app: XCUIApplication) {
+        // Opened on its own the page closes with an X; inside onboarding it has Back.
+        let close = element(app, "crewcue.join-crew.close")
         let back = element(app, "crewcue.join-crew.back")
-        if back.waitForExistence(timeout: 3) { back.tap() }
+        if close.waitForExistence(timeout: 3) { close.tap() } else if back.exists { back.tap() }
     }
 
     private func assertJoinScreen(_ app: XCUIApplication, code: String, file: StaticString = #filePath, line: UInt = #line) {
@@ -27,7 +29,7 @@ final class JoinLinkTests: XCTestCase {
         let field = app.textFields["Invite code"]
         XCTAssertTrue(field.waitForExistence(timeout: 5), file: file, line: line)
         XCTAssertEqual(field.value as? String, code, file: file, line: line)
-        XCTAssertTrue(element(app, "crewcue.join-crew.paste").exists, "paste row missing", file: file, line: line)
+        // The paste row shows only when the clipboard holds a code; the link already filled it.
     }
 
     func testJoinPageLinkOpensTheJoinScreenWithItsCode() throws {
@@ -52,7 +54,7 @@ final class JoinLinkTests: XCTestCase {
         app.open(try XCTUnwrap(URL(string: "crewcue://join/")))
         XCTAssertTrue(element(app, "crewcue.join-crew").waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["That link didn't include an invite code. Paste it or type the 6 digits."].waitForExistence(timeout: 5))
-        XCTAssertTrue(element(app, "crewcue.join-crew.paste").exists)
+        XCTAssertTrue(app.textFields["Invite code"].exists, "the code field takes typing")
         leaveJoin(app)
     }
 }
