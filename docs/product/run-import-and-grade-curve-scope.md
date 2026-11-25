@@ -167,6 +167,33 @@ The test leaves one run out and learns from the other 13. Each model's step time
 
 **Combined with the OpenSplitTime result:** neither test supports turning on personal grade factors. Keep slice 3 parked, keep collecting grade tables, and re-run both tests with the bulk export and the first CrewCue races.
 
+### Full-year own-runs test and decision (Nov 24 2026)
+
+The owner's COROS bulk export: 2,085 FIT files. The test kept 166 runs, trail runs and hikes of 3 km or more from the last 12 months. It skipped 714 files with no distance, 181 rides, 163 other sports, 34 walks and 819 older activities.
+
+The bar was set before the run: personal factors are **notably worse** if they misplace more than 10% more moving time than the shared curve.
+
+| Runs | Count | Shared | Six-value |
+|---|---|---|---|
+| All | 166 | 4.9% | 5.0% (5.1% with runs weighted equally) |
+| Under 15 km | 137 | 4.3% | 4.4% |
+| 15–30 km | 22 | 6.8% | 7.0% |
+| 30 km and up | 7 | 11.5% | 11.8% |
+| 50+ m climb per km | 55 | 5.4% | 5.5% |
+
+- **Within the bar.** About 2–4% worse in relative terms. The personal model won on 60 runs and lost on 88.
+- **Stable factors.** From 14 runs to 166, they barely moved:
+  - hiking-grade climbs 0.93 → 0.95
+  - steep descents 0.89 → 0.90
+  - runnable descents 1.12 → 1.10
+  - runnable climbs 1.09 → 1.03
+  - switch grade 11% → 14%
+  That stability is the best sign they're real traits.
+- **Why it doesn't improve this test.** The test scales every model to each run's actual moving time and scores only *where* time goes within the run. A 5–10% factor on part of a run moves little time. The error that's left (4–12%) comes from things grade can't explain: fatigue, stops, footing, changes of effort. It's largest on long runs for both models.
+- **Where it should help.** A race whose terrain mix differs from the runner's training, for example more steep descent or more hiking-grade climbing. This test removes total time, so it can't measure that.
+
+**Decision (owner, Nov 24):** use personal factors. Slice 3 ships behind `PERSONAL_TERRAIN_FACTORS`, off by default, so each environment turns it on deliberately. To measure the total-time effect, check the finish estimate against the owner's next races.
+
 ### Limits
 
 - Runs imported before this change have no grade table. The API keeps only metrics, not the file, so runners would need to re-import. The estimate still works without bands.
