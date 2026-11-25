@@ -8,7 +8,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureIosSimulator, sharedDevice, sharedSourcePackagesArgs } from "./lib/agentDevice.mjs";
+import { ensureIosSimulator, sharedDevice } from "./lib/agentDevice.mjs";
+import { derivedDataArgs, IOS_PROJECT, IOS_SCHEME, prepareSharedPackages, xcodebuildCommand } from "./lib/iosBuild.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 if (process.platform !== "darwin") {
@@ -57,19 +58,27 @@ function pickDestination() {
 const destination = pickDestination();
 const evidenceDir = path.join(repoRoot, ".agent-pr-evidence");
 fs.mkdirSync(evidenceDir, { recursive: true });
+let packagesArgs;
+try {
+  packagesArgs = prepareSharedPackages(repoRoot);
+} catch (error) {
+  console.error(`test:ios: ${error.message}`);
+  process.exit(1);
+}
 const xcodeArgs = [
-  "-project", "apps/ios/CrewCue.xcodeproj",
-  "-scheme", "CrewCue",
+  "-project", IOS_PROJECT,
+  "-scheme", IOS_SCHEME,
   "-destination", destination,
   "-resultBundlePath", path.join(evidenceDir, `ios-tests-${Date.now()}.xcresult`),
-  // Share package checkouts across worktrees. DerivedData stays in ~/Library: the unit-test bundle is
-  // loaded from it in place, and the simulator may not read ~/Documents, where worktrees live.
-  ...sharedSourcePackagesArgs(),
+  // The same DerivedData and package folders as agent:ios:ready (scripts/lib/iosBuild.mjs).
+  ...derivedDataArgs(repoRoot),
+  ...packagesArgs,
   "test"
 ];
 // GitHub-hosted macOS has no Apple team. Simulator UI tests ad-hoc sign.
 if (process.env.CI) {
   xcodeArgs.push("CODE_SIGN_STYLE=Manual", "CODE_SIGN_IDENTITY=-", "CODE_SIGNING_REQUIRED=NO", "DEVELOPMENT_TEAM=");
 }
-const result = spawnSync("xcodebuild", xcodeArgs, { cwd: repoRoot, stdio: "inherit" });
+const job = xcodebuildCommand(xcodeArgs, "CrewCue iOS tests");
+const result = spawnSync(job.command, job.args, { cwd: repoRoot, stdio: "inherit" });
 process.exit(result.status ?? 1);

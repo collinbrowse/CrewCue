@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { androidSdkEnv, androidSdkRoot } from "./lib/androidSdkEnv.mjs";
+import { slotted } from "./lib/slot.mjs";
 import { androidSerial, sharedDevice, tryAcquireAndroid } from "./lib/agentDevice.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -33,9 +34,10 @@ if (!env.ANDROID_SERIAL && !sharedDevice()) {
   }
   console.log(`test:android: ${serial}`);
 }
-const result = spawnSync(
+const job = slotted(
   path.join(repoRoot, "apps/android/gradlew"),
   ["-p", path.join(repoRoot, "apps/android"), ":app:connectedDebugAndroidTest"],
-  { stdio: "inherit", env }
+  { label: "CrewCue Android tests", kind: "gradle connectedDebugAndroidTest" }
 );
+const result = spawnSync(job.command, job.args, { stdio: "inherit", env });
 process.exit(result.status ?? 1);

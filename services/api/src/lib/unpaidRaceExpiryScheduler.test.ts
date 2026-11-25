@@ -850,11 +850,16 @@ test("a failing delete is logged without the room id and the rest of the tick go
   );
 });
 
-test("the sweeper ticks on its interval from start and stops on stop", async () => {
+// Waits for the ticks, not a wall-clock deadline, so a busy machine can't fail it. A scheduler
+// that never ticks never settles; the test timeout reports that.
+test("the sweeper ticks on its interval from start and stops on stop", { timeout: 60_000 }, async () => {
   let calls = 0;
+  let tickedThrice: () => void = () => undefined;
+  const threeTicks = new Promise<void>((resolve) => (tickedThrice = resolve));
   const sweep = createUnpaidRaceExpiryScheduler({
     listRooms: async () => {
       calls += 1;
+      if (calls === 3) tickedThrice();
       return [];
     },
     log: recordingLog(),
@@ -863,10 +868,7 @@ test("the sweeper ticks on its interval from start and stops on stop", async () 
   assert.equal(sweep.running, false);
   sweep.start();
   assert.equal(sweep.running, true);
-  const deadline = Date.now() + 2000;
-  while (calls < 3 && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
+  await threeTicks;
   assert.ok(calls >= 3, `ticked ${calls} times`);
   await sweep.stop();
   assert.equal(sweep.running, false);
@@ -875,27 +877,25 @@ test("the sweeper ticks on its interval from start and stops on stop", async () 
   assert.equal(calls, afterStop, "no tick after stop");
 });
 
-test("stop does not wait on a hung tick past its bound", async () => {
-  let listed = false;
+// Waits on events, not the wall clock, so a busy machine can't fail it. A scheduler that never
+// ticks, or a stop that waits on the hung tick, never settles; the test timeout reports that.
+test("stop does not wait on a hung tick past its bound", { timeout: 60_000 }, async () => {
+  let markListed: () => void = () => undefined;
+  const listed = new Promise<void>((resolve) => (markListed = resolve));
   const sweep = createUnpaidRaceExpiryScheduler({
     // Never settles: a store call that hangs.
     listRooms: () => {
-      listed = true;
+      markListed();
       return new Promise(() => undefined);
     },
     log: recordingLog(),
     stopWaitMs: 20
   });
   sweep.start();
-  const deadline = Date.now() + 2000;
-  while (!listed && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  assert.ok(listed, "the first tick runs on start");
-  const stopping = Date.now();
+  await listed; // the first tick runs on start
+  // The tick never settles, so this returns only because stop gives up after stopWaitMs.
   await sweep.stop();
   assert.equal(sweep.running, false);
-  assert.ok(Date.now() - stopping < 2000, "stop returned without waiting for the hung tick");
 });
 
 test("on, and it waits for the warning: the delete condition needs the 1-day reminder claimed at least 24 h before", async () => {

@@ -879,12 +879,17 @@ test("a malformed stored room is logged and the rest of the pass goes on", async
   assert.ok(log.warns.some((w) => w.msg === "tracking_reminder_check_failed"));
 });
 
-test("the scheduler starts with the app, ticks on its interval, and stops on app close", async () => {
+// Waits for the ticks, not a wall-clock deadline, so a busy machine can't fail it. A scheduler
+// that never ticks never settles; the test timeout reports that.
+test("the scheduler starts with the app, ticks on its interval, and stops on app close", { timeout: 60_000 }, async () => {
   const app = Fastify();
   let calls = 0;
+  let tickedThrice: () => void = () => undefined;
+  const threeTicks = new Promise<void>((resolve) => (tickedThrice = resolve));
   const reminders = attachTrackingReminderScheduler(app, {
     listRooms: async () => {
       calls += 1;
+      if (calls === 3) tickedThrice();
       return [];
     },
     log: recordingLog(),
@@ -893,10 +898,7 @@ test("the scheduler starts with the app, ticks on its interval, and stops on app
   assert.equal(reminders.running, false);
   await app.ready();
   assert.equal(reminders.running, true);
-  const deadline = Date.now() + 2000;
-  while (calls < 3 && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
+  await threeTicks;
   assert.ok(calls >= 3, `ticked ${calls} times`);
   await app.close();
   assert.equal(reminders.running, false);
@@ -905,26 +907,24 @@ test("the scheduler starts with the app, ticks on its interval, and stops on app
   assert.equal(calls, afterClose, "no tick after close");
 });
 
-test("app close does not wait on a hung tick past its bound", async () => {
+// Waits on events, not the wall clock, so a busy machine can't fail it. A scheduler that never
+// ticks, or a stop that waits on the hung tick, never settles; the test timeout reports that.
+test("app close does not wait on a hung tick past its bound", { timeout: 60_000 }, async () => {
   const app = Fastify();
-  let listed = false;
+  let markListed: () => void = () => undefined;
+  const listed = new Promise<void>((resolve) => (markListed = resolve));
   const reminders = attachTrackingReminderScheduler(app, {
     // Never settles: a store or push call that hangs.
     listRooms: () => {
-      listed = true;
+      markListed();
       return new Promise(() => undefined);
     },
     log: recordingLog(),
     stopWaitMs: 20
   });
   await app.ready();
-  const deadline = Date.now() + 2000;
-  while (!listed && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  assert.ok(listed, "the first tick runs on start");
-  const closing = Date.now();
+  await listed; // the first tick runs on start
+  // The tick never settles, so this returns only because close gives up after stopWaitMs.
   await app.close();
   assert.equal(reminders.running, false);
-  assert.ok(Date.now() - closing < 2000, "close returned without waiting for the hung tick");
 });

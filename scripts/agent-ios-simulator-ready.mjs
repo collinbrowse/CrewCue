@@ -5,14 +5,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { openIosSimulatorUi } from "./lib/openIosSimulatorUi.mjs";
-import { ensureIosSimulator, sharedDevice, sharedSourcePackagesArgs } from "./lib/agentDevice.mjs";
+import { ensureIosSimulator, sharedDevice } from "./lib/agentDevice.mjs";
+import { derivedDataArgs, prepareSharedPackages, xcodebuildCommand } from "./lib/iosBuild.mjs";
+import { runShowingQueue } from "./lib/slot.mjs";
 
 const execFile = promisify(execFileCb);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BUNDLE_ID = "com.crewcue.ios";
 const PROJECT = path.join(repoRoot, "apps/ios/CrewCue.xcodeproj");
 const CONFIG_PATH = path.join(repoRoot, ".xcodebuildmcp/config.yaml");
-const DERIVED = path.join(repoRoot, ".agent-pr-evidence/ios-derived");
+// Shared with test:ios (scripts/lib/iosBuild.mjs). CI falls back to a folder in the checkout.
+const DERIVED = derivedDataArgs(repoRoot)[1] ?? path.join(repoRoot, ".agent-pr-evidence/ios-derived");
 
 function deeplinksFromChecklists() {
   const indexPath = path.join(repoRoot, "clients/behavior/deeplinks.json");
@@ -118,33 +121,29 @@ async function ensureSimulatorByUdid(udid) {
   return udid;
 }
 
-function findApp(dir) {
-  if (!fs.existsSync(dir)) return undefined;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory() && entry.name.endsWith(".app")) return full;
-    if (entry.isDirectory()) {
-      const nested = findApp(full);
-      if (nested) return nested;
-    }
+/**
+ * The simulator app this build produced. DERIVED also holds test:ios's products (the UI-test
+ * runner is an .app too), so look for CrewCue.app in the simulator Debug folder first.
+ */
+function findApp(products) {
+  const debug = path.join(products, "Debug-iphonesimulator", "CrewCue.app");
+  if (fs.existsSync(debug)) return debug;
+  if (!fs.existsSync(products)) return undefined;
+  for (const entry of fs.readdirSync(products, { withFileTypes: true })) {
+    const candidate = path.join(products, entry.name, "CrewCue.app");
+    if (entry.isDirectory() && entry.name.endsWith("-iphonesimulator") && fs.existsSync(candidate)) return candidate;
   }
   return undefined;
 }
 
 async function installApp(udid) {
   fs.mkdirSync(DERIVED, { recursive: true });
-  await run("xcodebuild", [
-    "-project",
-    PROJECT,
-    "-scheme",
-    "CrewCue",
-    "-destination",
-    `id=${udid}`,
-    "-derivedDataPath",
-    DERIVED,
-    ...sharedSourcePackagesArgs(),
-    "build"
-  ]);
+  const packagesArgs = prepareSharedPackages(repoRoot);
+  const job = xcodebuildCommand(
+    ["-project", PROJECT, "-scheme", "CrewCue", "-destination", `id=${udid}`, "-derivedDataPath", DERIVED, ...packagesArgs, "build"],
+    "CrewCue iOS app build"
+  );
+  await runShowingQueue(job, { cwd: repoRoot });
   const app = findApp(path.join(DERIVED, "Build", "Products"));
   if (!app) throw new Error("xcodebuild finished without a CrewCue.app product");
   await bootSimulator(udid);

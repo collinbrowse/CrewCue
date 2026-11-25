@@ -36,3 +36,11 @@ for (const entry of fs.existsSync(evidence) ? fs.readdirSync(evidence) : []) {
   removed++;
 }
 if (removed) console.log(`agent-ios-done: deleted ${removed} .xcresult bundle(s)`);
+
+// Builds now go to this checkout's folder in ~/Library/Developer/Xcode/DerivedData. The older
+// in-checkout build folder (with its own copy of the Swift packages) is no longer used locally.
+const oldDerived = path.join(evidence, "ios-derived");
+if (!process.env.CI && fs.existsSync(oldDerived)) {
+  fs.rmSync(oldDerived, { recursive: true, force: true });
+  console.log("agent-ios-done: deleted the unused .agent-pr-evidence/ios-derived");
+}

@@ -12,6 +12,10 @@ Applies when changing **`apps/ios/**`** (SwiftUI).
 
 Parallel agents each get their own simulator, named `CrewCue <worktree>`. `npm run agent:ios:ready` and `npm run test:ios` create and use it automatically. `npm run agent:device` prints its UDID: pass that UDID as the device or `simulatorId` to every iOS-simulator and XcodeBuildMCP call, because their defaults point at a shared simulator. Never boot, erase or shut down another simulator.
 
+## Builds wait their turn
+
+`agent:ios:ready`, `test:ios` and `verify:ios` queue on the machine-wide `slot` and may print `slot: queued ...` for minutes before building. That is normal: don't kill or retry them, and use a long Bash timeout (or run in the background). They share one DerivedData per worktree (`~/Library/Developer/Xcode/DerivedData/CrewCue-<worktree>-<hash>`) and resolve Swift packages once into `~/Library/Caches/CrewCue/SourcePackages/<Package.resolved hash>/`; pass the same `-derivedDataPath` to XcodeBuildMCP builds so the worktree builds once.
+
 ## Done means
 
 1. `npm run verify` (or scoped tests if agreed) **and**

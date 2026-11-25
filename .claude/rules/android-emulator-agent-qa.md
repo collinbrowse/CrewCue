@@ -16,6 +16,8 @@ Parallel agents each run their own read-only instance of the AVD on a port deriv
 
 **GPU crashes.** On a busy Mac the host GPU can crash the emulator ("context was preempted", a crashpad dump at startup, or the device dropping mid-install). A failed boot retries once with software rendering by itself. If the emulator dies after booting, run `npm run agent:android:done`, then boot again with `CREWCUE_EMULATOR_GPU=swiftshader_indirect npm run agent:android:ready -- …` (or `--gpu swiftshader_indirect`). It is slower but stable.
 
+**Busy Mac.** Gradle builds (`agent:android:ready`, `verify:android`, `test:android`) queue on the machine-wide `slot` and may print `slot: queued ...` before starting; don't kill or retry them, and use a long Bash timeout. A cold boot may take up to 5 minutes. Emulators boot with `-cores 2`; keep `hw.cpu.ncore = 2` in any AVD you create.
+
 ## Done means
 
 1. `npm run verify:client-behavior` when the checklist changed, and
