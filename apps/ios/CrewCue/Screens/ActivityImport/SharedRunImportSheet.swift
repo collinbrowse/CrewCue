@@ -17,12 +17,18 @@ struct SharedRunImportSheet: View {
                 .padding()
             }
             .background(theme.background)
-            .navigationTitle("Import runs")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) { actions }
         }
         .accessibilityIdentifier("crewcue.run-share-import")
         .presentationDetents([.medium, .large])
+    }
+
+    /// "Import 174 runs?" while previewing, so the question is the sheet's only title.
+    private var title: String {
+        if case .preview(let preview) = model.state { return preview.title }
+        return "Import runs"
     }
 
     @ViewBuilder private var content: some View {
@@ -36,18 +42,15 @@ struct SharedRunImportSheet: View {
         case .done(let text), .failed(let text):
             message(text)
         case .preview(let preview):
-            Text(preview.title)
-                .font(CrewFont.headline)
-                .foregroundStyle(theme.ink)
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(preview.listedRuns(showingAll: model.showsAllRuns).enumerated()), id: \.offset) { _, run in
+                ForEach(Array(preview.listedRuns(afterTaps: model.showMoreTaps).enumerated()), id: \.offset) { _, run in
                     PreviewRunRow(run: run)
                 }
             }
             .accessibilityIdentifier("crewcue.run-share-import.runs")
-            if let more = preview.showMoreLabel(showingAll: model.showsAllRuns) {
+            if let more = preview.showMoreLabel(afterTaps: model.showMoreTaps) {
                 Button(more) {
-                    withAnimation { model.showsAllRuns = true }
+                    withAnimation { model.showMoreTaps += 1 }
                 }
                 .buttonStyle(.crewSecondary)
                 .accessibilityIdentifier("crewcue.run-share-import.show-more")
