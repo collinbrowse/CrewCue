@@ -1568,6 +1568,23 @@ enum RuntimeCall {
         return sharedRunImportJSON(SharedRunImport.afterImport(result))
     }
 
+    /// Each length the list reaches as Show more is tapped, with the button's label at that point:
+    /// `[{listed: 10, label: "Show 10 more"}, {listed: 20, label: "Show 20 more"}, …, {listed: 174}]`.
+    static func showMoreSteps(_ preview: ActivityUploadPreview) -> [[String: Any]] {
+        var steps: [[String: Any]] = []
+        var taps = 0
+        while true {
+            var step: [String: Any] = ["listed": preview.listedCount(afterTaps: taps)]
+            guard let label = preview.showMoreLabel(afterTaps: taps) else {
+                steps.append(step)
+                return steps
+            }
+            step["label"] = label
+            steps.append(step)
+            taps += 1
+        }
+    }
+
     private static func sharedRunImportJSON(_ state: SharedRunImportState) -> [String: Any] {
         switch state {
         case .signedOut:
@@ -1586,7 +1603,7 @@ enum RuntimeCall {
                 "title": preview.title,
                 "confirmLabel": preview.confirmLabel,
                 "canImport": preview.canImport,
-                // Every run; the app lists `firstListedRuns` until the runner taps `showMoreLabel`.
+                // Every run; the app lists `showMoreSteps[taps].listed` of them.
                 "runs": preview.runs.map { run -> [String: Any] in
                     [
                         "fileName": run.fileName,
@@ -1597,10 +1614,9 @@ enum RuntimeCall {
                         "track": run.track
                     ]
                 },
-                "firstListedRuns": ActivityUploadPreview.firstListedRuns,
+                "showMoreSteps": Self.showMoreSteps(preview),
                 "alreadyImportedBadge": SharedRunImport.alreadyImportedBadge
             ]
-            if let label = preview.showMoreLabel(showingAll: false) { json["showMoreLabel"] = label }
             if let line = preview.unreadableLine { json["unreadableLine"] = line }
             if let line = preview.skippedLine { json["skippedLine"] = line }
             json["unreadable"] = preview.unreadable.map { ["fileName": $0.fileName, "error": $0.error] }
