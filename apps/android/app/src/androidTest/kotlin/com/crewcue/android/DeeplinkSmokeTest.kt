@@ -35,8 +35,9 @@ class DeeplinkSmokeTest {
             val feature = features.getJSONObject(index)
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(feature.getString("entry")))
                 .setClass(target, MainActivity::class.java)
-            // Signed out, the shell entry shows sign-in instead of the shell.
-            val label = if (feature.getString("id") == "app-shell") "crewcue.auth-signed-out" else feature.getString("label")
+            // Signed out, the shell entry shows sign-in instead of the shell. Rows that reuse the
+            // shell entry (push-tap) get the same rule.
+            val label = if (feature.getString("entry") == "crewcue://dev/app-shell") "crewcue.auth-signed-out" else feature.getString("label")
             ActivityScenario.launch<MainActivity>(intent).use {
                 // Collect every miss so one run reports all broken screens, not just the first.
                 runCatching {

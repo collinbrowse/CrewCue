@@ -19,6 +19,10 @@ export const RATE_LIMITED_ROUTES: Readonly<Record<string, Limit>> = {
   "/activity-history/file": { max: 10, windowMs: MINUTE },
   "/race-rooms/join-by-code": { max: 10, windowMs: MINUTE, perIpMax: 30 },
   "/me": { max: 5, windowMs: MINUTE },
+  // Each call reaches Strava (token exchange or deauthorize), which has a per-app quota.
+  "/strava/oauth/start": { max: 10, windowMs: MINUTE },
+  "/strava/oauth/callback": { max: 10, windowMs: MINUTE },
+  "/strava/connection": { max: 30, windowMs: MINUTE }, // GET status shares this pattern
   "/me/export": { max: 5, windowMs: MINUTE },
   // Each estimate runs the micro-model, and an unpaid race can compute and attach them before
   // paying. One route method each (POST and PUT), so the pattern alone names it.

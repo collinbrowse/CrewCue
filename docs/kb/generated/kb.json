@@ -502,7 +502,7 @@
       "path": "/race-rooms/:roomId/routing/route",
       "guard": "identity + membership",
       "file": "services/api/src/routes/routingRoutes.ts",
-      "line": 163
+      "line": 164
     },
     {
       "method": "GET",
@@ -1114,7 +1114,7 @@
   "riskSummary": {
     "unguarded": 8,
     "roomScopedIdentityOnly": 0,
-    "large": 18,
+    "large": 19,
     "timers": 4,
     "untestedLib": 45,
     "parityGaps": 16

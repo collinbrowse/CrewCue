@@ -18,6 +18,14 @@ struct AppRouter: View {
         .onOpenURL { url in
             model.open(url)
         }
+        // A Universal Link (the join page, `applinks:collinbrowse.github.io`) arrives as a
+        // browsing activity. `open` accepts only join links from it; the AASA file limits the
+        // site's paths to `/crewcue/join/*`.
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL {
+                model.open(url)
+            }
+        }
         .sheet(isPresented: Bindable(model.sharedRunImport).isPresented) {
             SharedRunImportSheet(model: model.sharedRunImport)
                 .crewTheme()

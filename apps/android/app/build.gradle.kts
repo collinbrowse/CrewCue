@@ -190,6 +190,9 @@ dependencies {
     // Store purchases (#649). Only com.crewcue.android.billing.RevenueCatPurchaser imports it.
     implementation("com.revenuecat.purchases:purchases:11.2.1")
     implementation("io.sentry:sentry-android:8.64.0")
+    // Crew invites installed from the join page's Play link (`referrer=crewcue_join%3D<code>`).
+    // Only com.crewcue.android.invite.PlayInstallReferrer imports it.
+    implementation("com.android.installreferrer:installreferrer:2.2")
     mapLibreVersionResolved?.let { version ->
         implementation("org.maplibre.gl:android-sdk:$version")
     }

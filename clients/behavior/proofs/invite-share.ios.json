@@ -1,0 +1,19 @@
+{
+  "id": "invite-share",
+  "platform": "ios",
+  "entry": "crewcue://dev/invite-share",
+  "device": "iPhone simulator (CrewCue agent-ae13511d415ec5df3), iOS 27, Debug build; iPhone Duo simulator (CrewCue agent-ae13511d415ec5df3 Duo), iOS 27.2, outer and inner displays (round 1)",
+  "date": "2026-11-24",
+  "commit": "071246dd (claude/onboarding-7b-ios-invite-links, on main 33a01e0)",
+  "session": "Local memory API (HS256 dev JWTs); runner Sam's paid race Western States 100, --dev-session runner-sam athlete. A server answering 500 and a closed port for Error and Offline.",
+  "action": "Opened Profile > Room members as the runner, tapped Invite crew, tapped Share invite (system share sheet opened, dismissed without sending); on the Duo opened crewcue://dev/invite-share on the outer display, then unfolded to the inner one; reopened crewcue://dev/invite-share with the API base URL on a 500 server and on a closed port.",
+  "checked": {
+    "Action": "Invite crew shows only for the race's runner; the share sheet opened with the share text.",
+    "Success": "Code in large type, 'Western States 100', link https://collinbrowse.github.io/crewcue/join/?code=<code>, Share invite, Copy code, 'Invite ready to share.'; inner display puts the code card beside the link and actions, outer stacks them clear of the camera column, same state after unfolding.",
+    "Empty": "Not forced on the device (a race always has a join code). InviteCopy.shareDetails answers nil without a code (client-core InviteConfirmTests), which the screen shows as 'No invite code for this race yet.'",
+    "Error": "API base URL on a server answering 500: 'Couldn't load the invite.'",
+    "Offline": "API base URL on a closed port: 'Offline. The invite needs the network.'",
+    "Accessibility labels": "crewcue.invite-share, crewcue.invite-share.code, crewcue.invite-share.link, crewcue.invite-share.share, crewcue.room-members.invite"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

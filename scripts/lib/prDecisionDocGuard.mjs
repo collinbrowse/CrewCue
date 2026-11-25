@@ -10,12 +10,26 @@ export const PR_DECISION_REQUIRED_HEADERS = [
 ];
 
 /**
+ * Removes `<!-- ... -->` until none is left, so a nested `<!<!---->--` cannot leave one behind.
+ * @param {string} text
+ * @returns {string}
+ */
+function stripHtmlComments(text) {
+  let previous;
+  let current = text;
+  do {
+    previous = current;
+    current = current.replace(/<!--[\s\S]*?-->/g, "");
+  } while (current !== previous);
+  return current;
+}
+
+/**
  * @param {string | null | undefined} body
  * @returns {string}
  */
 export function normalizePrDecisionBody(body) {
-  return String(body ?? "")
-    .replace(/<!--[\s\S]*?-->/g, "")
+  return stripHtmlComments(String(body ?? ""))
     .replace(/\uFEFF/g, "")
     .replace(/\u00A0/g, " ")
     .replace(/\u2011|\u2013|\u2014/g, "-");

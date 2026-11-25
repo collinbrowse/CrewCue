@@ -83,11 +83,20 @@ fun RoomMembersScreen(
         model.status?.let { line ->
             Text(line, modifier = Modifier.padding(top = 12.dp).semantics { contentDescription = line })
         }
+        val isRunner = MemberPermissions.mayRemoveMembers(shell.session?.userId, model.athleteId)
+        // Invites stay with the runner: only they see Invite crew.
+        if (isRunner) {
+            PrimaryButton(
+                shell.inviteText.inviteCrewButton,
+                onClick = shell::openInviteShare,
+                modifier = Modifier.padding(top = 16.dp).testTag("crewcue.room-members.invite")
+            )
+        }
         // Race Pass line for every member; the runner also gets the Full Crew upgrade (#649).
         UpgradeCard(
             shell,
             roomId,
-            isRunner = MemberPermissions.mayRemoveMembers(shell.session?.userId, model.athleteId),
+            isRunner = isRunner,
             modifier = Modifier.padding(top = 16.dp)
         )
         if (model.members.isNotEmpty()) {

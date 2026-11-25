@@ -69,6 +69,7 @@ import com.crewcue.android.ui.incidents.IncidentsScreen
 import com.crewcue.android.ui.join.JoinCrewScreen
 import com.crewcue.android.ui.map.MapScreen
 import com.crewcue.android.ui.members.RoomMembersScreen
+import com.crewcue.android.ui.invite.InviteShareScreen
 import com.crewcue.android.ui.outbox.OutboxScreen
 import com.crewcue.android.ui.pace.PaceScreen
 import com.crewcue.android.ui.profile.ProfileScreen
@@ -311,7 +312,7 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
                 else -> PaywallScreen(viewModel, roomId, onContinue = { viewModel.noteUnlocked(roomId) })
             }
         }
-        "profile", "race-delete", "room-members", "readouts-incidents", "billing-upgrade" -> {
+        "profile", "race-delete", "room-members", "readouts-incidents", "billing-upgrade", "invite-share" -> {
             if (viewModel.session != null && !viewModel.stateOverlay && profileDestinationReady(viewModel)) {
                 ProfileDestination(viewModel)
             } else {
@@ -418,6 +419,13 @@ private fun ProfileDestination(viewModel: ShellViewModel, modifier: Modifier = M
                 RoomMembersScreen(viewModel, roomId, viewModel::openProfileHome, modifier)
             }
         }
+        "invite" -> {
+            if (roomId.isNullOrBlank()) {
+                ProfileScreen(viewModel, modifier)
+            } else {
+                InviteShareScreen(viewModel, roomId, viewModel::openRoomMembers, modifier)
+            }
+        }
         "incidents" -> {
             if (roomId.isNullOrBlank()) {
                 ProfileScreen(viewModel, modifier)
@@ -430,7 +438,7 @@ private fun ProfileDestination(viewModel: ShellViewModel, modifier: Modifier = M
 }
 
 private fun profileDestinationReady(viewModel: ShellViewModel): Boolean {
-    val needsRoom = viewModel.profilePane == "members" || viewModel.profilePane == "incidents"
+    val needsRoom = viewModel.profilePane in setOf("members", "incidents", "invite")
     if (!needsRoom) return true
     return !viewModel.session?.roomId.isNullOrBlank()
 }

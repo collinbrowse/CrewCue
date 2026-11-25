@@ -240,6 +240,25 @@
       "android": "fail"
     },
     {
+      "id": "push-tap",
+      "entry": "crewcue://dev/app-shell",
+      "label": "crewcue.app-shell",
+      "sdk": "push",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "fail"
+    },
+    {
+      "id": "unlock-reminder",
+      "entry": "crewcue://dev/billing-purchase",
+      "label": "crewcue.billing-purchase",
+      "sdk": "push",
+      "scope": "v1",
+      "proof": "physical",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
       "id": "profile",
       "entry": "crewcue://dev/profile",
       "label": "crewcue.profile",
@@ -373,6 +392,24 @@
       "scope": "v1",
       "ios": "fail",
       "android": "fail"
+    },
+    {
+      "id": "invite-share",
+      "entry": "crewcue://dev/invite-share",
+      "label": "crewcue.invite-share",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "join-link",
+      "entry": "crewcue://dev/join-link",
+      "label": "crewcue.join-link",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
     }
   ]
 }
