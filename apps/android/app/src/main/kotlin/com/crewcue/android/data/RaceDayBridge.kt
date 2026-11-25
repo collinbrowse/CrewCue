@@ -572,11 +572,6 @@ class RaceDayBridge private constructor(
     }
 
     /**
-     * client-core `RaceAccess` for the active race: [billing] is the last billing read for it
-     * (`paid`, `unpaid`, or null while unknown) and [onboarding] the state `readOnboarding`
-     * answered. Answers `unpaid`, `loadsRace`, `samplesLocation`, `gatesActions`, `lockedReason`.
-     */
-    /**
      * client-core `PushTapRoute.parse` on a tapped notification's FCM `data` keys. Answers `inbox`,
      * the held tap to hand back to [pushTapTake], or null for a payload this build doesn't route.
      * Pure and quick: safe on the calling thread.
@@ -608,6 +603,11 @@ class RaceDayBridge private constructor(
         return (result as? RuntimeResult.Success)?.result?.optText("text")?.ifBlank { null }
     }
 
+    /**
+     * client-core `RaceAccess` for the active race: [billing] is the last billing read for it
+     * (`paid`, `unpaid`, or null while unknown) and [onboarding] the state `readOnboarding`
+     * answered. Answers `unpaid`, `loadsRace`, `samplesLocation`, `gatesActions`, `lockedReason`.
+     */
     fun raceAccess(roomId: String, role: String?, billing: String?, onboarding: JSONObject?): RuntimeResult = call("raceAccess") {
         put("roomId", roomId)
         if (!role.isNullOrBlank()) put("role", role)
