@@ -50,6 +50,19 @@ class SignInBackTest {
         }
     }
 
+    /**
+     * System Back, sent once the activity's window has focus. On a slow emulator the key can
+     * otherwise go to a window that hasn't taken focus yet (or a system dialog) and be lost.
+     */
+    private fun pressSystemBack(scenario: ActivityScenario<MainActivity>) {
+        compose.waitUntil(15_000) {
+            var focused = false
+            scenario.onActivity { focused = it.hasWindowFocus() }
+            focused
+        }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+    }
+
     private fun openSignInFromTheChooser() {
         waitFor(setupTag("chooser.sign-in"))
         compose.onNodeWithTag(setupTag("chooser.sign-in"), useUnmergedTree = true).performScrollTo().performClick()
@@ -71,7 +84,7 @@ class SignInBackTest {
             compose.onNodeWithText("Need an account? Sign up").assertExists()
             compose.onNodeWithText("CREATE AN ACCOUNT").assertDoesNotExist()
             // System Back does the same, and the app stays open.
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            pressSystemBack(scenario)
             waitFor(chooser)
             assertEquals(Lifecycle.State.RESUMED, scenario.state)
         }
@@ -83,7 +96,7 @@ class SignInBackTest {
             .setClass(target, MainActivity::class.java)
         ActivityScenario.launch<MainActivity>(link).use { scenario ->
             waitFor(signIn)
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            pressSystemBack(scenario)
             waitFor(chooser)
             assertEquals(Lifecycle.State.RESUMED, scenario.state)
         }
