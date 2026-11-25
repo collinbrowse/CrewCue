@@ -115,16 +115,24 @@ public struct ActivityUploadPreview: Equatable, Sendable, Decodable {
         self.skipped = skipped
     }
 
-    /// Runs listed before "Show more"; a whole export can hold hundreds.
+    /// Runs listed before the first "Show more"; a whole export can hold hundreds.
     public static let firstListedRuns = 10
-    /// The runs on screen: the first 10, or all of them once the runner taps Show more.
-    public func listedRuns(showingAll: Bool) -> [ActivityPreviewRun] {
-        showingAll ? runs : Array(runs.prefix(Self.firstListedRuns))
+    /// Runs on screen after the runner tapped Show more `taps` times. Each tap shows 10 more than
+    /// the last one did: 10, then 20, 40, 70, 110… so a long export opens a page at a time.
+    public func listedCount(afterTaps taps: Int) -> Int {
+        let tapsSoFar = max(0, taps)
+        return min(runs.count, Self.firstListedRuns + Self.firstListedRuns * tapsSoFar * (tapsSoFar + 1) / 2)
     }
-    /// "Show 164 more", or nil when every run is already listed.
-    public func showMoreLabel(showingAll: Bool) -> String? {
-        guard !showingAll, runs.count > Self.firstListedRuns else { return nil }
-        return "Show \(SharedRunImport.count(runs.count - Self.firstListedRuns)) more"
+    public func listedRuns(afterTaps taps: Int) -> [ActivityPreviewRun] {
+        Array(runs.prefix(listedCount(afterTaps: taps)))
+    }
+    /// "Show 10 more", then "Show 20 more", "Show 30 more"… (the last one shows what's left), or nil
+    /// once every run is listed.
+    public func showMoreLabel(afterTaps taps: Int) -> String? {
+        let listed = listedCount(afterTaps: taps)
+        guard listed < runs.count else { return nil }
+        let next = min(runs.count - listed, Self.firstListedRuns * (max(0, taps) + 1))
+        return "Show \(SharedRunImport.count(next)) more"
     }
 
     /// "1,905 files skipped: 847 older than a year, 344 not runs or hikes, 714 unreadable", or nil.
