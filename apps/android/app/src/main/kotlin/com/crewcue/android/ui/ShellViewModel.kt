@@ -256,6 +256,31 @@ class ShellViewModel(
         chatUnread = count
     }
 
+    // Read or written while `init` opens the launch intent (a cold deeplink to a tab), so they
+    // must be declared above it: Kotlin initializes properties and `init` in source order.
+    private var accessCache: Pair<List<Any?>, RaceAccess>? = null
+
+    /**
+     * A tapped push waiting for sign-in or for the race list (clients/behavior/push-tap.md): the
+     * `inbox` client-core's `pushTapReceive` and `pushTapTake` answer. In memory only, so it never
+     * outlives the launch.
+     */
+    private var pushTapInbox: JSONObject? = null
+
+    /**
+     * A Map tool to open when the Map next draws (a tracking push opens Location, at Start
+     * tracking). Picking a tab clears it, so coming back to Map shows the map.
+     */
+    var mapToolRequest by mutableStateOf<MapToolRequest?>(null)
+        private set
+    private var mapToolRequests = 0
+
+    /** Bumped when the tour's start-line card shows: the Map zooms to the course's start. */
+    var startLineRequest by mutableStateOf(0)
+        private set
+
+    private var expiryCache: Pair<String, String?>? = null
+
     private var opened = false
     private var previewJob: Job? = null
 
@@ -378,8 +403,6 @@ class ShellViewModel(
             }
         }
     }
-
-    private var accessCache: Pair<List<Any?>, RaceAccess>? = null
 
     /**
      * client-core `RaceAccess` for the active race, from its billing and the onboarding state. Read
@@ -593,13 +616,6 @@ class ShellViewModel(
     }
 
     /**
-     * A tapped push waiting for sign-in or for the race list (clients/behavior/push-tap.md): the
-     * `inbox` client-core's `pushTapReceive` and `pushTapTake` answer. In memory only, so it never
-     * outlives the launch.
-     */
-    private var pushTapInbox: JSONObject? = null
-
-    /**
      * A tapped notification (MainActivity: cold launch, from the background, or with the app open).
      * client-core reads the payload; one it doesn't route leaves the app where it was. A newer tap
      * replaces a held one.
@@ -646,18 +662,6 @@ class ShellViewModel(
         }
     }
 
-    /**
-     * A Map tool to open when the Map next draws (a tracking push opens Location, at Start
-     * tracking). Picking a tab clears it, so coming back to Map shows the map.
-     */
-    var mapToolRequest by mutableStateOf<MapToolRequest?>(null)
-        private set
-    private var mapToolRequests = 0
-
-    /** Bumped when the tour's start-line card shows: the Map zooms to the course's start. */
-    var startLineRequest by mutableStateOf(0)
-        private set
-
     /** The tour's "Your start line": Map, zoomed to the start. */
     fun showStartLine() {
         if (selectedTab != ShellTab.Map) selectTab(ShellTab.Map)
@@ -688,7 +692,6 @@ class ShellViewModel(
         expiryCache = expiresAt to line
         return line
     }
-    private var expiryCache: Pair<String, String?>? = null
 
     /** Switch every tab to another loaded race. */
     fun selectRace(roomId: String) {
