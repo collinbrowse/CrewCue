@@ -131,6 +131,12 @@ final class ShellModel {
         self.sharedRunImport.onImported = { [activityImportModel] in
             await activityImportModel.activate()
         }
+        self.activityImportModel.canRecalculate = { [paceModel] in
+            paceModel.recalculatesOwnHistory
+        }
+        self.activityImportModel.recalculate = { [paceModel] in
+            await paceModel.recalculate()
+        }
         self.racePreview = RacePreviewModel(client: client)
         self.tour = OnboardingTourModel(clock: client.graph.clock)
         self.authModel.bindSession { [weak self] session in

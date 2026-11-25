@@ -119,6 +119,11 @@ final class PaceModel {
         PlanAuthority.mayExplicitRecalculate(role: role)
     }
 
+    /// A race is open whose estimate reads the signed-in user's own runs: they are its runner.
+    var recalculatesOwnHistory: Bool {
+        roomId != nil && PlanAuthority.mayAutoRecompute(role: role) && canRecalculate
+    }
+
     var canEditStops: Bool {
         PlanAuthority.mayEditCourse(role: role) && courseCheckpoints.count >= 2 && loadedStops.isEmpty == false
     }
