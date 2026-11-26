@@ -18,6 +18,7 @@ Ember replaced the purple Night Trail palette in Nov 2026. The `crewcue_design/`
 - Fonts are the platform system fonts (SF Pro, Roboto) at the DESIGN.md sizes and weights. Lexend and Inter are not bundled.
 - Shapes: capsule buttons and chips, 32pt cards, circular icon containers.
 - iOS uses a toned-down Liquid Glass (`glassEffect` with a strong surface tint) on the tab bar, top bar, map chips and sheet, and content cards. Android uses solid tonal surfaces and no blur.
+- Light mode puts cards, bars and inputs on cream `#F8F4EA` over a white page: ember reads better on cream than on white. Dark mode keeps lighter cards on a darker page.
 - Primary (ember `#B5441A`, dark `#FF8F5C`) is for actions and the runner. Secondary (slate) is for the course line and calm UI. The icon's bright orange `#FF7A3D` is too light for white text: use it only for marks, never as a button fill.
 - Brand art: the Cairn mark and the course-profile art (`clients/behavior/brand-loader.md`). No people illustrations.
 - Feature screens do not hardcode colors or font sizes. Add a token or component in the theme file instead.
