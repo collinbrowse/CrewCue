@@ -64,7 +64,7 @@ bash scripts/github-guardrails.sh crewcue-bot --dry-run
 bash scripts/github-guardrails.sh crewcue-bot
 ```
 
-This turns on auto-merge, makes the required checks on `main` bind admins too (`dual-client-guard`, `checks`, `api-postgres-integration`, `pr-decision-doc-guard`, `ios`, `android`; a job that is skipped because a PR does not touch it counts as passing), adds the `release-tags` ruleset, creates the `release` environment with you as the required reviewer and `v*` tags as the only allowed refs, and invites the bot.
+This turns on auto-merge, makes the required checks on `main` bind admins too (`dual-client-guard`, `checks`, `api-postgres-integration`, `pr-decision-doc-guard`; `ios` and `android` are not required because their simulator and emulator smoke tests are slow and flaky, and they still run on every push to `main`), adds the `release-tags` ruleset, creates the `release` environment with you as the required reviewer and `v*` tags as the only allowed refs, and invites the bot.
 
 Then in **Settings → Environments → release**, add the secrets and variables from [mobile-release.md](mobile-release.md), plus `RAILWAY_TOKEN` (step 3). None of them should be repository-level secrets. Only `SENTRY_DSN` is repository-level today.
 

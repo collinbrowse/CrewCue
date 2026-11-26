@@ -39,13 +39,42 @@ public struct TrackingSettings: Equatable, Sendable {
 
 /// The runner tapped Start tracking for this room. Persisted so a relaunch (or an OS wake after the
 /// app was killed) resumes sampling. Cleared on Stop or when the server reports the finish crossed.
+///
+/// The onboarding tour's location test (`LocationTest`) saves a session too, marked with
+/// `testUntil`: it ends by itself once that time has passed, even when nothing in the app is left
+/// to stop it (the process died mid-test). A real Start tracking saves an unmarked session over it,
+/// so a test never turns into race-day tracking.
 public struct TrackingSession: Equatable, Sendable {
     public var roomId: String
     public var startedAt: String
+    /// The location test's end (ISO 8601); nil for race-day tracking.
+    public var testUntil: String?
 
-    public init(roomId: String, startedAt: String) {
+    /// How long a test session may run: the test's wait for its ping, then the Always window.
+    public static let testSeconds: TimeInterval = LocationTest.timeoutSeconds + LocationTest.alwaysPromptSeconds
+
+    public init(roomId: String, startedAt: String, testUntil: String? = nil) {
         self.roomId = roomId
         self.startedAt = startedAt
+        self.testUntil = testUntil
+    }
+
+    /// A test session started at `now`, ending `testSeconds` later.
+    public static func test(roomId: String, at now: Date) -> TrackingSession {
+        TrackingSession(
+            roomId: roomId,
+            startedAt: RaceDayReadouts.iso8601(now),
+            testUntil: RaceDayReadouts.iso8601(now.addingTimeInterval(testSeconds))
+        )
+    }
+
+    public var isTest: Bool { testUntil != nil }
+
+    /// A test session past its end: tracking stops. An unreadable end counts as passed.
+    public func testExpired(now: Date) -> Bool {
+        guard let testUntil else { return false }
+        guard let end = ScheduleFormat.parseISO8601(testUntil) else { return true }
+        return now >= end
     }
 
     public static func file(userDirectory: URL) -> URL {
@@ -59,15 +88,16 @@ public struct TrackingSession: Equatable, Sendable {
               let startedAt = object["startedAt"] as? String else {
             return nil
         }
-        return TrackingSession(roomId: roomId, startedAt: startedAt)
+        // Sessions saved before tests were marked have no `testUntil`: race-day tracking.
+        let testUntil = (object["testUntil"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return TrackingSession(roomId: roomId, startedAt: startedAt, testUntil: testUntil)
     }
 
     public func save(userDirectory: URL) throws {
         try FileManager.default.createDirectory(at: userDirectory, withIntermediateDirectories: true)
-        let data = try JSONSerialization.data(
-            withJSONObject: ["roomId": roomId, "startedAt": startedAt],
-            options: [.sortedKeys]
-        )
+        var object = ["roomId": roomId, "startedAt": startedAt]
+        if let testUntil { object["testUntil"] = testUntil }
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         try data.write(to: Self.file(userDirectory: userDirectory), options: .atomic)
     }
 

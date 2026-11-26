@@ -301,7 +301,7 @@ enum RuntimeCall {
         case "trackingSession":
             let directory = try requiredUserDirectory(object)
             guard let session = TrackingSession.load(userDirectory: directory) else { return ["active": false] }
-            return ["active": true, "roomId": session.roomId, "startedAt": session.startedAt]
+            return trackingSessionJSON(session, now: clock(object).now())
         case "startTrackingSession":
             guard demoURL(object) == nil else {
                 throw DemoRaceError.readOnly("the replay never tracks location")
@@ -310,12 +310,14 @@ enum RuntimeCall {
             guard PingPolicy.mayUpload(role: object["role"] as? String ?? "") else {
                 throw ClientHTTPError(status: 400, message: "Only the athlete shares location.")
             }
-            let session = TrackingSession(
-                roomId: object["roomId"] as? String ?? "",
-                startedAt: object["startedAt"] as? String ?? RaceDayReadouts.iso8601(clock(object).now())
-            )
+            let roomId = object["roomId"] as? String ?? ""
+            let now = clock(object).now()
+            // `test: true` is the tour's location test; a real start saves over any test marking.
+            let session = boolValue(object["test"]) == true
+                ? TrackingSession.test(roomId: roomId, at: now)
+                : TrackingSession(roomId: roomId, startedAt: object["startedAt"] as? String ?? RaceDayReadouts.iso8601(now))
             try session.save(userDirectory: directory)
-            return ["active": true, "roomId": session.roomId, "startedAt": session.startedAt]
+            return trackingSessionJSON(session, now: now)
         case "stopTrackingSession":
             try TrackingSession.clear(userDirectory: try requiredUserDirectory(object))
             return ["active": false]
@@ -1970,6 +1972,19 @@ enum RuntimeCall {
     /// The clock readouts use: a replay's scripted clock, else the system clock.
     static func clock(_ object: [String: Any]) -> any Clock {
         demoRace(object)?.graph.clock ?? SystemClock()
+    }
+
+    /// `trackingSession` / `startTrackingSession`: the session, whether it is the tour's location
+    /// test, and whether that test is over (`testExpired`: stop tracking now).
+    static func trackingSessionJSON(_ session: TrackingSession, now: Date) -> [String: Any] {
+        [
+            "active": true,
+            "roomId": session.roomId,
+            "startedAt": session.startedAt,
+            "test": session.isTest,
+            "testUntil": session.testUntil ?? NSNull(),
+            "testExpired": session.testExpired(now: now)
+        ]
     }
 
     static func text(_ object: [String: Any], _ key: String) -> String? {

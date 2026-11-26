@@ -127,7 +127,15 @@ class RaceDayBridge private constructor(
     /** `{ active, roomId?, startedAt? }`, saved so tracking resumes after a restart. */
     fun trackingSession(): RuntimeResult = call("trackingSession")
 
-    fun startTrackingSession(roomId: String): RuntimeResult = call("startTrackingSession") { put("roomId", roomId) }
+    /**
+     * Saves the tracking session for [roomId]. [test] marks it as the tour's location test: it ends
+     * by itself after the test window (`testExpired` on [trackingSession]). A real start saves over
+     * a test, so the test marking never carries into race-day tracking.
+     */
+    fun startTrackingSession(roomId: String, test: Boolean = false): RuntimeResult = call("startTrackingSession") {
+        put("roomId", roomId)
+        if (test) put("test", true)
+    }
 
     fun stopTrackingSession(): RuntimeResult = call("stopTrackingSession")
 

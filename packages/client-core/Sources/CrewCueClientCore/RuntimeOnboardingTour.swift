@@ -27,7 +27,8 @@ import Foundation
 ///   `outcome`. Events: `start` with `roomId`, `session` (the `trackingSession` answer; left out
 ///   when the read failed, which counts as tracking on) and `latest` (the `latestPing` answer's
 ///   `latest`, the baseline); `permission` with `permission` (notDetermined, denied, whenInUse,
-///   always); `poll` with `latest` or `offline: true` (and the outbox read for a waiting ping);
+///   always); `trackingStarted` with `startedAt` (the test's tracking session: only a ping
+///   recorded from then on counts); `poll` with `latest` or `offline: true` (and the outbox read for a waiting ping);
 ///   `tick`, `read`, and `pingSent` / `pingQueuedOffline` (the dev route).
 /// - `tourCardView`: the card's buttons and status for the phone's facts (`OnboardingTour.view`).
 /// - `onboardingTourCopy`: `tour`, `locationTest` and `checklist` copy by name.
@@ -90,7 +91,7 @@ extension RuntimeCall {
             let active = session.map { boolValue($0["active"]) ?? false }
             let sessionRoom = session.flatMap { text($0, "roomId") }
             let blocked = active == true && sessionRoom != nil && sessionRoom != text(object, "roomId")
-            saved = SavedLocationTest(test: LocationTest(), sentAt: nil, baselinePingId: nil, blocked: blocked)
+            saved = SavedLocationTest(test: LocationTest(), sentAt: nil, baselinePingId: nil, trackingStartedAt: nil, blocked: blocked)
             if !blocked {
                 saved.test.start(alreadyTracking: active ?? true, at: now)
                 // The ping the API already has: only a newer one is this test's.
@@ -101,11 +102,17 @@ extension RuntimeCall {
                 throw ClientHTTPError(status: 400, message: "Unknown location permission.")
             }
             saved.test.permission(permission)
+        case "trackingStarted":
+            // The test started tracking (`startedAt`, the saved session's): only a ping this phone
+            // recorded from then on is the tracking's. A one-off sample the app took just before
+            // (a race tab loading) lands too, but was recorded earlier, so it doesn't end the test.
+            if saved.test.isRunning { saved.trackingStartedAt = text(object, "startedAt").flatMap(ScheduleFormat.parseISO8601) }
         case "poll":
             // One read of `pings/latest` (`latest`, or `offline`): a ping newer than the baseline
             // ends the test; offline with a ping waiting in the outbox is the offline outcome.
             saved.test.tick(now: now)
-            if let id = latestPingId(object["latest"]), id != saved.baselinePingId {
+            if let id = latestPingId(object["latest"]), id != saved.baselinePingId,
+               recordedSinceTracking(object["latest"], saved.trackingStartedAt) {
                 saved.test.pingSent()
             } else if boolValue(object["offline"]) == true, saved.test.isRunning, try await pingWaiting(object) {
                 saved.test.pingQueuedOffline()
@@ -143,6 +150,15 @@ extension RuntimeCall {
             "secondaryOutcome": view.secondaryOutcome?.rawValue ?? NSNull(),
             "status": view.status ?? NSNull()
         ] as [String: Any]
+    }
+
+    /// The latest ping was recorded once the test's tracking ran (both are this phone's clock).
+    /// True when the test didn't start tracking (it was on already) or the time can't be read.
+    private static func recordedSinceTracking(_ latest: Any?, _ trackingStartedAt: Date?) -> Bool {
+        guard let trackingStartedAt,
+              let ping = (latest as? [String: Any])?["ping"] as? [String: Any],
+              let recordedAt = text(ping, "recordedAt").flatMap(ScheduleFormat.parseISO8601) else { return true }
+        return recordedAt >= trackingStartedAt
     }
 
     private static func latestPingId(_ latest: Any?) -> String? {
@@ -384,13 +400,15 @@ extension RuntimeCall {
         var sentAt: Date?
         /// The latest ping's id when the test began.
         var baselinePingId: String?
+        /// When the test's own tracking started (`trackingStarted`), nil when it was on already.
+        var trackingStartedAt: Date?
         /// Tracking is on for another race: this test didn't start.
         var blocked: Bool
     }
 
     private static func locationTest(_ object: [String: Any]?) -> SavedLocationTest {
         guard let object, let phase = text(object, "phase").flatMap(LocationTest.Phase.init(rawValue:)) else {
-            return SavedLocationTest(test: LocationTest(), sentAt: nil, baselinePingId: nil, blocked: boolValue(object?["blocked"]) ?? false)
+            return SavedLocationTest(test: LocationTest(), sentAt: nil, baselinePingId: nil, trackingStartedAt: nil, blocked: boolValue(object?["blocked"]) ?? false)
         }
         let test = LocationTest(
             phase: phase,
@@ -402,6 +420,7 @@ extension RuntimeCall {
             test: test,
             sentAt: text(object, "sentAt").flatMap(ScheduleFormat.parseISO8601),
             baselinePingId: text(object, "baselinePingId"),
+            trackingStartedAt: text(object, "trackingStartedAt").flatMap(ScheduleFormat.parseISO8601),
             blocked: boolValue(object["blocked"]) ?? false
         )
     }
@@ -417,6 +436,7 @@ extension RuntimeCall {
                 "startedAt": iso(test.startedAt),
                 "sentAt": iso(saved.sentAt),
                 "baselinePingId": saved.baselinePingId ?? NSNull(),
+                "trackingStartedAt": iso(saved.trackingStartedAt),
                 "blocked": saved.blocked
             ] as [String: Any],
             "phase": test.phase.rawValue,
