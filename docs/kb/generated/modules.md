@@ -219,7 +219,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 76 | 16771 |
+| `CrewCueClientCore` | 76 | 16836 |
 | `CrewCueClientCore/Generated` | 50 | 984 |
 
 ### iOS app (SwiftUI)
@@ -262,14 +262,14 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/auth` | 3 | 201 |
 | `kotlin/com/crewcue/android/billing` | 3 | 255 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 917 |
+| `kotlin/com/crewcue/android/data` | 3 | 925 |
 | `kotlin/com/crewcue/android/di` | 1 | 107 |
 | `kotlin/com/crewcue/android/generated` | 50 | 517 |
 | `kotlin/com/crewcue/android/invite` | 1 | 123 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
 | `kotlin/com/crewcue/android/nav` | 2 | 147 |
 | `kotlin/com/crewcue/android/session` | 4 | 284 |
-| `kotlin/com/crewcue/android/ui` | 6 | 2483 |
+| `kotlin/com/crewcue/android/ui` | 6 | 2570 |
 | `kotlin/com/crewcue/android/ui/activity` | 3 | 1115 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 233 |
@@ -280,10 +280,10 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 310 |
 | `kotlin/com/crewcue/android/ui/invite` | 1 | 294 |
 | `kotlin/com/crewcue/android/ui/join` | 2 | 300 |
-| `kotlin/com/crewcue/android/ui/map` | 7 | 2165 |
+| `kotlin/com/crewcue/android/ui/map` | 7 | 2209 |
 | `kotlin/com/crewcue/android/ui/members` | 1 | 333 |
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
-| `kotlin/com/crewcue/android/ui/onboarding` | 17 | 7438 |
+| `kotlin/com/crewcue/android/ui/onboarding` | 17 | 7464 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1725 |
 | `kotlin/com/crewcue/android/ui/profile` | 3 | 858 |
