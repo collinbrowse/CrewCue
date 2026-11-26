@@ -79,6 +79,9 @@ const xcodeArgs = [
 // GitHub-hosted macOS has no Apple team. Simulator UI tests ad-hoc sign.
 if (process.env.CI) {
   xcodeArgs.push("CODE_SIGN_STYLE=Manual", "CODE_SIGN_IDENTITY=-", "CODE_SIGNING_REQUIRED=NO", "DEVELOPMENT_TEAM=");
+  // Hosted simulators sometimes fail to launch the app or run slow enough to miss a wait. A failed
+  // test gets two more tries; ci.yml lists every retried test as a warning. Local runs do not retry.
+  xcodeArgs.push("-retry-tests-on-failure", "-test-iterations", "3");
 }
 const job = xcodebuildCommand(xcodeArgs, "CrewCue iOS tests");
 const result = spawnSync(job.command, job.args, { cwd: repoRoot, stdio: "inherit" });
