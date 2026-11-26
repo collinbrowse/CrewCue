@@ -5,9 +5,11 @@ on:
   push:
     branches: [main]
 
+# A new push to a PR cancels that PR's older run. On main nothing is cancelled: the running
+# commit finishes, and of the commits that land meanwhile only the newest runs next.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
