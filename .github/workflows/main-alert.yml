@@ -1,0 +1,40 @@
+name: Main CI alert
+
+# After each CI run on main, tells Slack when main goes red, stays red, or goes green again
+# (scripts/ci-main-alert.mjs). Process for whoever reads the alert: docs/runbooks/red-main.md.
+# Secret: SLACK_CI_WEBHOOK, a Slack incoming webhook. Without it the message is only logged.
+#
+# Run it by hand with a CI run id to send that run's message again, marked [replay].
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: CI run id to report again (from the run's URL)
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+# No concurrency group: GitHub keeps only the newest waiting run in a group and cancels the rest, which
+# would drop the alert for a run. Each run works out its message from history, so they need no order.
+
+jobs:
+  alert:
+    # A workflow_run job reads this file and the script from main, never from the PR that ran CI.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Report the run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLACK_CI_WEBHOOK: ${{ secrets.SLACK_CI_WEBHOOK }}
+          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+          REPLAY: ${{ github.event_name == 'workflow_dispatch' }}
+        run: node scripts/ci-main-alert.mjs --run "$RUN_ID"
