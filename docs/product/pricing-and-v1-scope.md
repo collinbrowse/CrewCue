@@ -41,7 +41,7 @@ Why these numbers:
 | Stream Chat | **Replace with first-party crew chat** in the API: Postgres messages, polling or server-sent events, photos in object storage (Railway bucket), push through APNs and FCM directly | Removes a per-user vendor bill and a whole SDK on both clients |
 | MapTiler (tiles, geocoding) | **Replace tiles with [OpenFreeMap](https://openfreemap.org)**: no key, no request limits, commercial use allowed. Drop place search for v1 (`geocode-search` is already deferred). | MapTiler's free plan does not cover a paid commercial app |
 | Strava | **Cut from v1.** Keep GPX import and add FIT/TCX file import, which covers Garmin, COROS and Suunto exports. | Strava's API is free but starts at a 1-athlete cap until Strava reviews the app. Garmin paused new Connect API applications in 2026 and reopened with fees for larger apps ([the5krunner](https://the5krunner.com/2026/09/14/garmin-developer-api-access-paused/)). COROS's partner API requires an established platform with a user base ([COROS](https://support.coros.com/hc/en-us/articles/17085887816340-Submit-an-API-Application)). Apply to both once there are users. |
-| Auth0 | Keep (free plan) | Sign-in already works. Check the free plan's MAU limit when the production tenant is created. |
+| Auth0 | Keep (free plan) | Sign-in already works. The free plan allows one tenant, so production shares the staging tenant with its own API and application (launch-owner-setup.md step 4). Check the free plan's MAU limit before launch. |
 | Sentry | Keep (free Developer plan) | Crash reporting before external testers |
 | RevenueCat | Keep (free under $2,500 a month) | See above |
 | APNs, FCM | Keep (free) | Push |

@@ -4,11 +4,16 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Nightly: every job on main, whatever changed. Catches a break the path rules missed.
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
 
 # A new push to a PR cancels that PR's older run. On main nothing is cancelled: the running
 # commit finishes, and of the commits that land meanwhile only the newest runs next.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || 'main' }}
+  # The nightly and manual runs get their own group, so a push cannot take their place in line.
+  group: ci-${{ github.event.pull_request.number || (github.event_name == 'push' && 'main') || github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -38,32 +43,33 @@ jobs:
       - name: Validate PR decision documentation sections
         run: node scripts/pr-decision-doc-guard.mjs --body-file "$RUNNER_TEMP/pr-body.md"
 
+  # Decides whether the device jobs need to run (scripts/ci-changed-areas.mjs). On a PR the base is
+  # the target branch. On main it is the commit of the last green CI run, so a change whose own run
+  # failed, was cancelled or never started is still tested by the next run. The nightly run and
+  # manual runs have no base and run everything.
   changes:
     runs-on: ubuntu-latest
     outputs:
-      ios: ${{ steps.filter.outputs.ios }}
-      android: ${{ steps.filter.outputs.android }}
+      ios: ${{ steps.areas.outputs.ios }}
+      android: ${{ steps.areas.outputs.android }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
-        id: filter
         with:
-          filters: |
-            shared: &shared
-              - 'packages/client-core/**'
-              - 'clients/behavior/**'
-              - '.github/workflows/ci.yml'
-            ios:
-              - *shared
-              - 'apps/ios/**'
-              - 'scripts/test-ios.mjs'
-            android:
-              - *shared
-              - 'apps/android/**'
-              - 'scripts/build-swift-android.mjs'
-              - 'scripts/install-swift-android-sdk.sh'
-              - 'scripts/lib/swiftAndroidToolchain.mjs'
-              - '.github/actions/setup-swift/**'
+          fetch-depth: 0
+      - id: areas
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=""
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              # The checkout is the PR merged into its target; the first parent is the target's tip.
+              base="$(git rev-parse HEAD^1 || true)" ;;
+            push)
+              base="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --event push --status success --limit 1 --json headSha --jq '.[0].headSha // ""' || true)"
+              git cat-file -e "$base^{commit}" 2>/dev/null || base="" ;;
+          esac
+          node scripts/ci-changed-areas.mjs --base "$base"
 
   # Name kept for branch protection. Guards the native client boundaries and behavior checklists.
   dual-client-guard:
@@ -176,7 +182,7 @@ jobs:
 
   ios:
     needs: changes
-    if: needs.changes.outputs.ios == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.ios == 'true'
     runs-on: macos-latest
     timeout-minutes: 40
     steps:
@@ -185,7 +191,21 @@ jobs:
         with:
           xcode-version: latest-stable
       - name: Build and run UI smoke tests
-        run: node scripts/test-ios.mjs
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/test-ios.mjs 2>&1 | tee "$RUNNER_TEMP/ios-tests.log"
+      # test-ios.mjs retries a failed test in CI. A test that needed a retry is flaky: name it here
+      # so it is still seen when the job passes.
+      - name: List tests that failed at least once
+        if: always()
+        shell: bash
+        run: |
+          [ -f "$RUNNER_TEMP/ios-tests.log" ] || exit 0
+          # grep exits 1 when nothing failed, which is the normal case.
+          { grep -oE "Test Case '-\[[^]]+\]' failed" "$RUNNER_TEMP/ios-tests.log" || true; } | sed -E "s/Test Case '-\[(.*)\]' failed/\1/" | sort | uniq -c | while read -r count name; do
+            echo "::warning title=iOS test failed an attempt::$name failed $count of up to 3 attempts"
+          done
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -194,7 +214,7 @@ jobs:
 
   android:
     needs: changes
-    if: needs.changes.outputs.android == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-24.04  # Swift 6.3 Linux toolchain needs libxml2.so.2, gone on 26.04
     timeout-minutes: 60
     env:
@@ -230,7 +250,9 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: ./apps/android/gradlew -p apps/android :app:connectedDebugAndroidTest
+          # One retry: a slow hosted emulator sometimes misses a 15-second Compose wait. The warning
+          # keeps the first failure visible when the retry passes.
+          script: ./apps/android/gradlew -p apps/android :app:connectedDebugAndroidTest || { echo "::warning title=Flaky Android smoke tests::First attempt failed, retrying once"; ./apps/android/gradlew -p apps/android :app:connectedDebugAndroidTest; }
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
