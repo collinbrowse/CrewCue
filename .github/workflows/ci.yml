@@ -191,7 +191,21 @@ jobs:
         with:
           xcode-version: latest-stable
       - name: Build and run UI smoke tests
-        run: node scripts/test-ios.mjs
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/test-ios.mjs 2>&1 | tee "$RUNNER_TEMP/ios-tests.log"
+      # test-ios.mjs retries a failed test in CI. A test that needed a retry is flaky: name it here
+      # so it is still seen when the job passes.
+      - name: List tests that failed at least once
+        if: always()
+        shell: bash
+        run: |
+          [ -f "$RUNNER_TEMP/ios-tests.log" ] || exit 0
+          # grep exits 1 when nothing failed, which is the normal case.
+          { grep -oE "Test Case '-\[[^]]+\]' failed" "$RUNNER_TEMP/ios-tests.log" || true; } | sed -E "s/Test Case '-\[(.*)\]' failed/\1/" | sort | uniq -c | while read -r count name; do
+            echo "::warning title=iOS test failed an attempt::$name failed $count of up to 3 attempts"
+          done
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -236,7 +250,9 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: ./apps/android/gradlew -p apps/android :app:connectedDebugAndroidTest
+          # One retry: a slow hosted emulator sometimes misses a 15-second Compose wait. The warning
+          # keeps the first failure visible when the retry passes.
+          script: ./apps/android/gradlew -p apps/android :app:connectedDebugAndroidTest || { echo "::warning title=Flaky Android smoke tests::First attempt failed, retrying once"; ./apps/android/gradlew -p apps/android :app:connectedDebugAndroidTest; }
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
