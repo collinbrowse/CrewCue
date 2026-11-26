@@ -21,9 +21,9 @@ Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth
 | POST | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:300](../../../services/api/src/routes/activityHistory.ts#L300) |
 | POST | `/activity-history/gpx` | identity | [services/api/src/routes/activityHistory.ts:337](../../../services/api/src/routes/activityHistory.ts#L337) |
 | POST | `/activity-history/file` | identity | [services/api/src/routes/activityHistory.ts:386](../../../services/api/src/routes/activityHistory.ts#L386) |
-| POST | `/activity-history/preview` | identity | [services/api/src/routes/activityHistory.ts:457](../../../services/api/src/routes/activityHistory.ts#L457) |
-| POST | `/activity-history/archive` | identity | [services/api/src/routes/activityHistory.ts:475](../../../services/api/src/routes/activityHistory.ts#L475) |
-| GET | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:550](../../../services/api/src/routes/activityHistory.ts#L550) |
+| POST | `/activity-history/preview` | identity | [services/api/src/routes/activityHistory.ts:458](../../../services/api/src/routes/activityHistory.ts#L458) |
+| POST | `/activity-history/archive` | identity | [services/api/src/routes/activityHistory.ts:476](../../../services/api/src/routes/activityHistory.ts#L476) |
+| GET | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:551](../../../services/api/src/routes/activityHistory.ts#L551) |
 
 ## analyticsRoutes
 

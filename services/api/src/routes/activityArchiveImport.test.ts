@@ -14,7 +14,7 @@ import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 import { runInFreshProcess } from "../lib/testFreshProcess.js";
 import { readZipEntries, ZipArchiveError } from "../lib/zipArchive.js";
-import { resetUploadJobsForTests, settleUploadJobsForTests } from "../lib/uploadJobs.js";
+import { resetUploadJobsForTests, setUploadJobWorkGateForTests, settleUploadJobsForTests } from "../lib/uploadJobs.js";
 
 function findPacingFixturesDir(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -465,5 +465,34 @@ test("a single gzipped activity imports; a corrupt gzip in a .zip is unreadable"
       { name: "a/bad.fit.gz", bytes: broken }
     ]));
     assert.deepEqual(res.json().unreadable.map((row: { fileName: string }) => row.fileName), ["bad.fit.gz"]);
+  });
+});
+
+test("deleting the account while a bulk import still runs leaves none of its runs behind", async () => {
+  await withApp(async (app, token) => {
+    // A whole watch-app export takes tens of seconds to read. The gate holds the job at that point,
+    // so the account goes while the import is still running, as it can on a real phone.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setUploadJobWorkGateForTests(() => held);
+    const upload = zip([
+      { name: "a/short.fit", bytes: fixture("activity-short-road.fit") },
+      { name: "a/hill.fit", bytes: fixture("activity-hill-run.fit") }
+    ]);
+    const started = await startRaw(app, token, "import", "export.zip", upload);
+    assert.equal(started.statusCode, 202);
+    const { jobId } = started.json() as { jobId: string };
+    assert.equal((await pollJob(app, token, jobId)).statusCode, 202);
+
+    const deletion = app.inject({ method: "DELETE", url: "/me", headers: { authorization: `Bearer ${token}` } });
+    // Let the deletion get going before the job moves on (it must not need the job to finish first).
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    assert.equal((await deletion).statusCode, 200);
+    await settleUploadJobsForTests();
+
+    assert.deepEqual(await listActivityHistoryForAthlete("athlete-archive"), []);
   });
 });
