@@ -218,6 +218,10 @@ After the first release build:
 2. [ ] Once the name is settled, buy the domain. It is worth having before the public store launch for three things: the API address, which is built into each app version (step 3); invite links, which otherwise show your personal GitHub name; and a support email. Point `api.` at Railway and the root at GitHub Pages, on a separate Pages repo, never `collinbrowse.github.io` (see [Invite links](#invite-links-github-pages)).
 3. [ ] Agents draft the privacy policy, terms, support page and account-deletion page (backlog item 9). **Read them and approve them yourself.** They are legal commitments. Paying a lawyer to review them or using a reputable generator is worth considering.
 4. [ ] Create a support email address, for example `support@crewcue.app`.
+5. [ ] **Email sending (blocks the email reminder PR).** Today the unpaid-race reminders are push only, so a runner with notifications off gets no warning before the race is deleted (risk R32 in `docs/kb/risks.md`). The email fallback is built only once these exist:
+   1. Create a [Resend](https://resend.com) account and add the domain from step 2 as a sending domain. Add the DNS records Resend lists (SPF, DKIM, and optionally DMARC), and wait until Resend shows the domain as verified.
+   2. Create an API key with sending access only. Save it as `RESEND_API_KEY` in Railway **staging**. For production, save it in the GitHub `release` environment or the production service (step 3).
+   3. Choose the From address, for example `reminders@<your domain>`, and tell the agent which one.
 
 ## 10. Store listings (2 hours)
 
