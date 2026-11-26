@@ -442,11 +442,12 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
     };
   }
 
-  async function importResponse(athleteUserId: string, upload: UploadSummary) {
+  async function importResponse(athleteUserId: string, upload: UploadSummary, throwIfWritesStopped: () => void = () => {}) {
     const items: ActivityHistoryRef[] = [];
     let saved = 0;
     let duplicates = 0;
     for (const { ref } of upload.runs) {
+      throwIfWritesStopped();
       const result = await upsertActivityHistory(athleteUserId, ref);
       if (result.created) saved += 1;
       else duplicates += 1;
@@ -515,12 +516,12 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       const bytes = new Uint8Array(body);
       const jobId = startUploadJob(
         athleteUserId,
-        async ({ yieldNow }) => {
+        async ({ yieldNow, throwIfWritesStopped }) => {
           const upload = await readUpload(fileName, bytes, RAW_UPLOAD_LIMITS, mode === "import", yieldNow);
           if (mode === "preview") {
             return { status: 200, body: await previewResponse(athleteUserId, upload) };
           }
-          const result = await importResponse(athleteUserId, upload);
+          const result = await importResponse(athleteUserId, upload, throwIfWritesStopped);
           return { status: result.saved > 0 ? 201 : 200, body: result };
         },
         (err) => {
