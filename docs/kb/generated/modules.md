@@ -45,7 +45,7 @@ High fan-in modules are where a change spreads furthest.
 | Module | Imported by | Lines |
 | --- | --- | --- |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 17 | 1464 |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 6041 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 6039 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 8 | 366 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 8 | 322 |
@@ -53,7 +53,7 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/courseHistory/format.ts](../../../services/api/src/lib/courseHistory/format.ts) | 6 | 193 |
 | [services/api/src/lib/pacingEstimate/microModel/courseMesh.ts](../../../services/api/src/lib/pacingEstimate/microModel/courseMesh.ts) | 6 | 129 |
 | [services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts](../../../services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts) | 6 | 239 |
-| [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts) | 5 | 248 |
+| [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts) | 5 | 254 |
 | [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts) | 5 | 386 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 5 | 143 |
 | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) | 5 | 136 |
@@ -88,13 +88,14 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/AccountDeletion.swift](../../../packages/client-core/Sources/CrewCueClientCore/AccountDeletion.swift) | `AccountDeletion` |
 | [packages/client-core/Sources/CrewCueClientCore/ActionGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/ActionGate.swift) | `ActionPolicy`, `ActionTicket`, `CancelFlag`, `ActionGate`, `ErrorCatalog` |
 | [packages/client-core/Sources/CrewCueClientCore/ActivityImport.swift](../../../packages/client-core/Sources/CrewCueClientCore/ActivityImport.swift) | `ClientFeatureFlags`, `ActivityHistoryItem`, `ActivityImportStatus`, `ActivityImportResult`, `ActivityImport` |
-| [packages/client-core/Sources/CrewCueClientCore/AidStationSheet.swift](../../../packages/client-core/Sources/CrewCueClientCore/AidStationSheet.swift) | `AidStationPhase`, `AidStationCheckpoint`, `AidStationPage`, `AidStationProjection`, `AidStationSheet` |
+| [packages/client-core/Sources/CrewCueClientCore/AidStationSheet.swift](../../../packages/client-core/Sources/CrewCueClientCore/AidStationSheet.swift) | `AidStationPhase`, `AidStationCheckpoint`, `AidStationPage`, `AidStationProjection`, `AidStationSheet`, `AidVisit` |
 | [packages/client-core/Sources/CrewCueClientCore/Billing.swift](../../../packages/client-core/Sources/CrewCueClientCore/Billing.swift) | `BillingProduct`, `RoomBillingState`, `StorePurchaseResult`, `PurchasePhase`, `EntitlementPollPolicy`, `BillingErrors`, `BillingFlow`, `FakeStorePurchaser`, `BillingBridge` |
 | [packages/client-core/Sources/CrewCueClientCore/CFacade.swift](../../../packages/client-core/Sources/CrewCueClientCore/CFacade.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/ChatAuthors.swift](../../../packages/client-core/Sources/CrewCueClientCore/ChatAuthors.swift) | `ChatAuthors` |
 | [packages/client-core/Sources/CrewCueClientCore/ChatSync.swift](../../../packages/client-core/Sources/CrewCueClientCore/ChatSync.swift) | `ChatPollOutcome`, `ChatSendOutcome`, `ChatSync` |
 | [packages/client-core/Sources/CrewCueClientCore/ChatThread.swift](../../../packages/client-core/Sources/CrewCueClientCore/ChatThread.swift) | `ChatDelivery`, `ChatRow`, `ChatThread`, `ChatOutboxPayload`, `ChatReconnectPolicy`, `ChatCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/CheckInAndImport.swift](../../../packages/client-core/Sources/CrewCueClientCore/CheckInAndImport.swift) | `CheckInValidation`, `CheckIn`, `CourseImportStage`, `MentionMember`, `MentionToken`, `Mentions` |
+| [packages/client-core/Sources/CrewCueClientCore/CheckpointPlacement.swift](../../../packages/client-core/Sources/CrewCueClientCore/CheckpointPlacement.swift) | `CheckpointPlacement` |
 | [packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift](../../../packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift) | `Clock`, `SystemClock`, `ClientGraph` |
 | [packages/client-core/Sources/CrewCueClientCore/CoordinateText.swift](../../../packages/client-core/Sources/CrewCueClientCore/CoordinateText.swift) | `CoordinateText` |
 | [packages/client-core/Sources/CrewCueClientCore/CourseRouteLine.swift](../../../packages/client-core/Sources/CrewCueClientCore/CourseRouteLine.swift) | `CourseRouteLine` |
@@ -186,6 +187,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/RaceLock.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceLock.swift) | `RaceLock`, `RaceName`, `RaceRenameCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceRoster.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceRoster.swift) | `RaceSummary`, `RaceRole`, `RaceRoster`, `RoomStorage`, `RaceListEnvelope` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceStartInput.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceStartInput.swift) | `RaceStartInput` |
+| [packages/client-core/Sources/CrewCueClientCore/RaceTimeCopy.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceTimeCopy.swift) | `RaceTimeCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceToolsCopy.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceToolsCopy.swift) | `CrewSheetRow`, `CourseStopRow`, `RaceToolsCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift) | `TrackingSettings`, `TrackingSession`, `RunnerTrackPoint`, `RunnerTrack`, `LiveProjection`, `PingBatchPolicy` |
 | [packages/client-core/Sources/CrewCueClientCore/Route.swift](../../../packages/client-core/Sources/CrewCueClientCore/Route.swift) | `Route` |
@@ -211,41 +213,41 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-122 files under `packages/client-core/Sources/`.
+124 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 72 | 15521 |
+| `CrewCueClientCore` | 74 | 16166 |
 | `CrewCueClientCore/Generated` | 50 | 984 |
 
 ### iOS app (SwiftUI)
 
-89 files under `apps/ios/CrewCue/`.
+91 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 15 | 2107 |
+| `App` | 15 | 2199 |
 | `Brand` | 2 | 286 |
-| `Design` | 8 | 1933 |
+| `Design` | 10 | 2063 |
 | `Logging` | 2 | 18 |
-| `Screens/ActivityImport` | 4 | 490 |
+| `Screens/ActivityImport` | 4 | 576 |
 | `Screens/AthleteSetup` | 2 | 146 |
 | `Screens/Auth` | 2 | 223 |
-| `Screens/Billing` | 2 | 457 |
+| `Screens/Billing` | 2 | 455 |
 | `Screens/BrandLoader` | 1 | 47 |
 | `Screens/Chat` | 4 | 955 |
-| `Screens/Incidents` | 2 | 182 |
-| `Screens/Invite` | 2 | 197 |
-| `Screens/Join` | 2 | 377 |
-| `Screens/Map` | 7 | 3114 |
+| `Screens/Incidents` | 2 | 188 |
+| `Screens/Invite` | 2 | 192 |
+| `Screens/Join` | 2 | 462 |
+| `Screens/Map` | 7 | 3207 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Onboarding` | 15 | 4499 |
-| `Screens/Pace` | 2 | 1913 |
-| `Screens/Profile` | 2 | 623 |
-| `Screens/RoomMembers` | 2 | 216 |
-| `Screens/Settings` | 2 | 365 |
-| `Screens/Shell` | 4 | 793 |
+| `Screens/Onboarding` | 15 | 4659 |
+| `Screens/Pace` | 2 | 2077 |
+| `Screens/Profile` | 2 | 671 |
+| `Screens/RoomMembers` | 2 | 245 |
+| `Screens/Settings` | 2 | 389 |
+| `Screens/Shell` | 4 | 806 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)
