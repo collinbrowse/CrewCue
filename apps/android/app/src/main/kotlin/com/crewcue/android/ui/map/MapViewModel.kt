@@ -426,6 +426,11 @@ class MapViewModel(
             return
         }
         viewModelScope.launch {
+            // While the tour's location test runs, only the tracking service's ping may end it:
+            // this one-off sample (the shell takes one whenever a race tab loads) waits it out.
+            val session = withContext(Dispatchers.IO) { runCatching { raceDay.trackingSession() }.getOrNull() }
+            val tracking = (session as? RuntimeResult.Success)?.result
+            if (tracking?.optBoolean("test") == true && !tracking.optBoolean("testExpired")) return@launch
             val recordedAt = nextRecordedAt()
             val enqueued = try {
                 withContext(Dispatchers.IO) {

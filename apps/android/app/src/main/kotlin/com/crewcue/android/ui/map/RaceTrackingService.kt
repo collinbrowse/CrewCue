@@ -51,6 +51,7 @@ class RaceTrackingService : Service(), LocationListener {
     private var lastKeptAt = 0L
     private var lastRecordedMillis = 0L
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var testWatch = false
     private val recordedAtFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
@@ -75,12 +76,48 @@ class RaceTrackingService : Service(), LocationListener {
                 stopSelf()
                 return@launch
             }
+            if (session.optBoolean("testExpired")) {
+                endTest()
+                return@launch
+            }
             val seconds = (raceDay.trackingSettings() as? RuntimeResult.Success)?.result?.optInt("intervalSeconds", 0) ?: 0
             intervalMs = if (seconds > 0) seconds * 1000L else DEFAULT_INTERVAL_MS
             roomId = room
             ContextCompat.getMainExecutor(this@RaceTrackingService).execute { beginUpdates() }
+            if (session.optBoolean("test")) watchTest()
         }
         return START_STICKY
+    }
+
+    /**
+     * The tour's location test runs on a session client-core marks with an end. The screen stops
+     * it when the test ends; if the app died mid-test (the system restarts this sticky service with
+     * no screen), this ends it once client-core says the test window has passed. A real Start
+     * tracking saves an unmarked session over the test, and the watch then lets it run.
+     */
+    private fun watchTest() {
+        if (testWatch) return
+        testWatch = true
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(TEST_CHECK_MS)
+                val session = (raceDay.trackingSession() as? RuntimeResult.Success)?.result ?: continue
+                if (!session.optBoolean("active")) {
+                    stopSelf()
+                    return@launch
+                }
+                if (!session.optBoolean("test")) return@launch
+                if (session.optBoolean("testExpired")) {
+                    endTest()
+                    return@launch
+                }
+            }
+        }
+    }
+
+    private suspend fun endTest() {
+        raceDay.stopTrackingSession()
+        ContextCompat.getMainExecutor(this).execute { stopSelf() }
     }
 
     override fun onDestroy() {
@@ -215,6 +252,8 @@ class RaceTrackingService : Service(), LocationListener {
         private const val NOTIFICATION_ID = 4101
         private const val ACTION_STOP = "com.crewcue.android.tracking.STOP"
         private const val DEFAULT_INTERVAL_MS = 180_000L
+        /** How often a test session's end is checked. */
+        private const val TEST_CHECK_MS = 5_000L
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, RaceTrackingService::class.java))
