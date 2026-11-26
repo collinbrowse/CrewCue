@@ -22,7 +22,7 @@ import Dispatch
 /// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, deleteRace, raceDeletionCopy, renameRace, raceRenameCopy, onboardingCopy, onboardingHistoryComparison, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
-/// previewActivityUpload, importActivityUpload,
+/// previewActivityUpload, importActivityUpload, deleteActivity, activityDeleteCopy,
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
 /// readPendingJoin, clearPendingJoin, giveUpInvite, resolvePendingJoin, inviteShare, inviteCopy,
 /// pastedInviteCode, confirmedInviteForSignIn, inviteJoinLine (`RuntimeOnboarding.swift`),
@@ -30,7 +30,9 @@ import Dispatch
 /// (`RuntimeDemoRace.swift`),
 /// raceStartInput, gpxPreview, raceAccess, suggestedDisplayName, runnerSetupStep, updateRaceStart
 /// (`RuntimeRunnerSetup.swift`),
-/// pushTapReceive, pushTapTake, unpaidExpiry (`RuntimePushTap.swift`).
+/// pushTapReceive, pushTapTake, unpaidExpiry (`RuntimePushTap.swift`),
+/// onboardingTour, onboardingTourAnswer, onboardingTourSkip, setupChecklistOpen, setupChecklistHide,
+/// tourNotificationsOutcome, locationTest, tourCardView, onboardingTourCopy (`RuntimeOnboardingTour.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -257,6 +259,10 @@ enum RuntimeCall {
             return await previewActivityUpload(object)
         case "importActivityUpload":
             return await importActivityUpload(object)
+        case "deleteActivity":
+            return try await deleteActivity(object)
+        case "activityDeleteCopy":
+            return ActivityHistoryDelete.copy
         case "stravaStart":
             return try await stravaStart(object)
         case "stravaConnection":
@@ -369,6 +375,24 @@ enum RuntimeCall {
             return pushTapTake(object)
         case "unpaidExpiry":
             return unpaidExpiry(object)
+        case "onboardingTour":
+            return try onboardingTour(object)
+        case "onboardingTourAnswer":
+            return try onboardingTourAnswer(object)
+        case "onboardingTourSkip":
+            return try onboardingTourSkip(object)
+        case "setupChecklistOpen":
+            return try setupChecklistOpen(object)
+        case "setupChecklistHide":
+            return try setupChecklistHide(object)
+        case "tourNotificationsOutcome":
+            return tourNotificationsOutcome(object)
+        case "locationTest":
+            return try await locationTestStep(object)
+        case "tourCardView":
+            return try tourCardView(object)
+        case "onboardingTourCopy":
+            return onboardingTourCopy(object)
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }
@@ -566,7 +590,7 @@ enum RuntimeCall {
 
     /// The viewer's zone: an IANA `timeZone` the client sends (Android passes its device zone, since the
     /// Swift runtime there cannot resolve `TimeZone.current` to an IANA region), else the device zone.
-    private static func requestTimeZone(_ object: [String: Any]) -> TimeZone {
+    static func requestTimeZone(_ object: [String: Any]) -> TimeZone {
         if let id = object["timeZone"] as? String, let zone = DeviceTimeZone.resolve(id) {
             return zone
         }
@@ -1567,6 +1591,17 @@ enum RuntimeCall {
                 return ["offline": true, "items": [[String: Any]]()]
             }
             throw error
+        }
+    }
+
+    /// `id` is the history row. Returns removed true, or removed false with offline and a user-facing `message`.
+    private static func deleteActivity(_ object: [String: Any]) async throws -> Any {
+        let graph = try graph(object)
+        switch await ActivityHistoryDelete.run(graph: graph, id: text(object, "id") ?? "") {
+        case .removed:
+            return ["removed": true, "offline": false]
+        case .failed(let message, let offline):
+            return ["removed": false, "offline": offline, "message": message]
         }
     }
 

@@ -2,17 +2,17 @@
   "id": "activity-import",
   "platform": "ios",
   "entry": "crewcue://dev/activity-import",
-  "device": "iPhone 17 simulator (CrewCue import-652), iOS 27.2, Debug build",
-  "date": "2026-11-09",
-  "commit": "3f172f4 (claude/import-652-ios on 9fa2906)",
-  "session": "Dev session against the local memory API (port 3652). Fixtures copied into Files > On My iPhone: activity-short-road.fit, activity-short-road.tcx, corrupt.fit. Offline by stopping the local API.",
-  "action": "Athlete opened crewcue://dev/activity-import (Settings > Past runs), tapped Import past run, and chose a file in the system document picker.",
+  "device": "iPhone 17 simulator (CrewCue bold-mccarthy-90e180), iOS 27.2, Debug build; import checks: iPhone 17 simulator (CrewCue import-652), iOS 27.2, Debug build",
+  "date": "2026-11-25",
+  "commit": "claude/delete-imported-run (on claude/android-ui-sweep); import checks from 3f172f4 (claude/import-652-ios on 9fa2906) on 2026-11-09",
+  "session": "Dev session (--dev-session runner athlete <HS256 JWT> <roomId>, --api-base-url) against a local memory API seeded with a runner's race (course-50k-with-aids.gpx) and three runs (activity-long-trail.gpx, activity-short-road.fit, activity-hill-run.fit). Removal driven by XCUITest ImportedRunRemovalTests (passed). Import checks: Dev session against the local memory API (port 3652). Fixtures copied into Files > On My iPhone: activity-short-road.fit, activity-short-road.tcx, corrupt.fit. Offline by stopping the local API.",
+  "action": "Athlete opened crewcue://dev/activity-import (Settings > Past runs), tapped Import past run, and chose a file in the system document picker. Removal: opened '3 runs imported', swiped the newest run left, tapped Remove, cancelled the confirm, swiped again, tapped Remove run, then tapped Recalculate.",
   "checked": {
-    "Success": "FIT: 'Run imported to pacing history.' and row 'FIT · 8.0 km · 40:00 · 2026-05-10'; TCX: row 'TCX · 8.0 km · 40:00 · 2026-05-10' (API 201 for each).",
+    "Success": "FIT: 'Run imported to pacing history.' and row 'FIT · 8.0 km · 40:00 · 2026-05-10'; TCX: row 'TCX · 8.0 km · 40:00 · 2026-05-10' (API 201 for each). Removal: Cancel kept 3 runs; Remove run left 2 runs and the server list 2 (DELETE 204); status 'Run removed. Recalculate your estimate without it?' with Recalculate; Recalculate attached a new estimate and showed 'Estimate recalculated. Open Pace to see it.' Reopening the sheet showed '2 runs imported' and no status.",
     "Empty": "Before a pick: 'Choose a .gpx, .fit or .tcx file from your watch.'",
-    "Error": "corrupt.fit: server 400 shown as 'Couldn't read this FIT file. Export it again and retry.'",
-    "Offline": "API stopped, garmin-run.fit picked: 'Offline. Import the file when you're back online.'",
-    "Accessibility labels": "crewcue.activity-import"
+    "Error": "corrupt.fit: server 400 shown as 'Couldn't read this FIT file. Export it again and retry.' Removal failure copy ('Couldn't remove the run. Try again.') is covered by client-core and Android unit tests, not run on the device.",
+    "Offline": "API stopped, garmin-run.fit picked: 'Offline. Import the file when you're back online.' Removal offline copy ('You're offline. The run was not removed.') is covered by client-core and Android unit tests, not run on the device.",
+    "Accessibility labels": "crewcue.activity-import, crewcue.activity-import.runs, crewcue.activity-import.list, crewcue.activity-import.run, crewcue.activity-import.remove, crewcue.activity-import.remove-confirm, crewcue.activity-import.removal-status, crewcue.activity-import.recalculate (Remove is also a VoiceOver action through swipeActions)"
   },
   "screenshots": "Attached to the PR, not committed."
 }

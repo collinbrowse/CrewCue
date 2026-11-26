@@ -11,6 +11,19 @@ final class ActivityImportModel {
     private(set) var busy = false
     /// The last import failed for want of a network.
     private(set) var offline = false
+    /// The run being removed, so its row shows progress and the list ignores a second swipe.
+    private(set) var removingId: String?
+    /// Shown in the runs sheet after a removal, or when one failed.
+    private(set) var removalMessage: String?
+    /// After a removal, the sheet offers Recalculate for the open race.
+    private(set) var offersRecalculate = false
+    private(set) var recalculating = false
+    /// The run whose removal is waiting on the confirm. Kept here so a fold or resize keeps the confirm.
+    var pendingRemoval: ActivityHistoryItem?
+
+    /// Whether an open race's estimate reads these runs, and how to recalculate it. Wired by the shell.
+    var canRecalculate: @MainActor () -> Bool = { false }
+    var recalculate: @MainActor () async -> Bool = { false }
 
     private let client: AppClient
     private var generation = 0
@@ -29,6 +42,46 @@ final class ActivityImportModel {
         busy = false
         offline = false
         message = ActivityImport.emptyMessage
+        removingId = nil
+        removalMessage = nil
+        offersRecalculate = false
+        pendingRemoval = nil
+    }
+
+    /// Settings → Imported runs: the athlete confirmed removing one run from pacing history.
+    func remove(_ item: ActivityHistoryItem) async {
+        pendingRemoval = nil
+        guard removingId == nil else { return }
+        removingId = item.id
+        defer { removingId = nil }
+        offersRecalculate = false
+        switch await ActivityHistoryDelete.run(graph: client.graph, id: item.id) {
+        case .removed:
+            items.removeAll { $0.id == item.id }
+            let recalculates = canRecalculate()
+            offersRecalculate = recalculates
+            removalMessage = ActivityHistoryDelete.afterRemoval(canRecalculate: recalculates)
+            await refresh()
+        case .failed(let message, _):
+            removalMessage = message
+        }
+    }
+
+    /// The Recalculate offer after a removal.
+    func recalculateAfterRemoval() async {
+        guard !recalculating else { return }
+        recalculating = true
+        let attached = await recalculate()
+        recalculating = false
+        offersRecalculate = !attached
+        removalMessage = attached ? ActivityHistoryDelete.recalculatedMessage : ActivityHistoryDelete.recalculateFailedMessage
+    }
+
+    /// The runs sheet closed: drop its one-off status.
+    func dismissRemovalStatus() {
+        removalMessage = nil
+        offersRecalculate = false
+        pendingRemoval = nil
     }
 
     /// The picker returned a file, or failed to. Answers how the import ended, nil when it didn't.

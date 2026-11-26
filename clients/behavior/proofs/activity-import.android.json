@@ -2,17 +2,17 @@
   "id": "activity-import",
   "platform": "android",
   "entry": "crewcue://dev/activity-import",
-  "device": "crewcue_api_35 emulator (emulator-5618, read-only), Android 15, debug APK",
-  "date": "2026-11-09",
-  "commit": "7e270dd (claude/import-652-android)",
-  "session": "Dev session (intent extras) against the local memory API on the host (10.0.2.2:3652). Fixtures pushed to Downloads: garmin-run.fit, coros-run.tcx, broken.fit. Offline by stopping the local API.",
-  "action": "Athlete opened crewcue://dev/activity-import (Settings > Past runs), tapped Import past run, and chose a file in the system document picker.",
+  "device": "crewcue_api_35 emulator (emulator-5604, read-only), Android 15, debug APK; import checks: crewcue_api_35 emulator (emulator-5618, read-only), Android 15, debug APK",
+  "date": "2026-11-25",
+  "commit": "claude/delete-imported-run (on claude/android-ui-sweep); import checks from 7e270dd (claude/import-652-android) on 2026-11-09",
+  "session": "Dev session (intent extras) against a local memory API on the host (10.0.2.2:3000) seeded with a runner's race and three runs (activity-long-trail.gpx, activity-short-road.fit, activity-hill-run.fit). Removal driven by adb input and uiautomator. Import checks: Dev session (intent extras) against the local memory API on the host (10.0.2.2:3652). Fixtures pushed to Downloads: garmin-run.fit, coros-run.tcx, broken.fit. Offline by stopping the local API.",
+  "action": "Athlete opened crewcue://dev/activity-import (Settings > Past runs), tapped Import past run, and chose a file in the system document picker. Removal: opened '3 runs imported', swiped the newest run left, tapped Remove, cancelled the confirm, swiped again, tapped Remove run, then tapped Recalculate.",
   "checked": {
-    "Success": "FIT: 'Run imported to pacing history.' with row 'FIT · 8.0 km · 40:00 · 2026-05-10'; TCX: row 'TCX · 8.0 km · 40:00 · 2026-05-10'. Re-importing the FIT: 'Already in pacing history.' with one FIT row.",
+    "Success": "FIT: 'Run imported to pacing history.' with row 'FIT · 8.0 km · 40:00 · 2026-05-10'; TCX: row 'TCX · 8.0 km · 40:00 · 2026-05-10'. Re-importing the FIT: 'Already in pacing history.' with one FIT row. Removal: Cancel kept 3 runs; Remove run left 2 runs and the server list 2 (DELETE 204); status 'Run removed. Recalculate your estimate without it?' with Recalculate; Recalculate attached a new estimate and showed 'Estimate recalculated. Open Pace to see it.'",
     "Empty": "Before a pick: 'Choose a .gpx, .fit or .tcx file from your watch.'",
-    "Error": "broken.fit: 'Couldn't read this FIT file. Export it again and retry.'",
-    "Offline": "API stopped, coros-run.tcx picked: 'Offline. Import the file when you're back online.'",
-    "Accessibility labels": "crewcue.activity-import"
+    "Error": "broken.fit: 'Couldn't read this FIT file. Export it again and retry.' Removal failure copy ('Couldn't remove the run. Try again.') is covered by client-core and Android unit tests, not run on the device.",
+    "Offline": "API stopped, coros-run.tcx picked: 'Offline. Import the file when you're back online.' Removal offline copy ('You're offline. The run was not removed.') is covered by client-core and Android unit tests, not run on the device.",
+    "Accessibility labels": "crewcue.activity-import, crewcue.activity-import.runs, crewcue.activity-import.list, crewcue.activity-import.run, crewcue.activity-import.remove, crewcue.activity-import.remove-confirm, crewcue.activity-import.removal-status, crewcue.activity-import.recalculate (Remove is also a TalkBack custom action)"
   },
   "screenshots": "Attached to the PR, not committed."
 }

@@ -324,7 +324,7 @@ extension RuntimeCall {
         return OnboardingStore(directory: OnboardingStore.directory(besideStorageRoot: URL(fileURLWithPath: path, isDirectory: true)))
     }
 
-    private static func onboardingSignedIn(_ object: [String: Any]) -> Bool {
+    static func onboardingSignedIn(_ object: [String: Any]) -> Bool {
         boolValue(object["signedIn"]) ?? (text(object, "userId") != nil)
     }
 
@@ -334,7 +334,7 @@ extension RuntimeCall {
     }
 
     /// The request's race rows, or nil when it has none (`myRaces` hasn't answered).
-    private static func onboardingRaces(_ object: [String: Any]) -> [OnboardingRace]? {
+    static func onboardingRaces(_ object: [String: Any]) -> [OnboardingRace]? {
         guard let rows = object["races"] as? [Any] else { return nil }
         return rows.compactMap { item -> OnboardingRace? in
             guard let row = item as? [String: Any],
@@ -363,14 +363,14 @@ extension RuntimeCall {
         )
     }
 
-    private static func onboardingActiveRoom(_ object: [String: Any]) -> String? {
+    static func onboardingActiveRoom(_ object: [String: Any]) -> String? {
         text(object, "activeRoomId") ?? text(object, "roomId")
     }
 
     /// The request's `pendingInvite` as named. Else `hasPendingInvite`: `false` is none, `true` the
     /// saved code or, with none saved, an invite that can't be confirmed (""). Neither sent: the
     /// saved code.
-    private static func onboardingInvite(_ object: [String: Any], saved: PendingJoin?) -> String? {
+    static func onboardingInvite(_ object: [String: Any], saved: PendingJoin?) -> String? {
         if let named = text(object, "pendingInvite") { return named }
         switch boolValue(object["hasPendingInvite"]) {
         case .some(true): return saved?.code ?? ""

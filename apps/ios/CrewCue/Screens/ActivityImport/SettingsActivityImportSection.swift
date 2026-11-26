@@ -56,7 +56,7 @@ struct SettingsActivityImportSection: View {
             }
         )
         .sheet(isPresented: $showsRuns) {
-            ImportedRunsSheet(items: model.items)
+            ImportedRunsSheet(model: model)
         }
         .accessibilityIdentifier("crewcue.activity-import")
         .accessibilityLabel("Training history")
@@ -78,33 +78,104 @@ struct SettingsActivityImportSection: View {
 }
 
 /// Every run in the pacing history, newest first, with its distance, time and pace.
+/// Swipe a run and confirm to remove it, so it stops shaping the pace estimate.
 struct ImportedRunsSheet: View {
-    let items: [ActivityHistoryItem]
+    @Bindable var model: ActivityImportModel
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.crew) private var theme
 
     var body: some View {
-        ToolSheet(title: "Imported runs") {
-            VStack(alignment: .leading, spacing: CrewSpace.base) {
-                Text(verbatim: ActivityImport.countLabel(items.count) + ". Each one shapes your pace estimate.")
-                    .font(CrewFont.hint)
-                    .foregroundStyle(theme.outline)
-                    .padding(.horizontal, CrewSpace.base)
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(sorted.enumerated()), id: \.element.id) { index, item in
-                        if index > 0 { CrewRowDivider() }
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(sorted, id: \.id) { item in
                         ImportedRunRow(item: item)
+                            .opacity(model.removingId == item.id ? 0.4 : 1)
+                            .listRowBackground(theme.card)
+                            .accessibilityIdentifier("crewcue.activity-import.run")
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                // No destructive role: that animates the row away before the confirm.
+                                Button(ActivityHistoryDelete.actionTitle, systemImage: "trash") {
+                                    model.pendingRemoval = item
+                                }
+                                .tint(.red)
+                                .accessibilityIdentifier("crewcue.activity-import.remove")
+                            }
                     }
+                } header: {
+                    Text(verbatim: headerLine)
+                        .font(CrewFont.hint)
+                        .foregroundStyle(theme.outline)
+                        .textCase(nil)
+                } footer: {
+                    removalStatus
                 }
-                .padding(.horizontal, CrewSpace.gutter)
-                .padding(.vertical, 4)
-                .background(theme.card, in: RoundedRectangle(cornerRadius: CrewRadius.lg, style: .continuous))
+            }
+            .scrollContentBackground(.hidden)
+            .background(CrewBackground())
+            .navigationTitle("Imported runs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                        .accessibilityIdentifier("crewcue.activity-import.done")
+                }
             }
         }
+        .crewTheme()
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(CrewRadius.sheet)
         .accessibilityIdentifier("crewcue.activity-import.list")
+        .alert(
+            ActivityHistoryDelete.confirmTitle,
+            isPresented: confirmShown,
+            presenting: model.pendingRemoval
+        ) { item in
+            Button(ActivityHistoryDelete.confirmButton, role: .destructive) {
+                Task { await model.remove(item) }
+            }
+            .accessibilityIdentifier("crewcue.activity-import.remove-confirm")
+            Button(ActivityHistoryDelete.cancelButton, role: .cancel) {
+                model.pendingRemoval = nil
+            }
+        } message: { _ in
+            Text(verbatim: ActivityHistoryDelete.confirmBody)
+        }
+        .onDisappear { model.dismissRemovalStatus() }
+    }
+
+    @ViewBuilder private var removalStatus: some View {
+        if let message = model.removalMessage {
+            VStack(alignment: .leading, spacing: CrewSpace.base) {
+                Text(verbatim: message)
+                    .font(CrewFont.hint)
+                    .foregroundStyle(theme.ink)
+                    .accessibilityIdentifier("crewcue.activity-import.removal-status")
+                if model.offersRecalculate {
+                    Button(ActivityHistoryDelete.recalculateButton) {
+                        Task { await model.recalculateAfterRemoval() }
+                    }
+                    .buttonStyle(.crewPillProminent)
+                    .crewBusy(model.recalculating)
+                    .accessibilityIdentifier("crewcue.activity-import.recalculate")
+                }
+            }
+            .padding(.top, CrewSpace.base)
+        }
+    }
+
+    private var headerLine: String {
+        let count = ActivityImport.countLabel(model.items.count)
+        return model.items.isEmpty ? count : count + ". Each one shapes your pace estimate."
+    }
+
+    private var confirmShown: Binding<Bool> {
+        Binding(get: { model.pendingRemoval != nil }, set: { if !$0 { model.pendingRemoval = nil } })
     }
 
     private var sorted: [ActivityHistoryItem] {
-        items.sorted { $0.recordedAt > $1.recordedAt }
+        model.items.sorted { $0.recordedAt > $1.recordedAt }
     }
 }
 

@@ -211,7 +211,11 @@ interface CourseMapRenderer {
          * the course before a new one is applied names that course, not the new one. It can come
          * more than once; a map that never gets there never calls it.
          */
-        onRendered: (line: List<CoursePoint>, points: List<MapCheckpoint>) -> Unit
+        onRendered: (line: List<CoursePoint>, points: List<MapCheckpoint>) -> Unit,
+        /** Bumped to move the camera to the course's start (the tour's start-line card); 0 never moves. */
+        startLineRequest: Int,
+        /** The start-line move ran: the caller spends the request so it runs once. */
+        onStartLineShown: () -> Unit
     )
 }
 

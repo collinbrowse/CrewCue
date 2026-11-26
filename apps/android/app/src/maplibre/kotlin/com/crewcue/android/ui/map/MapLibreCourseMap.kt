@@ -100,7 +100,9 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         framing: CourseFraming,
         trackTimes: List<Long>,
         glide: (() -> RunnerGlideFrame?)?,
-        onRendered: (line: List<CoursePoint>, points: List<MapCheckpoint>) -> Unit
+        onRendered: (line: List<CoursePoint>, points: List<MapCheckpoint>) -> Unit,
+        startLineRequest: Int,
+        onStartLineShown: () -> Unit
     ) {
         val context = LocalContext.current
         // The setup preview and the onboarding replay draw terrain-style tiles at every
@@ -114,6 +116,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         val failed = rememberUpdatedState(onStyleFailed)
         val tilesUnavailable = rememberUpdatedState(onTilesUnavailable)
         val rendered = rememberUpdatedState(onRendered)
+        val startLineShown = rememberUpdatedState(onStartLineShown)
         val pointState = rememberUpdatedState(points)
         val lineState = rememberUpdatedState(line)
         val trackState = rememberUpdatedState(track)
@@ -265,6 +268,19 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
             mapView.getMapAsync { map ->
                 fitCourse(map, mapView, lineState.value, pointState.value, framingState.value, animate = true)
             }
+        }
+        LaunchedEffect(startLineRequest) {
+            if (startLineRequest == 0) return@LaunchedEffect
+            // A map just shown fits the course first; the start-line move goes after that fit.
+            var waited = 0
+            while (!framed[0] && waited < START_LINE_WAIT_MS) {
+                kotlinx.coroutines.delay(100)
+                waited += 100
+            }
+            mapView.getMapAsync { map ->
+                showStartLine(map, mapView, lineState.value, pointState.value, framingState.value)
+            }
+            startLineShown.value()
         }
     }
 }
@@ -510,6 +526,33 @@ private fun fitCourse(
     frame(map, all, framing, view.resources.displayMetrics.density, view.width, view.height, animate)
     return true
 }
+
+/**
+ * Moves the camera to the course's start (the line's first point, else the first checkpoint),
+ * zoomed in, inside the same room [framing] leaves for the top bar and the sheet. Next to [frame].
+ */
+private fun showStartLine(
+    map: MapLibreMap,
+    view: MapView,
+    line: List<CoursePoint>,
+    points: List<MapCheckpoint>,
+    framing: CourseFraming
+) {
+    val start = line.firstOrNull() ?: points.firstOrNull()?.let { CoursePoint(it.latitude, it.longitude) } ?: return
+    if (view.width <= 0 || view.height <= 0) return
+    val room = framing.paddingPx(view.resources.displayMetrics.density, view.width, view.height)
+    val camera = org.maplibre.android.camera.CameraPosition.Builder()
+        .target(LatLng(start.latitude, start.longitude))
+        .zoom(START_LINE_ZOOM)
+        .padding(room.left.toDouble(), room.top.toDouble(), room.right.toDouble(), room.bottom.toDouble())
+        .build()
+    map.animateCamera(CameraUpdateFactory.newCameraPosition(camera))
+}
+
+/** Street level: the start area and the first stretch of the course. */
+private const val START_LINE_ZOOM = 14.5
+/** How long a start-line move waits for a new map's first fit. */
+private const val START_LINE_WAIT_MS = 10_000
 
 private fun frame(
     map: MapLibreMap,
