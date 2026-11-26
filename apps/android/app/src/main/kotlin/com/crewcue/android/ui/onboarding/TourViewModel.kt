@@ -215,7 +215,12 @@ class OnboardingTourViewModel(
             step("permission") { put("permission", permission) }
             val test = location ?: return@launch
             if (isDev || test.phase != "waitingForPing") return@launch
-            if (!test.wasTracking && !trackingStarted && !startTracking()) return@launch
+            if (!test.wasTracking && !trackingStarted) {
+                val startedAt = startTracking() ?: return@launch
+                // The session is now marked as the test's, so the shell's one-off sample waits;
+                // one taken just before is older than this, so it can't end the test either.
+                step("trackingStarted") { put("startedAt", startedAt) }
+            }
             onTracking()
             pollLocationTest()
         }
@@ -253,14 +258,15 @@ class OnboardingTourViewModel(
         if (stop) stopTracking()
     }
 
-    private suspend fun startTracking(): Boolean {
-        val room = roomId ?: context.activeRoomId ?: return false
+    /** Starts the test's tracking session and service; answers the session's `startedAt`, null when it failed. */
+    private suspend fun startTracking(): String? {
+        val room = roomId ?: context.activeRoomId ?: return null
         val started = withContext(Dispatchers.IO) { runCatching { raceDay.startTrackingSession(room, test = true) }.getOrNull() }
-        if (started !is RuntimeResult.Success) return false
+        if (started !is RuntimeResult.Success) return null
         trackingStarted = true
         saved[KEY_TRACKING_STARTED] = true
         RaceTrackingService.start(appContext)
-        return true
+        return started.result.optText("startedAt")
     }
 
     /** Stops tracking only when this test started it. */
