@@ -171,7 +171,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/OnboardingCopy.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingCopy.swift) | `OnboardingCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/OnboardingSetup.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingSetup.swift) | `CourseRoutePoint`, `CoursePreview`, `Geodesy`, `OnboardingTeaser`, `OnboardingSetupFailure` |
 | [packages/client-core/Sources/CrewCueClientCore/OnboardingStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingStore.swift) | `OnboardingProgress`, `OnboardingStore`, `OnboardingRead`, `OnboardingFileLock` |
-| [packages/client-core/Sources/CrewCueClientCore/OnboardingTour.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingTour.swift) | `TourAnchor`, `TourAction`, `TourExampleLine`, `TourCard`, `OnboardingTour`, `OnboardingTourCopy` |
+| [packages/client-core/Sources/CrewCueClientCore/OnboardingTour.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingTour.swift) | `TourAnchor`, `TourAction`, `TourExampleLine`, `TourCard`, `TourCardView`, `OnboardingTour`, `OnboardingTourCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/Outbox.swift](../../../packages/client-core/Sources/CrewCueClientCore/Outbox.swift) | `OutboxOperation`, `OutboxFailureResolution`, `ClientHTTPError`, `OutboxPolicy` |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | `StoredOperation`, `CheckInEnqueue`, `PingEnqueue`, `FlushReport`, `OutboxStoreError`, `OutboxStore`, `PingPolicy`, `OutboxFile`, `SharedOutboxStores` |
 | [packages/client-core/Sources/CrewCueClientCore/PendingJoin.swift](../../../packages/client-core/Sources/CrewCueClientCore/PendingJoin.swift) | `PendingJoin`, `PendingJoinError`, `PendingJoinOutcome`, `PendingJoinStore` |
@@ -196,6 +196,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift) | `RuntimeChatThreads` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeDemoRace.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeDemoRace.swift) | `DemoRuntimes` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeOnboarding.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeOnboarding.swift) |  |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeOnboardingTour.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeOnboardingTour.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimePushTap.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimePushTap.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeRunnerSetup.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeRunnerSetup.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift) | `ScheduleStopFixture`, `ScheduleFixture` |
@@ -213,11 +214,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-124 files under `packages/client-core/Sources/`.
+125 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 74 | 16166 |
+| `CrewCueClientCore` | 75 | 16683 |
 | `CrewCueClientCore/Generated` | 50 | 984 |
 
 ### iOS app (SwiftUI)
@@ -252,7 +253,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-132 files under `apps/android/app/src/main/`.
+138 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -260,14 +261,14 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/auth` | 3 | 201 |
 | `kotlin/com/crewcue/android/billing` | 3 | 255 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 861 |
+| `kotlin/com/crewcue/android/data` | 3 | 911 |
 | `kotlin/com/crewcue/android/di` | 1 | 107 |
 | `kotlin/com/crewcue/android/generated` | 50 | 517 |
 | `kotlin/com/crewcue/android/invite` | 1 | 123 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
 | `kotlin/com/crewcue/android/nav` | 2 | 147 |
 | `kotlin/com/crewcue/android/session` | 4 | 284 |
-| `kotlin/com/crewcue/android/ui` | 6 | 2331 |
+| `kotlin/com/crewcue/android/ui` | 6 | 2483 |
 | `kotlin/com/crewcue/android/ui/activity` | 2 | 821 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 233 |
@@ -278,10 +279,10 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 310 |
 | `kotlin/com/crewcue/android/ui/invite` | 1 | 294 |
 | `kotlin/com/crewcue/android/ui/join` | 2 | 300 |
-| `kotlin/com/crewcue/android/ui/map` | 7 | 2138 |
+| `kotlin/com/crewcue/android/ui/map` | 7 | 2165 |
 | `kotlin/com/crewcue/android/ui/members` | 1 | 333 |
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
-| `kotlin/com/crewcue/android/ui/onboarding` | 11 | 6082 |
+| `kotlin/com/crewcue/android/ui/onboarding` | 17 | 7438 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1725 |
 | `kotlin/com/crewcue/android/ui/profile` | 3 | 858 |

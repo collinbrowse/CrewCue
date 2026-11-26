@@ -1121,9 +1121,9 @@
   "riskSummary": {
     "unguarded": 8,
     "roomScopedIdentityOnly": 0,
-    "large": 20,
+    "large": 21,
     "timers": 4,
     "untestedLib": 45,
-    "parityGaps": 19
+    "parityGaps": 17
   }
 }
