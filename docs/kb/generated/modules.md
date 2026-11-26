@@ -269,7 +269,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
 | `kotlin/com/crewcue/android/nav` | 2 | 147 |
 | `kotlin/com/crewcue/android/session` | 4 | 284 |
-| `kotlin/com/crewcue/android/ui` | 6 | 2483 |
+| `kotlin/com/crewcue/android/ui` | 6 | 2570 |
 | `kotlin/com/crewcue/android/ui/activity` | 3 | 1115 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 233 |
@@ -283,7 +283,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/map` | 7 | 2209 |
 | `kotlin/com/crewcue/android/ui/members` | 1 | 333 |
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
-| `kotlin/com/crewcue/android/ui/onboarding` | 17 | 7455 |
+| `kotlin/com/crewcue/android/ui/onboarding` | 17 | 7464 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1725 |
 | `kotlin/com/crewcue/android/ui/profile` | 3 | 858 |

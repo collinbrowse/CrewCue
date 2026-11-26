@@ -63,6 +63,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.LifecycleEventObserver
 import com.crewcue.android.ui.ShellTab
+import com.crewcue.android.ui.tabBarIsRail
 import com.crewcue.android.ui.theme.PrimaryButton
 import com.crewcue.android.ui.theme.SecondaryButton
 import kotlin.math.roundToInt
@@ -217,7 +218,10 @@ fun CoachMarkOverlay(
     val direction = LocalLayoutDirection.current
     val insets = WindowInsets.safeDrawing
     var origin by remember { mutableStateOf(Offset.Zero) }
-    val hinges = currentWindowAdaptiveInfo().windowPosture.hingeList
+    val adaptive = currentWindowAdaptiveInfo()
+    // The tabs run down a rail here: the card goes beside its tab, not over the rail.
+    val rail = tabBarIsRail(adaptive.windowSizeClass)
+    val hinges = adaptive.windowPosture.hingeList
         .filter { it.isSeparating || it.isOccluding }
         .map { it.bounds }
     val local = anchor?.translate(-origin.x, -origin.y)
@@ -239,7 +243,8 @@ fun CoachMarkOverlay(
         ) {
             drawRect(scrim)
             if (local != null) {
-                val hole = local.inflate(ring)
+                // A rail item spans the rail from the window's edge: keep the ring on screen.
+                val hole = local.inflate(ring).intersect(Rect(ring / 2, ring / 2, size.width - ring / 2, size.height - ring / 2))
                 val corner = CornerRadius(hole.height / 2, hole.height / 2)
                 drawRoundRect(Color.Transparent, hole.topLeft, hole.size, corner, blendMode = BlendMode.Clear)
                 drawRoundRect(ringColor, hole.topLeft, hole.size, corner, style = Stroke(width = ring / 2))
@@ -275,6 +280,7 @@ fun CoachMarkOverlay(
                 gap = 12.dp.toPx(),
                 minBesideWidth = 240.dp.toPx(),
                 avoid = hinges.map { it.translate(-origin.x, -origin.y) },
+                besideFirst = rail,
                 heightFor = { measurable.maxIntrinsicHeight(it.roundToInt()).toFloat() }
             )
             val cardWidth = placement.width.roundToInt().coerceAtLeast(0)
