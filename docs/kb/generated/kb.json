@@ -40,21 +40,21 @@
       "path": "/activity-history/preview",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 457
+      "line": 458
     },
     {
       "method": "POST",
       "path": "/activity-history/archive",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 475
+      "line": 476
     },
     {
       "method": "GET",
       "path": "/activity-history",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 550
+      "line": 551
     },
     {
       "method": "POST",
