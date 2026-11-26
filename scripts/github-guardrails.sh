@@ -39,15 +39,14 @@ call -X PATCH "repos/$REPO" -F allow_auto_merge=true -F delete_branch_on_merge=t
 
 echo "2. main: required checks apply to admins too"
 call -X POST "repos/$REPO/branches/main/protection/enforce_admins"
-# Skipped jobs (for example ios/android when a PR does not touch them) count as passing.
+# ios and android are not required: they run simulator and emulator smoke tests that take up to
+# 27 minutes and failed on 24 of 100 main runs in Nov 2026. They still run on every push to main.
 call -X PATCH "repos/$REPO/branches/main/protection/required_status_checks" \
   -F strict=true \
   -f "contexts[]=dual-client-guard" \
   -f "contexts[]=checks" \
   -f "contexts[]=api-postgres-integration" \
-  -f "contexts[]=pr-decision-doc-guard" \
-  -f "contexts[]=ios" \
-  -f "contexts[]=android"
+  -f "contexts[]=pr-decision-doc-guard"
 
 echo "3. Release tags (v*): only admins may create, move or delete them"
 RULESET_ID="$(gh api "repos/$REPO/rulesets" -q '.[] | select(.name=="release-tags") | .id')"
