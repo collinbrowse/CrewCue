@@ -53,7 +53,7 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/courseHistory/format.ts](../../../services/api/src/lib/courseHistory/format.ts) | 6 | 193 |
 | [services/api/src/lib/pacingEstimate/microModel/courseMesh.ts](../../../services/api/src/lib/pacingEstimate/microModel/courseMesh.ts) | 6 | 129 |
 | [services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts](../../../services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts) | 6 | 239 |
-| [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts) | 5 | 254 |
+| [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts) | 5 | 277 |
 | [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts) | 5 | 386 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 5 | 143 |
 | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) | 5 | 136 |
@@ -87,6 +87,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/APIClient.swift](../../../packages/client-core/Sources/CrewCueClientCore/APIClient.swift) | `HTTPMethod`, `HTTPRequest`, `HTTPResponse`, `HTTPTransport`, `URLSessionTransport`, `AccessTokenProvider`, `StaticTokenProvider`, `APIClient`, `EmptyBody` |
 | [packages/client-core/Sources/CrewCueClientCore/AccountDeletion.swift](../../../packages/client-core/Sources/CrewCueClientCore/AccountDeletion.swift) | `AccountDeletion` |
 | [packages/client-core/Sources/CrewCueClientCore/ActionGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/ActionGate.swift) | `ActionPolicy`, `ActionTicket`, `CancelFlag`, `ActionGate`, `ErrorCatalog` |
+| [packages/client-core/Sources/CrewCueClientCore/ActivityHistoryDelete.swift](../../../packages/client-core/Sources/CrewCueClientCore/ActivityHistoryDelete.swift) | `ActivityHistoryDelete` |
 | [packages/client-core/Sources/CrewCueClientCore/ActivityImport.swift](../../../packages/client-core/Sources/CrewCueClientCore/ActivityImport.swift) | `ClientFeatureFlags`, `ActivityHistoryItem`, `ActivityImportStatus`, `ActivityImportResult`, `ActivityImport` |
 | [packages/client-core/Sources/CrewCueClientCore/AidStationSheet.swift](../../../packages/client-core/Sources/CrewCueClientCore/AidStationSheet.swift) | `AidStationPhase`, `AidStationCheckpoint`, `AidStationPage`, `AidStationProjection`, `AidStationSheet`, `AidVisit` |
 | [packages/client-core/Sources/CrewCueClientCore/Billing.swift](../../../packages/client-core/Sources/CrewCueClientCore/Billing.swift) | `BillingProduct`, `RoomBillingState`, `StorePurchaseResult`, `PurchasePhase`, `EntitlementPollPolicy`, `BillingErrors`, `BillingFlow`, `FakeStorePurchaser`, `BillingBridge` |
@@ -214,11 +215,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-125 files under `packages/client-core/Sources/`.
+126 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 75 | 16683 |
+| `CrewCueClientCore` | 76 | 16771 |
 | `CrewCueClientCore/Generated` | 50 | 984 |
 
 ### iOS app (SwiftUI)
@@ -228,11 +229,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 15 | 2199 |
+| `App` | 15 | 2234 |
 | `Brand` | 2 | 286 |
 | `Design` | 10 | 2063 |
 | `Logging` | 2 | 18 |
-| `Screens/ActivityImport` | 4 | 576 |
+| `Screens/ActivityImport` | 4 | 700 |
 | `Screens/AthleteSetup` | 2 | 146 |
 | `Screens/Auth` | 2 | 223 |
 | `Screens/Billing` | 2 | 455 |
@@ -244,7 +245,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Map` | 7 | 3207 |
 | `Screens/Notifications` | 2 | 116 |
 | `Screens/Onboarding` | 15 | 4659 |
-| `Screens/Pace` | 2 | 2077 |
+| `Screens/Pace` | 2 | 2092 |
 | `Screens/Profile` | 2 | 671 |
 | `Screens/RoomMembers` | 2 | 245 |
 | `Screens/Settings` | 2 | 389 |
@@ -253,7 +254,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-138 files under `apps/android/app/src/main/`.
+139 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -261,7 +262,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/auth` | 3 | 201 |
 | `kotlin/com/crewcue/android/billing` | 3 | 255 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 911 |
+| `kotlin/com/crewcue/android/data` | 3 | 917 |
 | `kotlin/com/crewcue/android/di` | 1 | 107 |
 | `kotlin/com/crewcue/android/generated` | 50 | 517 |
 | `kotlin/com/crewcue/android/invite` | 1 | 123 |
@@ -269,7 +270,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/nav` | 2 | 147 |
 | `kotlin/com/crewcue/android/session` | 4 | 284 |
 | `kotlin/com/crewcue/android/ui` | 6 | 2483 |
-| `kotlin/com/crewcue/android/ui/activity` | 2 | 821 |
+| `kotlin/com/crewcue/android/ui/activity` | 3 | 1115 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 233 |
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 542 |
