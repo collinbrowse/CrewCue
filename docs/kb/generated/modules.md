@@ -252,39 +252,39 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-126 files under `apps/android/app/src/main/`.
+132 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `kotlin/com/crewcue/android` | 2 | 171 |
 | `kotlin/com/crewcue/android/auth` | 3 | 201 |
-| `kotlin/com/crewcue/android/billing` | 3 | 252 |
+| `kotlin/com/crewcue/android/billing` | 3 | 255 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 829 |
+| `kotlin/com/crewcue/android/data` | 3 | 861 |
 | `kotlin/com/crewcue/android/di` | 1 | 107 |
 | `kotlin/com/crewcue/android/generated` | 50 | 517 |
 | `kotlin/com/crewcue/android/invite` | 1 | 123 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
 | `kotlin/com/crewcue/android/nav` | 2 | 147 |
 | `kotlin/com/crewcue/android/session` | 4 | 284 |
-| `kotlin/com/crewcue/android/ui` | 5 | 2001 |
-| `kotlin/com/crewcue/android/ui/activity` | 2 | 645 |
+| `kotlin/com/crewcue/android/ui` | 6 | 2331 |
+| `kotlin/com/crewcue/android/ui/activity` | 2 | 821 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 233 |
-| `kotlin/com/crewcue/android/ui/billing` | 2 | 511 |
+| `kotlin/com/crewcue/android/ui/billing` | 2 | 542 |
 | `kotlin/com/crewcue/android/ui/brand` | 2 | 342 |
 | `kotlin/com/crewcue/android/ui/brandloader` | 1 | 54 |
 | `kotlin/com/crewcue/android/ui/chat` | 7 | 1273 |
-| `kotlin/com/crewcue/android/ui/incidents` | 1 | 298 |
-| `kotlin/com/crewcue/android/ui/invite` | 1 | 273 |
-| `kotlin/com/crewcue/android/ui/join` | 2 | 257 |
-| `kotlin/com/crewcue/android/ui/map` | 6 | 1956 |
-| `kotlin/com/crewcue/android/ui/members` | 1 | 317 |
+| `kotlin/com/crewcue/android/ui/incidents` | 1 | 310 |
+| `kotlin/com/crewcue/android/ui/invite` | 1 | 294 |
+| `kotlin/com/crewcue/android/ui/join` | 2 | 300 |
+| `kotlin/com/crewcue/android/ui/map` | 7 | 2138 |
+| `kotlin/com/crewcue/android/ui/members` | 1 | 333 |
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
-| `kotlin/com/crewcue/android/ui/onboarding` | 11 | 5954 |
+| `kotlin/com/crewcue/android/ui/onboarding` | 11 | 6082 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
-| `kotlin/com/crewcue/android/ui/pace` | 2 | 1503 |
-| `kotlin/com/crewcue/android/ui/profile` | 1 | 389 |
-| `kotlin/com/crewcue/android/ui/settings` | 2 | 383 |
+| `kotlin/com/crewcue/android/ui/pace` | 2 | 1725 |
+| `kotlin/com/crewcue/android/ui/profile` | 3 | 858 |
+| `kotlin/com/crewcue/android/ui/settings` | 2 | 446 |
 | `kotlin/com/crewcue/android/ui/strava` | 1 | 247 |
-| `kotlin/com/crewcue/android/ui/theme` | 3 | 873 |
+| `kotlin/com/crewcue/android/ui/theme` | 5 | 1054 |
