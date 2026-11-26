@@ -29,6 +29,13 @@ export const UPLOAD_JOB_RESULT_TTL_MS = 10 * 60 * 1000;
 
 const jobs = new Map<string, UploadJob>();
 
+/** Tests: the next job waits on this after it starts and before its work runs (one-shot). */
+let workGateForTests: (() => Promise<void>) | undefined;
+
+export function setUploadJobWorkGateForTests(gate: (() => Promise<void>) | undefined): void {
+  workGateForTests = gate;
+}
+
 /** Thrown from a job's work when the owner started another upload. */
 export class UploadJobCancelled extends Error {
   constructor() {
@@ -69,9 +76,12 @@ export function startUploadJob(
       if (job.cancelled) throw new UploadJobCancelled();
     }
   };
+  const gate = workGateForTests;
+  workGateForTests = undefined;
   void (async () => {
     try {
       await context.yieldNow();
+      if (gate) await gate();
       const { status, body } = await work(context);
       job.result = { state: "done", status, body };
     } catch (err) {
