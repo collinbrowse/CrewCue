@@ -9,8 +9,8 @@ import org.junit.Test
 class CoachMarkLayoutTest {
     private val phone = Rect(16f, 40f, 396f, 860f)
 
-    private fun place(safe: Rect, anchor: Rect?, height: Float = 300f, avoid: List<Rect> = emptyList()) =
-        CoachMarkLayout.place(safe, anchor, maxCardWidth = 440f, gap = 12f, minBesideWidth = 240f, avoid = avoid) { height }
+    private fun place(safe: Rect, anchor: Rect?, height: Float = 300f, avoid: List<Rect> = emptyList(), besideFirst: Boolean = false) =
+        CoachMarkLayout.place(safe, anchor, maxCardWidth = 440f, gap = 12f, minBesideWidth = 240f, avoid = avoid, besideFirst = besideFirst) { height }
 
     @Test
     fun aBottomTabGetsTheCardAboveItInsideTheMargins() {
@@ -40,6 +40,25 @@ class CoachMarkLayoutTest {
         assertEquals(96f + 12f, placed.x)
         assertEquals(440f, placed.width)
         assertTrue(placed.y >= wide.top && placed.y + 420f <= wide.bottom)
+    }
+
+    @Test
+    fun aRailItemWithRoomBelowStillGetsTheCardBesideIt() {
+        // An unfolded fold: the Map item tops the rail, with room under it for the whole card.
+        val unfolded = Rect(16f, 40f, 868f, 900f)
+        val map = Rect(0f, 30f, 80f, 110f)
+        val placed = place(unfolded, map, besideFirst = true)
+        assertEquals(CoachMarkLayout.Side.End, placed.side)
+        assertEquals(80f + 12f, placed.x)
+        // Without the rail the same anchor puts the card below, over the rail's other tabs.
+        assertEquals(CoachMarkLayout.Side.Below, place(unfolded, map).side)
+    }
+
+    @Test
+    fun aRailInANarrowWindowFallsBackAboveOrBelow() {
+        val narrow = Rect(16f, 40f, 300f, 860f)
+        val placed = place(narrow, Rect(0f, 30f, 80f, 110f), besideFirst = true)
+        assertEquals(CoachMarkLayout.Side.Below, placed.side)
     }
 
     @Test
