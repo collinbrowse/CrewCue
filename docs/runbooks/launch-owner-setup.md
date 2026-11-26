@@ -130,6 +130,10 @@ Free Developer plan. Create three projects: `crewcue-ios`, `crewcue-android`, `c
 1. Buy a domain (for example `crewcue.app`). Point `api.` at Railway and the root at GitHub Pages, on a separate Pages repo, never `collinbrowse.github.io` (see [Invite links](#invite-links-github-pages)).
 2. Agents draft the privacy policy, terms, support page and account-deletion page (backlog item 9). **Read them and approve them yourself.** They are legal commitments. Paying a lawyer to review them or using a reputable generator is worth considering.
 3. Create a support email address, for example `support@crewcue.app`.
+4. **Email sending (blocks the email reminder PR).** Today the unpaid-race reminders are push only, so a runner with notifications off gets no warning before the race is deleted (risk R32 in `docs/kb/risks.md`). The email fallback is built only once these exist:
+   1. Create a [Resend](https://resend.com) account and add the domain from step 1 as a sending domain. Add the DNS records Resend lists (SPF, DKIM, and optionally DMARC), and wait until Resend shows the domain as verified.
+   2. Create an API key with sending access only. Save it as `RESEND_API_KEY` in Railway **staging**. For production, save it in the GitHub `release` environment or the production service (step 3).
+   3. Choose the From address, for example `reminders@<your domain>`, and tell the agent which one.
 
 ## 10. Store listings (2 hours)
 
