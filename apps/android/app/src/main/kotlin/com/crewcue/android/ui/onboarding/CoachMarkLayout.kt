@@ -6,8 +6,8 @@ import kotlin.math.min
 
 /**
  * Where a coach mark's card goes (clients/behavior/onboarding-runner-tour.md, Coach marks): above
- * or below the ringed tab, whichever has room, else beside it (a tab bar down the side of the
- * display, a navigation rail), always inside [safe] (the window less its margins, the system bars
+ * or below the ringed tab, whichever has room, else beside it. A navigation rail ([besideFirst])
+ * tries beside first, so the card never covers the rail's other tabs. Always inside [safe] (the window less its margins, the system bars
  * and the camera cutout) and off a fold's hinge. Every value is in the overlay's own px; the
  * anchor is the tab's measured frame, never a screen edge. Pure, so it is unit tested.
  */
@@ -20,6 +20,7 @@ object CoachMarkLayout {
     /**
      * [heightFor] is the card's height at a width (its intrinsic height). [avoid] holds the hinge
      * of a folding display, if any. [minBesideWidth] is the narrowest card worth putting beside a tab.
+     * [besideFirst] is set when the tabs run down the side of the window (a navigation rail).
      */
     fun place(
         safe: Rect,
@@ -28,6 +29,7 @@ object CoachMarkLayout {
         gap: Float,
         minBesideWidth: Float,
         avoid: List<Rect> = emptyList(),
+        besideFirst: Boolean = false,
         heightFor: (Float) -> Float
     ): Placement {
         val width = min(maxCardWidth, safe.width)
@@ -41,7 +43,7 @@ object CoachMarkLayout {
                 side = Side.Center
             )
         } else {
-            around(safe, anchor, width, maxCardWidth, gap, minBesideWidth, heightFor)
+            around(safe, anchor, width, maxCardWidth, gap, minBesideWidth, besideFirst, heightFor)
         }
         return avoid.fold(placed) { current, hinge -> offHinge(current, hinge, safe, anchor, gap, heightFor) }
     }
@@ -53,27 +55,32 @@ object CoachMarkLayout {
         maxCardWidth: Float,
         gap: Float,
         minBesideWidth: Float,
+        besideFirst: Boolean,
         heightFor: (Float) -> Float
     ): Placement {
         val height = heightFor(width)
         val above = anchor.top - gap - safe.top
         val below = safe.bottom - anchor.bottom - gap
         val x = clamp(anchor.center.x - width / 2, safe.left, safe.right - width)
-        if (height <= above) return Placement(x, anchor.top - gap - height, width, above, Side.Above)
-        if (height <= below) return Placement(x, anchor.bottom + gap, width, below, Side.Below)
         val end = safe.right - anchor.right - gap
         val start = anchor.left - gap - safe.left
         val besideRoom = max(end, start)
-        if (besideRoom >= minBesideWidth) {
+        val beside = if (besideRoom >= minBesideWidth) {
             val besideWidth = min(maxCardWidth, besideRoom)
             val besideHeight = min(heightFor(besideWidth), safe.height)
             val y = clamp(anchor.center.y - besideHeight / 2, safe.top, safe.bottom - besideHeight)
-            return if (end >= start) {
+            if (end >= start) {
                 Placement(anchor.right + gap, y, besideWidth, safe.height, Side.End)
             } else {
                 Placement(anchor.left - gap - besideWidth, y, besideWidth, safe.height, Side.Start)
             }
+        } else {
+            null
         }
+        if (besideFirst && beside != null) return beside
+        if (height <= above) return Placement(x, anchor.top - gap - height, width, above, Side.Above)
+        if (height <= below) return Placement(x, anchor.bottom + gap, width, below, Side.Below)
+        if (beside != null) return beside
         // No side has room for all of it: the roomier of above and below, scrolling in that space.
         return if (above >= below) {
             Placement(x, safe.top, width, above, Side.Above)

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
@@ -70,6 +71,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.TextAutoSize
 import com.crewcue.android.ui.athlete.AthleteSetupScreen
 import com.crewcue.android.ui.brandloader.BrandLoaderDemo
 import com.crewcue.android.ui.billing.PaywallScreen
@@ -295,8 +298,7 @@ internal fun CrewNavigationSuite(
     anchors: TourAnchors?,
     content: @Composable (rail: Boolean) -> Unit
 ) {
-    val rail = currentWindowAdaptiveInfo().windowSizeClass
-        .isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+    val rail = tabBarIsRail(currentWindowAdaptiveInfo().windowSizeClass)
     val colors = MaterialTheme.colorScheme
     NavigationSuiteScaffold(
         navigationSuiteItems = {
@@ -306,7 +308,8 @@ internal fun CrewNavigationSuite(
                     selected = active,
                     onClick = { onSelect(tab) },
                     icon = { Icon(tabIcon(tab, active), contentDescription = null) },
-                    label = { TabLabel(tab) },
+                    // A rail item is 80dp wide: the label fits inside it, stepping down at large font scales.
+                    label = { TabLabel(tab, Modifier.widthIn(max = 72.dp)) },
                     badge = if (tab == ShellTab.Chat && chatUnread > 0) {
                         { Badge { Text(chatUnread.toString()) } }
                     } else {
@@ -344,19 +347,28 @@ internal fun CrewNavigationSuite(
     }
 }
 
+/** The tabs become a navigation rail at medium and expanded widths. The tour's card reads this too. */
+internal fun tabBarIsRail(sizeClass: WindowSizeClass): Boolean =
+    sizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+
 private fun tabDescription(tab: ShellTab, chatUnread: Int): String =
     if (tab == ShellTab.Chat && chatUnread > 0) "${tab.title}, $chatUnread unread" else tab.title
 
-/** One line at any font scale: "PROFILE" wrapped at 200%. */
+/**
+ * One line at any font scale: at 200% "PROFILE" wrapped, then clipped. The label takes the font
+ * scale's size when it fits and steps down until it does.
+ */
 @Composable
 private fun TabLabel(tab: ShellTab, modifier: Modifier = Modifier, color: Color = Color.Unspecified) {
+    val style = MaterialTheme.typography.labelSmall
     Text(
         tab.title.uppercase(),
         modifier = modifier,
-        style = MaterialTheme.typography.labelSmall,
+        style = style,
         color = color,
         maxLines = 1,
-        softWrap = false
+        softWrap = false,
+        autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = style.fontSize, stepSize = 0.5.sp)
     )
 }
 
