@@ -19,42 +19,42 @@
       "path": "/activity-history",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 300
+      "line": 302
     },
     {
       "method": "POST",
       "path": "/activity-history/gpx",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 337
+      "line": 339
     },
     {
       "method": "POST",
       "path": "/activity-history/file",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 386
+      "line": 388
     },
     {
       "method": "POST",
       "path": "/activity-history/preview",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 458
+      "line": 460
     },
     {
       "method": "POST",
       "path": "/activity-history/archive",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 476
+      "line": 478
     },
     {
       "method": "GET",
       "path": "/activity-history",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 551
+      "line": 553
     },
     {
       "method": "POST",

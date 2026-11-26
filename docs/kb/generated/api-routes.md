@@ -18,12 +18,12 @@ Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| POST | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:300](../../../services/api/src/routes/activityHistory.ts#L300) |
-| POST | `/activity-history/gpx` | identity | [services/api/src/routes/activityHistory.ts:337](../../../services/api/src/routes/activityHistory.ts#L337) |
-| POST | `/activity-history/file` | identity | [services/api/src/routes/activityHistory.ts:386](../../../services/api/src/routes/activityHistory.ts#L386) |
-| POST | `/activity-history/preview` | identity | [services/api/src/routes/activityHistory.ts:458](../../../services/api/src/routes/activityHistory.ts#L458) |
-| POST | `/activity-history/archive` | identity | [services/api/src/routes/activityHistory.ts:476](../../../services/api/src/routes/activityHistory.ts#L476) |
-| GET | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:551](../../../services/api/src/routes/activityHistory.ts#L551) |
+| POST | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:302](../../../services/api/src/routes/activityHistory.ts#L302) |
+| POST | `/activity-history/gpx` | identity | [services/api/src/routes/activityHistory.ts:339](../../../services/api/src/routes/activityHistory.ts#L339) |
+| POST | `/activity-history/file` | identity | [services/api/src/routes/activityHistory.ts:388](../../../services/api/src/routes/activityHistory.ts#L388) |
+| POST | `/activity-history/preview` | identity | [services/api/src/routes/activityHistory.ts:460](../../../services/api/src/routes/activityHistory.ts#L460) |
+| POST | `/activity-history/archive` | identity | [services/api/src/routes/activityHistory.ts:478](../../../services/api/src/routes/activityHistory.ts#L478) |
+| GET | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:553](../../../services/api/src/routes/activityHistory.ts#L553) |
 
 ## analyticsRoutes
 
