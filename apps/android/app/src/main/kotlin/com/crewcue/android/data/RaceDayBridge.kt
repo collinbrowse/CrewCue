@@ -356,6 +356,12 @@ class RaceDayBridge private constructor(
     /** Pacing history for display: items[].summary, newest first. */
     fun activityHistoryItems(): RuntimeResult = call("activityHistoryItems")
 
+    /** Removes one run from pacing history. `result.removed`, else `offline` and a user-facing `message`. */
+    fun deleteActivity(id: String): RuntimeResult = call("deleteActivity") { put("id", id) }
+
+    /** The remove-a-run strings (`ActivityHistoryDelete`): confirm, status and Recalculate copy. */
+    fun activityDeleteCopy(): RuntimeResult = call("activityDeleteCopy")
+
     fun stravaStart(): RuntimeResult = call("stravaStart")
 
     fun stravaConnection(): RuntimeResult = call("stravaConnection")

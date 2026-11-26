@@ -251,3 +251,26 @@ export async function deleteActivityHistoryForAthlete(athleteUserId: string): Pr
   const result = await pool.query(`DELETE FROM activity_history_json WHERE athlete_user_id = $1`, [athleteUserId]);
   return result.rowCount ?? 0;
 }
+
+/**
+ * Removes one run from this athlete's pacing history. False when the id is unknown or belongs to
+ * another athlete, so callers cannot tell the two apart. Estimates read history live, so the next
+ * `POST /pacing-estimates` leaves the run out with nothing else to clear.
+ */
+export async function deleteActivityHistoryEntry(athleteUserId: string, historyId: string): Promise<boolean> {
+  await ensureReady();
+  if (!pool) {
+    const key = memoryIdIndex.get(historyId);
+    if (!key) return false;
+    const row = memoryByKey.get(key);
+    if (!row || row.athleteUserId !== athleteUserId) return false;
+    memoryByKey.delete(key);
+    memoryIdIndex.delete(historyId);
+    return true;
+  }
+  const result = await pool.query(
+    `DELETE FROM activity_history_json WHERE history_id = $1 AND athlete_user_id = $2`,
+    [historyId, athleteUserId]
+  );
+  return (result.rowCount ?? 0) > 0;
+}

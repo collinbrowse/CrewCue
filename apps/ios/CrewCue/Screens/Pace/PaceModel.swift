@@ -119,6 +119,9 @@ final class PaceModel {
         PlanAuthority.mayExplicitRecalculate(role: role)
     }
 
+    /// The race this model has loaded, if any.
+    var loadedRoomId: String? { roomId }
+
     var canEditStops: Bool {
         PlanAuthority.mayEditCourse(role: role) && courseCheckpoints.count >= 2 && loadedStops.isEmpty == false
     }
@@ -181,6 +184,15 @@ final class PaceModel {
     func recalculate() async {
         guard canRecalculate else { return }
         await computeAndAttach(ticket: generation, trigger: .recalculate)
+    }
+
+    /// Settings removed a run: re-read the runner's history so the stored fingerprint matches,
+    /// then recalculate. True when the new estimate was attached.
+    func recalculateAfterHistoryChange() async -> Bool {
+        guard roomId != nil, canRecalculate else { return false }
+        let ticket = generation
+        await loadHistoryIfNeeded(ticket: ticket)
+        return await computeAndAttach(ticket: ticket, trigger: .recalculate)
     }
 
     /// Stops the runner has passed (by the athlete's latest ping) stay read-only in the draft.
@@ -471,8 +483,9 @@ final class PaceModel {
         }
     }
 
-    private func computeAndAttach(ticket: Int, trigger: PlanTrigger) async {
-        guard ticket == generation, let roomId, estimateBusy == false else { return }
+    @discardableResult
+    private func computeAndAttach(ticket: Int, trigger: PlanTrigger) async -> Bool {
+        guard ticket == generation, let roomId, estimateBusy == false else { return false }
         estimateBusy = true
         defer { estimateBusy = false }
         do {
@@ -483,7 +496,7 @@ final class PaceModel {
                 trigger: trigger,
                 hasPlanOfRecord: hasPlanOfRecord
             )
-            guard ticket == generation else { return }
+            guard ticket == generation else { return false }
             loadedEstimate = attached
             estimateRevision += 1
             planOfRecordId = attached.id
@@ -493,13 +506,15 @@ final class PaceModel {
             }
             applyEstimatePresentation()
             await loadScheduleSection(ticket: ticket)
+            return true
         } catch {
-            guard ticket == generation else { return }
+            guard ticket == generation else { return false }
             showColdStart = false
             showsEstimateSummary = false
             estimateMessage = APIFailure.isTransport(error)
                 ? "Offline. Estimate not updated."
                 : "Couldn't load the pace estimate."
+            return false
         }
     }
 

@@ -420,3 +420,54 @@ test("fixture history + course returns a parseable PacingEstimate, finish-only, 
     assert.match(estimate.explanation, /outside the window excluded|similarity window/i);
   });
 });
+
+test("a deleted run no longer feeds the next estimate", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const token = tokenFor("athlete-1");
+    const long = await ingestGpx(app, token, "activity-long-trail.gpx", "gpx:activity-long-trail");
+    const estimate = async (historyRefIds?: string[]) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/pacing-estimates",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          raceStartAt: RACE_START,
+          checkpoints: loadCourseCheckpoints(),
+          ...(historyRefIds !== undefined ? { historyRefIds } : {}),
+          seed: DEFAULT_PACING_ESTIMATE_SEED
+        }
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      return parsePacingEstimate(response.json());
+    };
+
+    const withRun = await estimate();
+    assert.equal(withRun.coldStart, false);
+    assert.deepEqual(withRun.historyRefIds, [long.id]);
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/activity-history/${long.id}`,
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(removed.statusCode, 204);
+
+    const withoutRun = await estimate();
+    assert.equal(withoutRun.coldStart, true);
+    assert.notEqual(withoutRun.id, withRun.id);
+    assert.deepEqual(withoutRun, await estimate([]));
+
+    const pinned = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        raceStartAt: RACE_START,
+        checkpoints: loadCourseCheckpoints(),
+        historyRefIds: [long.id],
+        seed: DEFAULT_PACING_ESTIMATE_SEED
+      }
+    });
+    assert.equal(pinned.statusCode, 404);
+  });
+});

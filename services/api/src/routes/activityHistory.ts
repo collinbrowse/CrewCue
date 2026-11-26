@@ -4,6 +4,7 @@
  * `POST /activity-history/file` takes GPX, FIT or TCX exports (#652).
  * `POST /activity-history/preview` reads a file or .zip without saving, for the share-sheet preview;
  * `POST /activity-history/archive` imports every run in a .zip (run-import scope, slice 4).
+ * `DELETE /activity-history/:historyId` removes one of the caller's runs from their pacing history.
  */
 import { randomUUID } from "node:crypto";
 import { isFootActivity, parseActivityFile, simplifyPositions } from "@crewcue/map-core";
@@ -27,6 +28,7 @@ import {
 import { looksLikeZip, zipEntries, ZipArchiveError } from "../lib/zipArchive.js";
 import { startUploadJob, uploadJobFor } from "../lib/uploadJobs.js";
 import {
+  deleteActivityHistoryEntry,
   getActivityHistoryForAthlete,
   initActivityHistoryStore,
   listActivityHistoryForAthlete,
@@ -565,5 +567,17 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       return reply.code(404).send({ error: "Activity history not found" });
     }
     return reply.code(200).send(toClientRef(ref));
+  });
+
+  /** Owner-only. Another athlete's id reads as 404, the same as an unknown one. */
+  app.delete<{ Params: { historyId: string } }>("/activity-history/:historyId", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const removed = await deleteActivityHistoryEntry(request.identity.sub, request.params.historyId);
+    if (!removed) {
+      return reply.code(404).send({ error: "Activity history not found" });
+    }
+    return reply.code(204).send();
   });
 }
