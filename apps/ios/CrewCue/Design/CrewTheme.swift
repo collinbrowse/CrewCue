@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Ember palette: the app icon's slate, cream and orange. Values mirror `ember` in `packages/contracts/src/designSystems.ts`.
 struct CrewPalette: Equatable {
-    /// Warm page ground.
+    /// Page ground (white in light mode, so cards and bars read as cream).
     var background: Color
-    /// Raised card fill (white in light mode).
+    /// Raised card fill (cream in light mode, on a white page).
     var card: Color
     /// Tonal fill for inset wells, incoming chat bubbles, and secondary buttons.
     var well: Color
@@ -28,8 +28,8 @@ struct CrewPalette: Equatable {
     var shadow: Color
 
     static let light = CrewPalette(
-        background: Color(hex: 0xF8F4EA),
-        card: Color(hex: 0xFFFFFF),
+        background: Color(hex: 0xFFFFFF),
+        card: Color(hex: 0xF8F4EA),
         well: Color(hex: 0xF0EADD),
         secondaryButton: Color(hex: 0xE9E2D3),
         ink: Color(hex: 0x1F2730),
@@ -45,7 +45,7 @@ struct CrewPalette: Equatable {
         onDangerSoft: Color(hex: 0x93000A),
         divider: Color(hex: 0xD6D0C3),
         outline: Color(hex: 0x7A7F87),
-        glassTint: Color(hex: 0xF8F4EA).opacity(0.22),
+        glassTint: Color(hex: 0xF8F4EA).opacity(0.7),
         shadow: Color(hex: 0x1F2730).opacity(0.08)
     )
 
