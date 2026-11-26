@@ -115,10 +115,10 @@ export const DESIGN_SYSTEMS: Record<DesignSystemId, DesignSystemDefinition> = {
     variants: {
       light: {
         colors: {
-          surface: "#f8f4ea",
+          surface: "#ffffff",
           surfaceDim: "#ddd7cb",
-          surfaceBright: "#f8f4ea",
-          surfaceContainerLowest: "#ffffff",
+          surfaceBright: "#ffffff",
+          surfaceContainerLowest: "#f8f4ea",
           surfaceContainerLow: "#f3eee3",
           surfaceContainer: "#f0eadd",
           surfaceContainerHigh: "#e9e2d3",
@@ -147,7 +147,7 @@ export const DESIGN_SYSTEMS: Record<DesignSystemId, DesignSystemDefinition> = {
           onError: "#ffffff",
           errorContainer: "#fde7e7",
           onErrorContainer: "#93000a",
-          background: "#f8f4ea",
+          background: "#ffffff",
           onBackground: "#1f2730",
           surfaceVariant: "#e3dccc"
         },
