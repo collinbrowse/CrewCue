@@ -8,6 +8,7 @@
  * 2. Per-user stores: activity history, pacing estimates, finished efforts, the chat messages the
  *    user sent in other rooms, chat push devices and prefs, Strava (deauthorize at Strava best
  *    effort, then delete tokens and OAuth state).
+ *    Running bulk uploads stop first, so none of them saves a run after these deletes.
  * 3. Auth0 user last. If it fails the caller returns 502 and the client keeps the session, so a
  *    retry (every step above is idempotent) can finish the job.
  */
@@ -22,6 +23,7 @@ import { deleteFinishedEffortsForAthlete } from "./finishedEffortStore.js";
 import { deleteChatDataForUser } from "./chatPersistence.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
 import { deleteRoomRemovalsForUser } from "./roomRemovalStore.js";
+import { cancelUploadJobsFor } from "./uploadJobs.js";
 import {
   deleteOAuthPendingStatesForAthlete,
   deleteStravaConnection,
@@ -70,6 +72,9 @@ export async function deleteAccountData(
 ): Promise<AccountDeletionResult> {
   const { sub } = identity;
   const subjectHash = hashedSubject(sub);
+
+  // A bulk import still reading an export would save its runs after step 2 deleted them.
+  await cancelUploadJobsFor(sub);
 
   // 1. Rooms.
   const rooms = await listRaceRoomsForAccount(sub);
