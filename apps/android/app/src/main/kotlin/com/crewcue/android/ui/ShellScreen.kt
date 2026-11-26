@@ -18,6 +18,12 @@ import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
+import androidx.window.core.layout.WindowSizeClass
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -143,115 +149,116 @@ private fun AppShell(viewModel: ShellViewModel) {
     ) {
         val paywallRoom = roomId?.takeIf { gate.showsPaywall }
         val lockedReason = gate.lockedReason
-        val onMap = viewModel.selectedTab == ShellTab.Map && race != null && paywallRoom == null && lockedReason == null
-        // Map and Pace show the runner's course progress in the top bar (client-core's readout
-        // from the athlete's pings). Chat and Profile don't.
-        val raceTab = viewModel.selectedTab == ShellTab.Map || viewModel.selectedTab == ShellTab.Pace
-        val courseStrip = race?.readout?.takeIf { raceTab && paywallRoom == null && lockedReason == null }?.let { readout ->
-            readout.courseStripLabel?.let { CourseStripState(readout.progressFraction, it, readout.courseStripSpoken ?: it) }
-        }
-        // The bar grows with the strip and with the font scale: content starts under its real height.
-        val density = LocalDensity.current
-        var barHeight by remember { mutableStateOf(0.dp) }
-        val topSpace = max(TOP_BAR_SPACE, barHeight + 8.dp)
-        Column(
-            Modifier
-                .fillMaxSize()
-                .then(if (onMap) Modifier else Modifier.statusBarsPadding().padding(top = topSpace))
-                .padding(bottom = if (onMap) 0.dp else TAB_BAR_SPACE)
-        ) {
-            if (paywallRoom != null) {
-                PaywallScreen(
-                    viewModel,
-                    paywallRoom,
-                    onContinue = { viewModel.noteUnlocked(paywallRoom) },
-                    Modifier.weight(1f),
-                    // The runner's paywall closes back to where it was opened; a crew member's
-                    // unpaid race shows it in place of the tab, with nothing to close.
-                    onClose = if (viewModel.paywallOpen) viewModel::closePaywall else null
-                )
-            } else if (lockedReason != null) {
-                RaceLockedPane(lockedReason, Modifier.weight(1f))
-            } else when (viewModel.selectedTab) {
-                ShellTab.Profile -> {
-                    if (viewModel.session == null) {
-                        FeatureScreen(viewModel.uiState, Modifier.weight(1f))
-                    } else {
-                        ProfileDestination(viewModel, Modifier.weight(1f), race)
-                    }
-                }
-                ShellTab.Pace -> {
-                    if (roomId.isNullOrBlank()) {
-                        NoRaceScreen(viewModel, Modifier.weight(1f))
-                    } else {
-                        if (onLocked != null) UnlockRaceBanner(unlockBanner, onLocked, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), expiry = unlockExpiry)
-                        PaceScreen(viewModel, roomId, Modifier.weight(1f), viewModel.paceFocus, race)
-                    }
-                }
-                ShellTab.Map -> {
-                    if (roomId.isNullOrBlank()) {
-                        NoRaceScreen(viewModel, Modifier.weight(1f))
-                    } else {
-                        MapScreen(
-                            viewModel,
-                            roomId,
-                            "map-track",
-                            Modifier.weight(1f),
-                            bottomInset = TAB_BAR_SPACE,
-                            topInset = topSpace + 4.dp,
-                            onLocked = onLocked,
-                            toolRequest = viewModel.mapToolRequest,
-                            startLineRequest = viewModel.startLineRequest,
-                            onStartLineShown = viewModel::startLineShown,
-                            topCard = tour?.checklist?.takeIf { tour.card == null }?.let { checklist ->
-                                { SetupChecklistSlot(viewModel, tour, checklist) }
-                            }
-                        )
-                    }
-                }
-                ShellTab.Chat -> {
-                    if (roomId.isNullOrBlank()) {
-                        NoRaceScreen(viewModel, Modifier.weight(1f))
-                    } else {
-                        if (onLocked != null) UnlockRaceBanner(unlockBanner, onLocked, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), expiry = unlockExpiry)
-                        ChatPane(viewModel, roomId, Modifier.weight(1f), race = race, onLocked = onLocked)
-                    }
-                }
-            }
-        }
-        // The map is full-bleed under the top bar, so its banner floats below that bar.
-        if (onLocked != null && onMap) {
-            UnlockRaceBanner(
-                unlockBanner,
-                onLocked,
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = topSpace + 48.dp)
-                    .padding(horizontal = 16.dp),
-                expiry = unlockExpiry
-            )
-        }
-        CrewTopBar(
-            title = viewModel.topBarTitle,
-            onSettings = { viewModel.openSettings() },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 4.dp)
-                .onSizeChanged { barHeight = with(density) { it.height.toDp() } },
-            courseStrip = courseStrip
-        )
-        CrewTabBar(
+        CrewNavigationSuite(
             selected = viewModel.selectedTab,
             chatUnread = viewModel.chatUnread,
             onSelect = viewModel::selectTab,
-            anchors = anchors,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        )
+            anchors = anchors
+        ) { rail ->
+            Box(Modifier.fillMaxSize()) {
+                // On a phone the pill floats over the content; beside a rail nothing sits under it.
+                val tabBarSpace = if (rail) 0.dp else TAB_BAR_SPACE
+                val onMap = viewModel.selectedTab == ShellTab.Map && race != null && paywallRoom == null && lockedReason == null
+                // Map and Pace show the runner's course progress in the top bar (client-core's readout
+                // from the athlete's pings). Chat and Profile don't.
+                val raceTab = viewModel.selectedTab == ShellTab.Map || viewModel.selectedTab == ShellTab.Pace
+                val courseStrip = race?.readout?.takeIf { raceTab && paywallRoom == null && lockedReason == null }?.let { readout ->
+                    readout.courseStripLabel?.let { CourseStripState(readout.progressFraction, it, readout.courseStripSpoken ?: it) }
+                }
+                // The bar grows with the strip and with the font scale: content starts under its real height.
+                val density = LocalDensity.current
+                var barHeight by remember { mutableStateOf(0.dp) }
+                val topSpace = max(TOP_BAR_SPACE, barHeight + 8.dp)
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .then(if (onMap) Modifier else Modifier.statusBarsPadding().padding(top = topSpace))
+                        .padding(bottom = if (onMap) 0.dp else tabBarSpace)
+                ) {
+                    if (paywallRoom != null) {
+                        PaywallScreen(
+                            viewModel,
+                            paywallRoom,
+                            onContinue = { viewModel.noteUnlocked(paywallRoom) },
+                            Modifier.weight(1f),
+                            // The runner's paywall closes back to where it was opened; a crew member's
+                            // unpaid race shows it in place of the tab, with nothing to close.
+                            onClose = if (viewModel.paywallOpen) viewModel::closePaywall else null
+                        )
+                    } else if (lockedReason != null) {
+                        RaceLockedPane(lockedReason, Modifier.weight(1f))
+                    } else when (viewModel.selectedTab) {
+                        ShellTab.Profile -> {
+                            if (viewModel.session == null) {
+                                FeatureScreen(viewModel.uiState, Modifier.weight(1f))
+                            } else {
+                                ProfileDestination(viewModel, Modifier.weight(1f), race)
+                            }
+                        }
+                        ShellTab.Pace -> {
+                            if (roomId.isNullOrBlank()) {
+                                NoRaceScreen(viewModel, Modifier.weight(1f))
+                            } else {
+                                if (onLocked != null) UnlockRaceBanner(unlockBanner, onLocked, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), expiry = unlockExpiry)
+                                PaceScreen(viewModel, roomId, Modifier.weight(1f), viewModel.paceFocus, race)
+                            }
+                        }
+                        ShellTab.Map -> {
+                            if (roomId.isNullOrBlank()) {
+                                NoRaceScreen(viewModel, Modifier.weight(1f))
+                            } else {
+                                MapScreen(
+                                    viewModel,
+                                    roomId,
+                                    "map-track",
+                                    Modifier.weight(1f),
+                                    bottomInset = max(tabBarSpace, 16.dp),
+                                    topInset = topSpace + 4.dp,
+                                    onLocked = onLocked,
+                                    toolRequest = viewModel.mapToolRequest,
+                                    startLineRequest = viewModel.startLineRequest,
+                                    onStartLineShown = viewModel::startLineShown,
+                                    topCard = tour?.checklist?.takeIf { tour.card == null }?.let { checklist ->
+                                        { SetupChecklistSlot(viewModel, tour, checklist) }
+                                    }
+                                )
+                            }
+                        }
+                        ShellTab.Chat -> {
+                            if (roomId.isNullOrBlank()) {
+                                NoRaceScreen(viewModel, Modifier.weight(1f))
+                            } else {
+                                if (onLocked != null) UnlockRaceBanner(unlockBanner, onLocked, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), expiry = unlockExpiry)
+                                ChatPane(viewModel, roomId, Modifier.weight(1f), race = race, onLocked = onLocked)
+                            }
+                        }
+                    }
+                }
+                // The map is full-bleed under the top bar, so its banner floats below that bar.
+                if (onLocked != null && onMap) {
+                    UnlockRaceBanner(
+                        unlockBanner,
+                        onLocked,
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(top = topSpace + 48.dp)
+                            .padding(horizontal = 16.dp),
+                        expiry = unlockExpiry
+                    )
+                }
+                CrewTopBar(
+                    title = viewModel.topBarTitle,
+                    onSettings = { viewModel.openSettings() },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .onSizeChanged { barHeight = with(density) { it.height.toDp() } },
+                    courseStrip = courseStrip
+                )
+            }
+        }
         // The tour's coach marks, over a race the person can use (not the paywall or a locked race).
         if (tour != null && paywallRoom == null && lockedReason == null && !viewModel.showsSettings) {
             TourOverlayHost(
@@ -272,7 +279,86 @@ private fun AppShell(viewModel: ShellViewModel) {
 
 /** Space the floating top bar and tab bar take over scrolling content. */
 private val TOP_BAR_SPACE = 72.dp
-private val TAB_BAR_SPACE = 96.dp
+internal val TAB_BAR_SPACE = 96.dp
+
+/**
+ * The shell's tabs, by window width: the floating pill [CrewTabBar] over [content] at compact
+ * width, a navigation rail beside it at medium and expanded widths. [content] learns which, so
+ * it leaves room under the pill only when the pill is there. Each rail item carries the same
+ * `crewcue.tab.*` tag and tour anchor as the pill's tab, so a coach mark rings the rail item.
+ */
+@Composable
+internal fun CrewNavigationSuite(
+    selected: ShellTab,
+    chatUnread: Int,
+    onSelect: (ShellTab) -> Unit,
+    anchors: TourAnchors?,
+    content: @Composable (rail: Boolean) -> Unit
+) {
+    val rail = currentWindowAdaptiveInfo().windowSizeClass
+        .isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+    val colors = MaterialTheme.colorScheme
+    NavigationSuiteScaffold(
+        navigationSuiteItems = {
+            ShellTab.entries.forEach { tab ->
+                val active = tab == selected
+                item(
+                    selected = active,
+                    onClick = { onSelect(tab) },
+                    icon = { Icon(tabIcon(tab, active), contentDescription = null) },
+                    label = { TabLabel(tab) },
+                    badge = if (tab == ShellTab.Chat && chatUnread > 0) {
+                        { Badge { Text(chatUnread.toString()) } }
+                    } else {
+                        null
+                    },
+                    modifier = Modifier
+                        .testTag(tabAnchorTag(tab))
+                        .tourAnchor(anchors, tabAnchorTag(tab))
+                        .semantics { contentDescription = tabDescription(tab, chatUnread) }
+                )
+            }
+        },
+        layoutType = if (rail) NavigationSuiteType.NavigationRail else NavigationSuiteType.None,
+        navigationSuiteColors = NavigationSuiteDefaults.colors(
+            navigationRailContainerColor = colors.surfaceContainerLowest
+        ),
+        containerColor = Color.Transparent,
+        contentColor = colors.onBackground
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            content(rail)
+            if (!rail) {
+                CrewTabBar(
+                    selected = selected,
+                    chatUnread = chatUnread,
+                    onSelect = onSelect,
+                    anchors = anchors,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+private fun tabDescription(tab: ShellTab, chatUnread: Int): String =
+    if (tab == ShellTab.Chat && chatUnread > 0) "${tab.title}, $chatUnread unread" else tab.title
+
+/** One line at any font scale: "PROFILE" wrapped at 200%. */
+@Composable
+private fun TabLabel(tab: ShellTab, modifier: Modifier = Modifier, color: Color = Color.Unspecified) {
+    Text(
+        tab.title.uppercase(),
+        modifier = modifier,
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+        maxLines = 1,
+        softWrap = false
+    )
+}
 
 /**
  * Course, schedule, and location feed readouts on every tab, so they load with the shell. Without
@@ -327,13 +413,7 @@ internal fun CrewTabBar(
                         .testTag(tabAnchorTag(tab))
                         .tourAnchor(anchors, tabAnchorTag(tab))
                         .padding(vertical = 8.dp)
-                        .semantics {
-                            contentDescription = if (tab == ShellTab.Chat && chatUnread > 0) {
-                                "${tab.title}, $chatUnread unread"
-                            } else {
-                                tab.title
-                            }
-                        },
+                        .semantics { contentDescription = tabDescription(tab, chatUnread) },
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     BadgedBox(
@@ -343,12 +423,7 @@ internal fun CrewTabBar(
                     ) {
                         Icon(tabIcon(tab, active), contentDescription = null, tint = ink)
                     }
-                    Text(
-                        tab.title.uppercase(),
-                        modifier = Modifier.padding(top = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ink
-                    )
+                    TabLabel(tab, Modifier.padding(top = 2.dp), ink)
                 }
             }
         }
