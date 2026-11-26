@@ -7,8 +7,8 @@ import CrewCueClientCore
 /// server's billing read unlocks the race, and then `onPurchased` runs once.
 ///
 /// Regular width puts the two options side by side, compact width stacks them, and so do the
-/// accessibility text sizes at any width. Back returns to the replay's start; Not now leaves for
-/// the tab bar, the race still behind its Unlock race banner.
+/// accessibility text sizes at any width. Back (the bar's, like every onboarding step) returns to
+/// the replay's start; Not now leaves for the tab bar, the race still behind its Unlock race banner.
 struct OnboardingPaywallView: View {
     var billing: BillingPurchaseModel?
     var roomId: String?
@@ -80,6 +80,9 @@ struct OnboardingPaywallView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.onboarding-paywall")
         .accessibilityLabel(OnboardingCopy.title(for: .paywall) ?? "")
+        // The same Back as every other onboarding step: the bar's leading chevron, the edge swipe
+        // and VoiceOver's escape. It returns to the replay's start.
+        .barBack(identifier: "crewcue.onboarding-paywall.back", enabled: billing?.working != true, action: onBack)
         .task(id: roomId ?? "") {
             guard let billing, roomId != nil else { return }
             await billing.activate(roomId: roomId)
@@ -91,26 +94,19 @@ struct OnboardingPaywallView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-            Button(OnboardingCopy.back, action: onBack)
-                .font(CrewFont.bodyLarge)
-                .foregroundStyle(theme.primary)
-                .disabled(billing?.working == true)
-                .accessibilityIdentifier("crewcue.onboarding-paywall.back")
             Text(OnboardingCopy.title(for: .paywall) ?? "")
                 .font(CrewFont.display)
                 .foregroundStyle(theme.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
+            // The one subtitle, at the top.
             if let explanation = OnboardingCopy.explanation(for: .paywall) {
                 Text(explanation)
                     .font(CrewFont.bodyLarge)
                     .foregroundStyle(theme.body)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("crewcue.onboarding-paywall.subtitle")
             }
-            Text(OnboardingCopy.paywallPitch)
-                .font(CrewFont.bodyLarge)
-                .foregroundStyle(theme.ink)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -130,7 +126,7 @@ struct OnboardingPaywallView: View {
                 action: { Task { await billing?.redeem() } }
             )
             Button(OnboardingCopy.paywallNotNow, action: onNotNow)
-                .buttonStyle(.crewSecondary)
+                .buttonStyle(.crewPill)
                 .disabled(billing?.working == true)
                 .accessibilityIdentifier("crewcue.onboarding-paywall.not-now")
         }
@@ -182,7 +178,7 @@ struct PaywallOptionCard: View {
             Button(action: action) {
                 Text(verbatim: "\(product.title) \u{00B7} \(price)")
             }
-            .buttonStyle(.crewPrimary)
+            .buttonStyle(.crewPillProminent)
             .disabled(!enabled)
             .crewBusy(busy)
             .accessibilityLabel(Text(verbatim: OnboardingCopy.paywallBuyLabel(product: product, price: price)))

@@ -1,5 +1,7 @@
 package com.crewcue.android.ui
 
+import androidx.compose.animation.togetherWith
+import com.crewcue.android.ui.theme.PillButton
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.foundation.background
@@ -33,7 +35,11 @@ import com.crewcue.android.ui.map.MapViewModelFactory
 import com.crewcue.android.ui.map.captureLocation
 import com.crewcue.android.ui.theme.CrewBackground
 import com.crewcue.android.ui.theme.CrewListRow
+import com.crewcue.android.ui.theme.CourseStripState
 import com.crewcue.android.ui.theme.CrewTopBar
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.max
 import com.crewcue.android.ui.theme.SectionHeader
 import com.crewcue.android.ui.theme.ToolSheet
 import androidx.compose.foundation.layout.Column
@@ -138,14 +144,32 @@ private fun AppShell(viewModel: ShellViewModel) {
         val paywallRoom = roomId?.takeIf { gate.showsPaywall }
         val lockedReason = gate.lockedReason
         val onMap = viewModel.selectedTab == ShellTab.Map && race != null && paywallRoom == null && lockedReason == null
+        // Map and Pace show the runner's course progress in the top bar (client-core's readout
+        // from the athlete's pings). Chat and Profile don't.
+        val raceTab = viewModel.selectedTab == ShellTab.Map || viewModel.selectedTab == ShellTab.Pace
+        val courseStrip = race?.readout?.takeIf { raceTab && paywallRoom == null && lockedReason == null }?.let { readout ->
+            readout.courseStripLabel?.let { CourseStripState(readout.progressFraction, it, readout.courseStripSpoken ?: it) }
+        }
+        // The bar grows with the strip and with the font scale: content starts under its real height.
+        val density = LocalDensity.current
+        var barHeight by remember { mutableStateOf(0.dp) }
+        val topSpace = max(TOP_BAR_SPACE, barHeight + 8.dp)
         Column(
             Modifier
                 .fillMaxSize()
-                .then(if (onMap) Modifier else Modifier.statusBarsPadding().padding(top = TOP_BAR_SPACE))
+                .then(if (onMap) Modifier else Modifier.statusBarsPadding().padding(top = topSpace))
                 .padding(bottom = if (onMap) 0.dp else TAB_BAR_SPACE)
         ) {
             if (paywallRoom != null) {
-                PaywallScreen(viewModel, paywallRoom, onContinue = { viewModel.noteUnlocked(paywallRoom) }, Modifier.weight(1f))
+                PaywallScreen(
+                    viewModel,
+                    paywallRoom,
+                    onContinue = { viewModel.noteUnlocked(paywallRoom) },
+                    Modifier.weight(1f),
+                    // The runner's paywall closes back to where it was opened; a crew member's
+                    // unpaid race shows it in place of the tab, with nothing to close.
+                    onClose = if (viewModel.paywallOpen) viewModel::closePaywall else null
+                )
             } else if (lockedReason != null) {
                 RaceLockedPane(lockedReason, Modifier.weight(1f))
             } else when (viewModel.selectedTab) {
@@ -174,6 +198,7 @@ private fun AppShell(viewModel: ShellViewModel) {
                             "map-track",
                             Modifier.weight(1f),
                             bottomInset = TAB_BAR_SPACE,
+                            topInset = topSpace + 4.dp,
                             onLocked = onLocked,
                             toolRequest = viewModel.mapToolRequest,
                             startLineRequest = viewModel.startLineRequest,
@@ -202,17 +227,20 @@ private fun AppShell(viewModel: ShellViewModel) {
                 Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
-                    .padding(top = TOP_BAR_SPACE + 48.dp)
+                    .padding(top = topSpace + 48.dp)
                     .padding(horizontal = 16.dp),
                 expiry = unlockExpiry
             )
         }
         CrewTopBar(
+            title = viewModel.topBarTitle,
             onSettings = { viewModel.openSettings() },
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
                 .padding(horizontal = 8.dp, vertical = 4.dp)
+                .onSizeChanged { barHeight = with(density) { it.height.toDp() } },
+            courseStrip = courseStrip
         )
         CrewTabBar(
             selected = viewModel.selectedTab,
@@ -236,6 +264,9 @@ private fun AppShell(viewModel: ShellViewModel) {
     }
     if (viewModel.showsSettings) {
         ShellSettingsSheet(viewModel, onDismiss = viewModel::closeSettings)
+    }
+    if (viewModel.showsRaceChooser) {
+        RaceChooserSheet(viewModel)
     }
 }
 
@@ -370,7 +401,7 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
                 roomId.isNullOrBlank() || viewModel.stateOverlay -> FeatureScreen(viewModel.uiState)
                 viewModel.uiState.screen.featureId == "billing-redeem" ->
                     RedeemScreen(viewModel, roomId, onContinue = { viewModel.noteUnlocked(roomId) })
-                else -> PaywallScreen(viewModel, roomId, onContinue = { viewModel.noteUnlocked(roomId) })
+                else -> PaywallScreen(viewModel, roomId, onContinue = { viewModel.noteUnlocked(roomId) }, onClose = viewModel::closePaywall)
             }
         }
         "profile", "race-delete", "room-members", "readouts-incidents", "billing-upgrade", "invite-share" -> {
@@ -408,7 +439,10 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
     }
 }
 
-/** Map, Pace, and Chat need a race. Until there is one, point at the two ways to get one. */
+/**
+ * Map, Pace, and Chat need a race. With none yet, point at the two ways to get one; with races
+ * but none active (the active one was deleted), list them too: the person picks.
+ */
 @Composable
 private fun NoRaceScreen(viewModel: ShellViewModel, modifier: Modifier = Modifier) {
     Column(
@@ -418,16 +452,15 @@ private fun NoRaceScreen(viewModel: ShellViewModel, modifier: Modifier = Modifie
             .testTag("crewcue.no-race")
     ) {
         ProductCard {
-            Text("No race yet", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "Create a race for your run, or join your crew's race with an invite code.",
-                modifier = Modifier.padding(top = 8.dp),
-                style = MaterialTheme.typography.bodyLarge
+            val races = viewModel.races
+            Text(if (races.isEmpty()) "No race yet" else "Choose a race", style = MaterialTheme.typography.headlineSmall)
+            RaceChoices(
+                races = races,
+                onSelect = viewModel::selectRace,
+                onCreate = { viewModel.selectTab(ShellTab.Profile) },
+                onJoin = viewModel::openJoinCrew,
+                modifier = Modifier.padding(top = 8.dp)
             )
-            Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton("Create new race", onClick = { viewModel.selectTab(ShellTab.Profile) })
-                SecondaryButton("Join race room", onClick = viewModel::openJoinCrew)
-            }
         }
     }
 }
@@ -472,7 +505,38 @@ fun FeatureScreen(
 @Composable
 private fun ProfileDestination(viewModel: ShellViewModel, modifier: Modifier = Modifier, race: MapViewModel? = null) {
     val roomId = viewModel.session?.roomId
-    when (viewModel.profilePane) {
+    // A page opened from Profile goes back with system Back too (Invite to Room members, the
+    // others to Profile), never out of the app.
+    androidx.activity.compose.BackHandler(enabled = viewModel.profilePane != "profile") {
+        if (viewModel.profilePane == "invite") viewModel.openRoomMembers() else viewModel.openProfileHome()
+    }
+    // Pages come in from the right over Profile and go back the same way.
+    androidx.compose.animation.AnimatedContent(
+        targetState = viewModel.profilePane,
+        transitionSpec = {
+            val deeper = profileDepth(targetState) > profileDepth(initialState)
+            val width: (Int) -> Int = { if (deeper) it else -it }
+            (androidx.compose.animation.slideInHorizontally(initialOffsetX = width) togetherWith
+                androidx.compose.animation.slideOutHorizontally(targetOffsetX = { -width(it) }))
+        },
+        modifier = modifier,
+        label = "profile-pane"
+    ) { pane ->
+        ProfilePane(viewModel, pane, roomId, race)
+    }
+}
+
+/** How deep a Profile pane sits: Profile, then Room members and Incidents, then Invite. */
+private fun profileDepth(pane: String): Int = when (pane) {
+    "invite" -> 2
+    "members", "incidents", "race-pass" -> 1
+    else -> 0
+}
+
+@Composable
+private fun ProfilePane(viewModel: ShellViewModel, pane: String, roomId: String?, race: MapViewModel?) {
+    val modifier = Modifier.fillMaxSize()
+    when (pane) {
         "members" -> {
             if (roomId.isNullOrBlank()) {
                 ProfileScreen(viewModel, modifier)
@@ -494,12 +558,29 @@ private fun ProfileDestination(viewModel: ShellViewModel, modifier: Modifier = M
                 IncidentsScreen(viewModel.container.raceDay, roomId, viewModel::openProfileHome, modifier)
             }
         }
+        "race-pass" -> {
+            if (roomId.isNullOrBlank()) {
+                ProfileScreen(viewModel, modifier)
+            } else {
+                // Profile's Race Pass row: the race's Race Pass page, its X back to Profile.
+                PaywallScreen(
+                    viewModel,
+                    roomId,
+                    onContinue = {
+                        viewModel.noteUnlocked(roomId)
+                        viewModel.openProfileHome()
+                    },
+                    modifier,
+                    onClose = viewModel::openProfileHome
+                )
+            }
+        }
         else -> ProfileScreen(viewModel, modifier, race)
     }
 }
 
 private fun profileDestinationReady(viewModel: ShellViewModel): Boolean {
-    val needsRoom = viewModel.profilePane in setOf("members", "incidents", "invite")
+    val needsRoom = viewModel.profilePane in setOf("members", "incidents", "invite", "race-pass")
     if (!needsRoom) return true
     return !viewModel.session?.roomId.isNullOrBlank()
 }

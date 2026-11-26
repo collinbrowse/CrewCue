@@ -51,7 +51,26 @@ data class AidPage(
     val arrivalAt: String? = null,
     val elevationLabel: String? = null,
     val stoppageDurationLabel: String = "—",
-    val elapsedLabel: String = "—"
+    val elapsedLabel: String = "—",
+    /** The runner's pings are past this aid; [arrivalAt] is then the real arrival. */
+    val passed: Boolean = false,
+    /** Under the big clock: "EST. ARRIVAL", "LIVE ETA", "ARRIVED" or "PASSED". */
+    val arrivalCaption: String = "EST. ARRIVAL",
+    /** "2 min" */
+    val plannedStopLabel: String = "0 min",
+    val actualArrivalAt: String? = null,
+    val actualDepartureAt: String? = null,
+    /** "6 min" between the real arrival and departure. */
+    val actualStopLabel: String? = null,
+    /**
+     * The countdown pill from client-core: "IN 1H 5M", "DUE NOW" (the next aid only), "AFTER AID 2",
+     * or "" for none.
+     */
+    val countdownLabel: String = "",
+    /** "RACE 1:10:00": the planned race time at arrival. */
+    val raceTimeCaption: String? = null,
+    /** "Planned arrival 2:10 PM, 1 hour 10 minutes into the race". */
+    val plannedArrivalSpoken: String? = null
 )
 
 /** Race-wide readouts derived in client-core (`RaceDayReadouts`). */
@@ -74,7 +93,11 @@ data class RaceReadout(
     val finishWindowStartAt: String? = null,
     val finishWindowEndAt: String? = null,
     /** The live ETA is built on a stale ping. */
-    val liveEtaStale: Boolean = false
+    val liveEtaStale: Boolean = false,
+    /** The top bar's course strip on Map and Pace: "12.4 of 31.0 mi". Null without a course length. */
+    val courseStripLabel: String? = null,
+    /** "Course progress, 12.4 of 31.0 miles". */
+    val courseStripSpoken: String? = null
 )
 
 /** One Pace timeline row: done, current, or projected. */

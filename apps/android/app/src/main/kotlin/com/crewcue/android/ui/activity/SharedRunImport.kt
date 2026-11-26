@@ -1,5 +1,6 @@
 package com.crewcue.android.ui.activity
 
+import com.crewcue.android.ui.theme.PillButton
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -281,10 +282,10 @@ fun SharedRunImportSheet(model: SharedRunImportViewModel) {
                 SharedRunUi.Importing -> Busy(RUN_SHARE_IMPORTING)
                 is SharedRunUi.Message -> {
                     Text(ui.text, style = MaterialTheme.typography.titleMedium)
-                    SecondaryButton(
+                    PillButton(
                         if (ui.signedOut) "OK" else "Done",
                         onClick = { model.dismiss() },
-                        modifier = Modifier.fillMaxWidth().testTag("crewcue.run-share-import.cancel")
+                        modifier = Modifier.align(Alignment.End).testTag("crewcue.run-share-import.cancel")
                     )
                 }
                 is SharedRunUi.Preview -> {
@@ -297,10 +298,10 @@ fun SharedRunImportSheet(model: SharedRunImportViewModel) {
                         listed.forEach { run -> PreviewRunRow(run, ui.alreadyImportedBadge) }
                     }
                     step.label?.let { label ->
-                        SecondaryButton(
+                        PillButton(
                             label,
                             onClick = { model.showMore() },
-                            modifier = Modifier.fillMaxWidth().testTag("crewcue.run-share-import.show-more")
+                            modifier = Modifier.testTag("crewcue.run-share-import.show-more")
                         )
                     }
                     ui.skippedLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -319,23 +320,29 @@ fun SharedRunImportSheet(model: SharedRunImportViewModel) {
                             }
                         }
                     }
-                    if (ui.canImport) {
-                        PrimaryButton(
-                            ui.confirmLabel,
-                            onClick = { model.confirm() },
-                            modifier = Modifier.fillMaxWidth().testTag("crewcue.run-share-import.confirm")
-                        )
-                        GhostButton(
-                            "Cancel",
-                            onClick = { model.dismiss() },
-                            modifier = Modifier.fillMaxWidth().testTag("crewcue.run-share-import.cancel")
-                        )
-                    } else {
-                        SecondaryButton(
-                            "Done",
-                            onClick = { model.dismiss() },
-                            modifier = Modifier.fillMaxWidth().testTag("crewcue.run-share-import.cancel")
-                        )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                    ) {
+                        if (ui.canImport) {
+                            PillButton(
+                                "Cancel",
+                                onClick = { model.dismiss() },
+                                modifier = Modifier.testTag("crewcue.run-share-import.cancel")
+                            )
+                            PillButton(
+                                ui.confirmLabel,
+                                onClick = { model.confirm() },
+                                modifier = Modifier.testTag("crewcue.run-share-import.confirm"),
+                                prominent = true
+                            )
+                        } else {
+                            PillButton(
+                                "Done",
+                                onClick = { model.dismiss() },
+                                modifier = Modifier.testTag("crewcue.run-share-import.cancel")
+                            )
+                        }
                     }
                 }
             }

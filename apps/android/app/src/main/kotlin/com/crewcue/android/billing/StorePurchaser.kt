@@ -37,7 +37,9 @@ data class BillingInfo(
     val crewLimit: Int?,
     val hasCrewSeat: Boolean,
     val offers: List<String>,
-    val summary: String
+    val summary: String,
+    /** The Race Pass paywall's line: blank while unpaid (client-core `RoomBillingState.paywallStatus`). */
+    val paywallStatus: String = ""
 ) {
     companion object {
         fun from(json: JSONObject): BillingInfo {
@@ -50,7 +52,8 @@ data class BillingInfo(
                 crewLimit = if (json.has("crewLimit") && !json.isNull("crewLimit")) json.optInt("crewLimit") else null,
                 hasCrewSeat = json.optBoolean("hasCrewSeat", true),
                 offers = (0 until (offers?.length() ?: 0)).mapNotNull { offers?.optString(it) },
-                summary = json.optText("summary")
+                summary = json.optText("summary"),
+                paywallStatus = json.optText("paywallStatus")
             )
         }
     }

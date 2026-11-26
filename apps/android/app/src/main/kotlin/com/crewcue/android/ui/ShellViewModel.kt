@@ -29,6 +29,7 @@ import com.crewcue.android.session.DevSession
 import com.crewcue.android.session.StoredSession
 import com.crewcue.android.session.applyingJoin
 import com.crewcue.android.ui.billing.BillingCopy
+import com.crewcue.android.ui.profile.racesAfterRename
 import com.crewcue.android.ui.onboarding.OnboardingDestination
 import com.crewcue.android.ui.onboarding.OnboardingFlow
 import com.crewcue.android.ui.onboarding.OnboardingRouting
@@ -63,7 +64,11 @@ data class RaceChoice(
     val roleLabel: String,
     val displayName: String?,
     /** When the server deletes this unpaid race (`unpaidExpiresAt`, ISO); null when paid or unknown. */
-    val unpaidExpiresAt: String? = null
+    val unpaidExpiresAt: String? = null,
+    /** This user owns the race (client-core `RaceSummary.isOwned`), so may delete it. Crew never do. */
+    val owner: Boolean = false,
+    /** The race has a Race Pass; deleting it loses the pass. */
+    val paid: Boolean = false
 )
 
 /** A Map tool the shell asks the Map to open; [id] makes a second request for the same tool new. */
@@ -177,6 +182,15 @@ class ShellViewModel(
         private set
     var racesLoading by mutableStateOf(false)
         private set
+    /**
+     * The active race was deleted and the person hasn't picked the next one: no race is active and
+     * a refresh never makes one active. Map, Pace and Chat offer the choices until they pick.
+     */
+    var awaitingRaceChoice by mutableStateOf(false)
+        private set
+    /** The "Race deleted" chooser sheet is on show (crewcue.race-chooser). */
+    var showsRaceChooser by mutableStateOf(false)
+        private set
     /** The last billing read by race. With the onboarding state it decides [raceAccess]. */
     var billing by mutableStateOf(RaceBilling())
         private set
@@ -211,6 +225,9 @@ class ShellViewModel(
     private var onboardingTicket = 0
     /** The join screen on show was opened by the crew choice, so a new state may move on from it. */
     private var joinFromOnboarding = false
+
+    /** The join screen is onboarding's crew step (left with Back), not a page opened over the app (left with its X). */
+    val joinIsOnboardingStep: Boolean get() = joinFromOnboarding
     /**
      * The setup route on show was opened by a link (the debug dev route), not by onboarding: a
      * background state read doesn't move it, and it draws the runner's setup whatever the state.
@@ -240,6 +257,16 @@ class ShellViewModel(
     /** The last join answered 409 `crew_limit_reached`: the line under the code is the race-full one. */
     var joinRaceFull by mutableStateOf(false)
         private set
+
+    /**
+     * The last join answered 402 `room_unpaid`: the runner hasn't unlocked the race yet. A waiting
+     * state ("Waiting for the runner to unlock this race."), not an error; the code stays.
+     */
+    var joinWaitingForUnlock by mutableStateOf(false)
+        private set
+
+    /** The tab the join page was opened from by hand (Profile's Join race room, a race-less tab). */
+    private var joinReturnTab: ShellTab? = null
 
     val onboardingText: OnboardingText by lazy {
         val copy = (container.raceDay.onboardingCopy() as? RuntimeResult.Success)?.result
@@ -378,7 +405,9 @@ class ShellViewModel(
                                     role = row.optString("role"),
                                     roleLabel = row.optString("roleLabel"),
                                     displayName = row.optText("displayName").trim().ifBlank { null },
-                                    unpaidExpiresAt = row.optText("unpaidExpiresAt").trim().ifBlank { null }
+                                    unpaidExpiresAt = row.optText("unpaidExpiresAt").trim().ifBlank { null },
+                                    owner = row.optBoolean("owner"),
+                                    paid = row.optBoolean("paid")
                                 )
                             )
                         }
@@ -388,7 +417,7 @@ class ShellViewModel(
                     val activeId = result.result.optString("activeRoomId").takeUnless {
                         result.result.isNull("activeRoomId") || it.isBlank()
                     }
-                    val active = activeRaceAfterRefresh(loaded, session?.roomId, activeId)
+                    val active = activeRaceAfterRefresh(loaded, session?.roomId, activeId, awaitingChoice = awaitingRaceChoice)
                     when {
                         active != null && (active.id != session?.roomId || active.role != session?.role) -> apply(active)
                         active == null && session?.roomId != null -> {
@@ -486,6 +515,7 @@ class ShellViewModel(
         when (effect) {
             is RunnerSetupEffect.StateChanged -> noteOnboardingState(effect.state)
             is RunnerSetupEffect.RoomCreated -> {
+                endRaceChoice()
                 // The setup's own race: active and the runner's, still behind the setup screens.
                 container.sessionStore.update { it.copy(roomId = effect.roomId, role = "athlete") }
                 session = container.sessionStore.current()
@@ -506,8 +536,34 @@ class ShellViewModel(
     fun openPaywall() {
         val roomId = session?.roomId ?: return
         billing = billing.unpaid(roomId)
+        if (!paywallOpen) {
+            paywallFromSetup = !showAppShell
+            paywallReturnTab = selectedTab
+        }
         paywallOpen = true
         if (!showAppShell) showShell(OnboardingRouting.paywallTab(selectedTab))
+    }
+
+    /** The paywall was opened from runner setup (a 402 there), not from the tab bar. */
+    private var paywallFromSetup = false
+    /** The tab the paywall was opened over. */
+    private var paywallReturnTab: ShellTab? = null
+
+    /**
+     * The Race Pass page's X: back to wherever it was opened from. From runner setup, setup again;
+     * from a tab (the Unlock race banner, a gated action), that tab, the race still unpaid.
+     */
+    fun closePaywall() {
+        val fromSetup = paywallFromSetup
+        val tab = paywallReturnTab
+        paywallOpen = false
+        paywallFromSetup = false
+        paywallReturnTab = null
+        when {
+            fromSetup -> refreshOnboarding(force = true)
+            showAppShell && tab != null && tab != selectedTab -> selectTab(tab)
+            !showAppShell -> showShell(ShellTab.Profile)
+        }
     }
 
     /**
@@ -708,6 +764,7 @@ class ShellViewModel(
     }
 
     private fun apply(race: RaceChoice) {
+        endRaceChoice()
         container.sessionStore.update {
             it.copy(roomId = race.id, role = race.role.ifBlank { it.role }, displayName = race.displayName)
         }
@@ -795,6 +852,28 @@ class ShellViewModel(
         profilePane = "incidents"
     }
 
+    /** Profile → Race & crew → Race Pass: the active race's Race Pass page; its X comes back to Profile. */
+    fun openRacePass() {
+        if (session?.roomId.isNullOrBlank()) return
+        profilePane = "race-pass"
+    }
+
+    /**
+     * A rename the server saved (clients/behavior/race-rename.md): the race list and the top bar
+     * show the new name at once, and the active race doesn't change.
+     */
+    fun noteRaceRenamed(roomId: String, name: String) {
+        races = racesAfterRename(races, roomId, name)
+        val rows = raceRows ?: return
+        for (index in 0 until rows.length()) {
+            val row = rows.optJSONObject(index) ?: continue
+            if (row.optString("id") == roomId) row.put("name", name)
+        }
+    }
+
+    /** The top bar's title: the active race's name, or CrewCue with no race. */
+    val topBarTitle: String get() = topBarTitle(races, session?.roomId)
+
     /** Room members → Invite crew (the runner's invite link and code). */
     fun openInviteShare() {
         if (session?.roomId.isNullOrBlank()) return
@@ -819,8 +898,33 @@ class ShellViewModel(
         updateInviteCode(code)
     }
 
+    /** The join page opened by hand: a fresh page every time (showFixture clears the last visit). */
     fun openJoinCrew() {
+        joinReturnTab = if (showAppShell) selectedTab else null
         showFixture("crewcue://dev/join-crew")
+    }
+
+    /**
+     * The join page's X. Signed out, or over a saved invite, it gives the invite up ([leaveJoin]);
+     * signed in and opened by hand, it returns to the tab it was opened from.
+     */
+    fun closeJoin() {
+        if (joining) return
+        if (joinFromOnboarding && session != null && !joinHasInvite) {
+            // Onboarding's crew step with no invite: back to the chooser, as runner setup's Back.
+            viewModelScope.launch {
+                withContext(Dispatchers.IO) { container.raceDay.resetOnboarding(choiceOnly = true) }
+                refreshOnboarding(force = true)
+            }
+            return
+        }
+        if (session == null || joinHasInvite || joinFromOnboarding) {
+            leaveJoin()
+            return
+        }
+        val tab = joinReturnTab ?: ShellTab.Profile
+        joinReturnTab = null
+        selectTab(tab)
     }
 
     /**
@@ -907,6 +1011,7 @@ class ShellViewModel(
 
     fun adoptRoom(roomId: String) {
         if (roomId.isBlank()) return
+        endRaceChoice()
         container.sessionStore.update { it.copy(roomId = roomId, role = "athlete") }
         session = container.sessionStore.current()
         loadRaces()
@@ -918,6 +1023,7 @@ class ShellViewModel(
      */
     fun adoptCreatedRoom(roomId: String) {
         if (roomId.isBlank()) return
+        endRaceChoice()
         container.sessionStore.update { it.copy(roomId = roomId, role = "athlete") }
         session = container.sessionStore.current()
         billing = billing.unpaid(roomId)
@@ -925,6 +1031,59 @@ class ShellViewModel(
         onboardingTicket++
         showOnboarding()
         loadRaces(forceOnboarding = true)
+    }
+
+    /**
+     * The owner deleted [roomId] (the server confirmed). It leaves the list at once. When it was the
+     * active race no race is active and the "Race deleted" chooser asks for the next one; the app
+     * never picks it. Deleting another race only removes it from the list.
+     */
+    fun noteRaceDeleted(roomId: String) {
+        val after = racesAfterDelete(races, roomId, session?.roomId)
+        races = after.races
+        raceRows = raceRows?.let { rows ->
+            JSONArray().also { kept ->
+                for (index in 0 until rows.length()) {
+                    val row = rows.optJSONObject(index) ?: continue
+                    if (row.optString("id") != roomId) kept.put(row)
+                }
+            }
+        }
+        racesMessage = if (after.races.isEmpty()) "No races yet." else ""
+        if (after.choosing) {
+            container.sessionStore.update { it.copy(roomId = null) }
+            session = container.sessionStore.current()
+            mapToolRequest = null
+            paywallOpen = false
+            profilePane = "profile"
+            awaitingRaceChoice = true
+            showsRaceChooser = true
+        }
+        accessCache = null
+        refreshOnboarding()
+        loadRaces()
+    }
+
+    /** Closes the chooser. No race is active until the person picks one from Map, Pace, Chat or Profile. */
+    fun dismissRaceChooser() {
+        showsRaceChooser = false
+    }
+
+    /** The chooser's Create new race: Profile, where a race is created. */
+    fun chooseCreateRace() {
+        showsRaceChooser = false
+        selectTab(ShellTab.Profile)
+    }
+
+    /** The chooser's Join race room. */
+    fun chooseJoinRace() {
+        showsRaceChooser = false
+        openJoinCrew()
+    }
+
+    private fun endRaceChoice() {
+        awaitingRaceChoice = false
+        showsRaceChooser = false
     }
 
     /** Reads the active room's billing. Only an explicit "unpaid" gates the race; a failed read never does. */
@@ -980,6 +1139,7 @@ class ShellViewModel(
         viewModelScope.launch(Dispatchers.IO) { container.raceDay.wipeUserData() }
         racesJob?.cancel()
         races = emptyList()
+        endRaceChoice()
         racesMessage = ""
         racesLoading = false
         racesFailed = false
@@ -1013,6 +1173,7 @@ class ShellViewModel(
         val next = raw.filter { it.isDigit() }.take(6)
         if (joining && !force) return
         joinRaceFull = false
+        joinWaitingForUnlock = false
         inviteCode = next
         joinPreviewName = null
         joinPreviewLine = null
@@ -1203,6 +1364,7 @@ class ShellViewModel(
             joinBusy = false
             joining = false
             joinRaceFull = outcome.outcome == "raceFull"
+            joinWaitingForUnlock = outcome.outcome == "raceLocked"
             if (session?.userId != user) return@launch
             val roomId = outcome.roomId
             // The code client-core joined (the one on screen when Join was tapped).
@@ -1327,6 +1489,7 @@ class ShellViewModel(
         joinPreviewLine = null
         joinPreviewDetail = null
         joinRaceFull = false
+        joinWaitingForUnlock = false
         joinHasInvite = false
         shownInvite = null
         joinMembership = null

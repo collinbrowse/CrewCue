@@ -28,16 +28,19 @@ public struct CoursePreview: Codable, Equatable, Sendable {
         self.route = route
     }
 
+    /// The error `init(previewData:)` throws for a body with no course.
+    public static let unreadableMessage = "Couldn't read the route file."
+
     /// Reads the preview body. Throws when it has no course with at least one checkpoint.
     public init(previewData data: Data, fileName: String) throws {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let course = root["course"] as? [String: Any],
               let rawCheckpoints = course["checkpoints"] else {
-            throw ClientHTTPError(status: 0, message: "Couldn't read the route file.")
+            throw ClientHTTPError(status: 0, message: Self.unreadableMessage)
         }
         let checkpointData = try JSONSerialization.data(withJSONObject: rawCheckpoints)
         let checkpoints = try JSONDecoder().decode([RaceCourseCheckpoint].self, from: checkpointData)
-        guard !checkpoints.isEmpty else { throw ClientHTTPError(status: 0, message: "Couldn't read the route file.") }
+        guard !checkpoints.isEmpty else { throw ClientHTTPError(status: 0, message: Self.unreadableMessage) }
         let layer = root["routeOverlayLayer"] as? [String: Any]
         let geometry = layer?["geometry"] as? [String: Any]
         let coordinates = (geometry?["coordinates"] as? [Any]) ?? []
@@ -137,6 +140,12 @@ public enum OnboardingSetupFailure: String, Equatable, Sendable {
     case raceNameMissing
     /// 409 `race_locked`: the race has started, so its course and start can't change (`RaceLock`).
     case courseLocked
+    /// A course save the server answered 400 (no route in the file: a KML, a TCX, an empty or
+    /// broken GPX), or a preview with no checkpoints: choose another file.
+    case courseUnreadable
+    /// Any other failed course save (a 5xx, a body the app can't read): try again or choose
+    /// another file. Never the server's own words.
+    case courseUploadFailed
     /// Anything else.
     case failed
 
@@ -144,11 +153,15 @@ public enum OnboardingSetupFailure: String, Equatable, Sendable {
     /// whose 429 has its own copy. Another 429 is a plain failure.
     public static func classify(_ error: any Error, courseSave: Bool = false) -> OnboardingSetupFailure {
         if TransportFailure.isOffline(error) { return .offline }
-        guard let http = error as? ClientHTTPError else { return .failed }
+        guard let http = error as? ClientHTTPError else { return courseSave ? .courseUploadFailed : .failed }
         if http.status == 429, courseSave { return .courseSaveLimit }
         if http.status == 402, http.reason == "room_unpaid" || http.decision == "room_unpaid" { return .raceLocked }
         if RaceLock.isLockedError(http) { return .courseLocked }
-        return .failed
+        guard courseSave else { return .failed }
+        // 400 is the server's "no route in this file"; status 0 is `CoursePreview` finding no
+        // checkpoints in a 200. Both mean the file, not the network.
+        if http.status == 400 || (http.status == 0 && http.message == CoursePreview.unreadableMessage) { return .courseUnreadable }
+        return .courseUploadFailed
     }
 
     /// Shown under the step.
@@ -159,11 +172,17 @@ public enum OnboardingSetupFailure: String, Equatable, Sendable {
         case .raceLocked: OnboardingCopy.explanation(for: .paywall) ?? ""
         case .raceNameMissing: OnboardingCopy.raceNameMissing
         case .courseLocked: RaceLock.message
+        case .courseUnreadable: OnboardingCopy.courseUnreadable
+        case .courseUploadFailed: OnboardingCopy.courseUploadFailed
         case .failed: CrewCueClientCore.featureScreen(id: "onboarding-runner-setup", state: .error).body
         }
     }
 
     public var opensPaywall: Bool { self == .raceLocked }
+
+    /// The picked file is what failed: the step offers Choose another file as its main action
+    /// (Try again would read the same file again).
+    public var needsAnotherFile: Bool { self == .courseUnreadable }
 }
 
 extension RaceDayAPI {

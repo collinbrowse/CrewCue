@@ -19,7 +19,7 @@ import Dispatch
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// chatPoll, chatSend, chatUploadPhoto, chatOlder, chatDiscard,
 /// completeOutbox, wipeUserData, adoptUser, updateDisplayName, removeMember,
-/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, onboardingCopy, onboardingHistoryComparison, pingTrack,
+/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, deleteRace, raceDeletionCopy, renameRace, raceRenameCopy, onboardingCopy, onboardingHistoryComparison, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
 /// previewActivityUpload, importActivityUpload,
@@ -269,6 +269,14 @@ enum RuntimeCall {
             return try await deleteAccount(object)
         case "accountDeletionCopy":
             return AccountDeletion.copy
+        case "deleteRace":
+            return try await deleteRace(graph: try graph(object), roomId: text(object, "roomId") ?? "")
+        case "raceDeletionCopy":
+            return raceDeletionCopy(raceName: text(object, "raceName") ?? "", paid: boolValue(object["paid"]) ?? false)
+        case "renameRace":
+            return try await renameRace(graph: try graph(object), roomId: text(object, "roomId") ?? "", name: object["name"] as? String ?? "")
+        case "raceRenameCopy":
+            return raceRenameCopy(role: text(object, "role") ?? "")
         case "onboardingCopy":
             return OnboardingCopy.runtimeCopy
         case "onboardingHistoryComparison":
@@ -535,6 +543,8 @@ enum RuntimeCall {
         if let ping = readout.lastPingLabel {
             row["lastPingLabel"] = ping
         }
+        if let strip = readout.courseStripLabel { row["courseStripLabel"] = strip }
+        if let spoken = readout.courseStripSpoken { row["courseStripSpoken"] = spoken }
         if let eta = readout.finishEtaAt { row["finishEtaAt"] = eta }
         if let start = readout.finishWindowStartAt { row["finishWindowStartAt"] = start }
         if let end = readout.finishWindowEndAt { row["finishWindowEndAt"] = end }
@@ -598,8 +608,31 @@ enum RuntimeCall {
             selectedIndex: selected,
             follow: follow,
             elevation: elevationProfile(request["elevation"]),
-            timeZone: requestTimeZone(request)
+            timeZone: requestTimeZone(request),
+            liveArrivals: aidLiveArrivals(request["liveArrivals"]),
+            track: aidTrack(request["track"])
         )
+    }
+
+    /// `{ checkpointId: ISO-8601 }` from the server's live projection.
+    private static func aidLiveArrivals(_ value: Any?) -> [String: Date] {
+        guard let rows = value as? [String: Any] else { return [:] }
+        var out: [String: Date] = [:]
+        for (id, raw) in rows {
+            if let iso = raw as? String, let date = ScheduleFormat.parseISO8601(iso) { out[id] = date }
+        }
+        return out
+    }
+
+    /// `[{ recordedAt, latitude, longitude }]`, the runner's track oldest first.
+    private static func aidTrack(_ value: Any?) -> [RunnerTrackPoint] {
+        let rows = value as? [Any] ?? []
+        return rows.compactMap { item in
+            guard let row = item as? [String: Any],
+                  let iso = row["recordedAt"] as? String, let at = ScheduleFormat.parseISO8601(iso),
+                  let lat = requestNumber(row["latitude"]), let lon = requestNumber(row["longitude"]) else { return nil }
+            return RunnerTrackPoint(recordedAt: at, latitude: lat, longitude: lon)
+        }
     }
 
     private static func decodeSheet(_ value: Any?) -> CrewScheduleSheet? {
@@ -938,7 +971,9 @@ enum RuntimeCall {
             return ["empty": true]
         }
         let zone = requestTimeZone(object)
-        let rows = RaceToolsCopy.crewSheetRows(sheet.stops, timeZone: zone)
+        // `titles` maps checkpoint ids to course titles, as for `courseReadout`; missing ones fall back to the id.
+        let titles = object["titles"] as? [String: String] ?? [:]
+        let rows = RaceToolsCopy.crewSheetRows(sheet.stops, titles: titles, timeZone: zone)
         let text = RaceToolsCopy.crewSheetText(
             raceName: object["raceName"] as? String ?? "",
             capturedAtIso: isoNow(object),
@@ -1090,6 +1125,8 @@ enum RuntimeCall {
                 var row = try jsonValue(race) as? [String: Any] ?? [:]
                 let onboarding = OnboardingRace(room: room, userId: userId)
                 row["roleLabel"] = race.roleLabel
+                // Only the owner is offered Delete race (`RaceSummary.isOwned`).
+                row["owner"] = race.isOwned(by: userId)
                 row["entitlementStatus"] = onboarding.entitlementStatus
                 row["hasCourse"] = onboarding.hasCourse
                 row["hasEstimate"] = onboarding.hasEstimate
@@ -1223,7 +1260,21 @@ enum RuntimeCall {
         return directory
     }
 
+    /// `line`: the course line the map draws (`[[longitude, latitude]]`). A pin too far off it is
+    /// not sent: `{ rejected: true, message }`.
     private static func placeCheckpoint(_ object: [String: Any]) async throws -> Any {
+        let route = (object["line"] as? [Any] ?? []).compactMap { item -> CourseRoutePoint? in
+            guard let pair = item as? [Any], pair.count >= 2,
+                  let lon = doubleValue(pair[0]), let lat = doubleValue(pair[1]) else { return nil }
+            return CourseRoutePoint(latitude: lat, longitude: lon)
+        }
+        if let message = CheckpointPlacement.rejection(
+            latitude: doubleValue(object["latitude"]) ?? .nan,
+            longitude: doubleValue(object["longitude"]) ?? .nan,
+            route: route
+        ) {
+            return ["offline": false, "rejected": true, "message": message]
+        }
         do {
             let graph = try graph(object)
             let data = try await RaceDayAPI.placeCheckpoint(
@@ -1507,8 +1558,21 @@ enum RuntimeCall {
         }
     }
 
-    private static func activityItemJSON(_ item: ActivityHistoryItem) -> [String: Any] {
-        var json: [String: Any] = ["id": item.id, "source": item.source, "recordedAt": item.recordedAt, "summary": item.summary]
+    static func activityItemJSON(_ item: ActivityHistoryItem) -> [String: Any] {
+        var json: [String: Any] = [
+            "id": item.id,
+            "source": item.source,
+            "recordedAt": item.recordedAt,
+            "summary": item.summary,
+            "sourceLabel": item.sourceLabel,
+            "dateLabel": item.dateLabel,
+            "titleLabel": item.titleLabel
+        ]
+        if let name = item.name { json["name"] = name }
+        if let label = item.subtitleDateLabel { json["subtitleDateLabel"] = label }
+        if let label = item.distanceLabel { json["distanceLabel"] = label }
+        if let label = item.durationLabel { json["durationLabel"] = label }
+        if let label = item.paceLabel { json["paceLabel"] = label }
         if let distance = item.distanceMeters { json["distanceMeters"] = distance }
         if let elapsed = item.elapsedSeconds { json["elapsedSeconds"] = elapsed }
         return json
@@ -1517,7 +1581,7 @@ enum RuntimeCall {
     private static func activityHistoryItems(_ object: [String: Any]) async throws -> Any {
         do {
             let items = try await RaceDayAPI.activityHistoryItems(graph: try graph(object))
-            return ["offline": false, "items": items.map(activityItemJSON)]
+            return ["offline": false, "items": items.map(activityItemJSON), "countLabel": ActivityImport.countLabel(items.count)]
         } catch {
             if TransportFailure.isOffline(error) {
                 return ["offline": true, "items": [[String: Any]]()]
@@ -1723,6 +1787,73 @@ enum RuntimeCall {
             }
             return ["deleted": false, "message": message, "retryable": retryable]
         }
+    }
+
+    /// `DELETE /race-rooms/:roomId` for Android. `deleted` is true once the race is gone (a 404
+    /// included); otherwise `message` is the shared failure copy. A 401 still throws, so the app
+    /// wipes the expired session as for every other op.
+    static func deleteRace(graph: ClientGraph, roomId: String) async throws -> [String: Any] {
+        guard !roomId.isEmpty else { throw ClientHTTPError(status: 400, message: "roomId is required.") }
+        let outcome: RaceDeletion.Outcome
+        do {
+            try await RaceDayAPI.deleteRace(graph: graph, roomId: roomId)
+            outcome = .deleted
+        } catch let failure as ClientHTTPError where failure.status == 401 {
+            throw failure
+        } catch {
+            outcome = RaceDeletion.outcome(for: error)
+        }
+        switch outcome {
+        case .deleted:
+            return ["deleted": true, "message": RaceDeletion.deletedMessage]
+        case let .failed(message):
+            return ["deleted": false, "message": message]
+        }
+    }
+
+    /// Every Delete race string Android shows, the confirm built for this race's name and paid state.
+    static func raceDeletionCopy(raceName: String, paid: Bool) -> [String: String] {
+        [
+            "rowTitle": RaceDeletion.rowTitle,
+            "rowDetail": RaceDeletion.rowDetail,
+            "confirmTitle": RaceDeletion.confirmTitle(raceName: raceName),
+            "confirmBody": RaceDeletion.confirmBody(paid: paid),
+            "confirmButton": RaceDeletion.confirmButton,
+            "cancelButton": RaceDeletion.cancelButton,
+            "deletedMessage": RaceDeletion.deletedMessage,
+            "offlineMessage": RaceDeletion.offlineMessage,
+            "genericFailureMessage": RaceDeletion.genericFailureMessage
+        ]
+    }
+
+    /// `PATCH /race-rooms/:roomId` `{ name }` for Android. `renamed` is true with the room's `id`
+    /// and saved `name`; otherwise `message` is the shared failure line (`RaceRenameCopy.message`).
+    /// A 401 still throws, so the app wipes the expired session as for every other op.
+    static func renameRace(graph: ClientGraph, roomId: String, name: String) async throws -> [String: Any] {
+        guard !roomId.isEmpty else { throw ClientHTTPError(status: 400, message: "roomId is required.") }
+        do {
+            let room = try await RaceDayAPI.renameRace(graph: graph, roomId: roomId, name: name)
+            return ["renamed": true, "id": room.id, "name": room.name, "message": RaceRenameCopy.saved]
+        } catch let failure as ClientHTTPError where failure.status == 401 {
+            throw failure
+        } catch {
+            return ["renamed": false, "message": RaceRenameCopy.message(for: error)]
+        }
+    }
+
+    /// Every Rename race string Android shows, and whether [role] may rename (`PlanAuthority.mayEditRaceSetup`).
+    static func raceRenameCopy(role: String) -> [String: Any] {
+        [
+            "rowTitle": RaceRenameCopy.rowTitle,
+            "rowDetail": RaceRenameCopy.rowDetail,
+            "hint": RaceRenameCopy.hint,
+            "saved": RaceRenameCopy.saved,
+            "failed": RaceRenameCopy.failed,
+            "offline": RaceRenameCopy.offline,
+            "invalid": RaceName.invalidMessage,
+            "maxLength": RaceName.maxLength,
+            "mayRename": PlanAuthority.mayEditRaceSetup(role: role)
+        ]
     }
 
     private static func memberUserId(_ object: [String: Any]) -> String {

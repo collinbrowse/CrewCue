@@ -401,7 +401,8 @@ final class RunnerSetupModel {
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError { return }
-            failure = .failed
+            // The phone couldn't open the file: say what to do, not "Couldn't save this step."
+            failure = .courseUploadFailed
             return
         }
         await useCourse(fileName: picked.name, xml: picked.xml)
@@ -414,7 +415,7 @@ final class RunnerSetupModel {
         let trimmed = xml.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             // Nothing to read: whatever course was there stays.
-            failure = .failed
+            failure = .courseUnreadable
             return
         }
         let fingerprint = await Task.detached { RunnerSetupSteps.courseFingerprint(trimmed) }.value
@@ -445,7 +446,14 @@ final class RunnerSetupModel {
     func previewCourse() async {
         guard let fileName = courseFileName, let xml = courseXml, !busy else { return }
         let ticket = generation
-        guard let preview = await readCourse(fileName: fileName, xml: xml), ticket == generation else { return }
+        guard let preview = await readCourse(fileName: fileName, xml: xml), ticket == generation else {
+            // A file with no route can never preview: it isn't kept as the race's file, so the
+            // step shows the error and Choose another file, not that file's name as if it took.
+            if ticket == generation, failure == .courseUnreadable, coursePreview == nil {
+                forgetHeldCourse()
+            }
+            return
+        }
         coursePreview = preview
         draft.coursePreview = preview
         // Another file picked on the start time step stays on that step after a relaunch.
@@ -472,6 +480,27 @@ final class RunnerSetupModel {
             await previewCourse()
         }
     }
+
+    /// Drops the file this phone held for the race (one the server found no route in).
+    private func forgetHeldCourse() {
+        courseFileName = nil
+        courseXml = nil
+        draft.courseFileName = nil
+        draft.courseFingerprint = nil
+        draft.coursePreview = nil
+        draft.courseConfirmed = false
+        draftStore?.saveCourse(nil)
+        persist()
+    }
+
+    /// The picked file previewed and nothing failed since: the step shows a checkmark with
+    /// "Course uploaded" and the file's name.
+    var courseUploaded: Bool {
+        coursePreview != nil && pendingCourse == nil && failure == nil && !previewingCourse && courseFileName != nil
+    }
+
+    /// The last pick failed because of the file itself: Choose another file is the main button.
+    var courseNeedsAnotherFile: Bool { failure?.needsAnotherFile == true && !busy }
 
     /// Cancel after a picked file couldn't be read: the course from before stays.
     func cancelPendingCourse() {
@@ -543,7 +572,7 @@ final class RunnerSetupModel {
     /// The preview failed (offline, a file the server can't read, no race name): the step's main
     /// button reads the same file again, so it offers Try again rather than Continue.
     var courseNeedsRetry: Bool {
-        guard failure != nil, !busy else { return false }
+        guard failure != nil, !busy, !courseNeedsAnotherFile else { return false }
         return pendingCourse != nil || (courseFileName != nil && draft.coursePreview == nil)
     }
 
@@ -914,8 +943,9 @@ final class RunnerSetupModel {
                 showLocked: true
             )
             if coursePreview == nil, let course = room.course {
-                // A relaunch without the draft: draw the saved checkpoints.
-                coursePreview = CoursePreview(courseFileName: room.courseFileName ?? "", checkpoints: course.checkpoints, plannedPaceSecondsPerKm: nil, route: [])
+                // A relaunch without the draft: the saved checkpoints and the saved course line,
+                // whose vertices carry the elevation the profile draws from.
+                coursePreview = CoursePreview(courseFileName: room.courseFileName ?? "", checkpoints: course.checkpoints, plannedPaceSecondsPerKm: nil, route: CourseRouteLine.points(roomData: body))
             }
             teaserAttempted = true
         } catch {

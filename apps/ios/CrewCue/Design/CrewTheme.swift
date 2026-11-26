@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Night Trail palette. Values mirror `nightTrail` in `packages/contracts/src/designSystems.ts`.
+/// Ember palette: the app icon's slate, cream and orange. Values mirror `ember` in `packages/contracts/src/designSystems.ts`.
 struct CrewPalette: Equatable {
     /// Warm page ground.
     var background: Color
@@ -28,54 +28,55 @@ struct CrewPalette: Equatable {
     var shadow: Color
 
     static let light = CrewPalette(
-        background: Color(hex: 0xFCF9F0),
+        background: Color(hex: 0xF8F4EA),
         card: Color(hex: 0xFFFFFF),
-        well: Color(hex: 0xF1EEE5),
-        secondaryButton: Color(hex: 0xEBE8DF),
-        ink: Color(hex: 0x1C1C17),
-        body: Color(hex: 0x484553),
-        primary: Color(hex: 0x5440B9),
+        well: Color(hex: 0xF0EADD),
+        secondaryButton: Color(hex: 0xE9E2D3),
+        ink: Color(hex: 0x1F2730),
+        body: Color(hex: 0x4A5563),
+        primary: Color(hex: 0xB5441A),
         onPrimary: .white,
-        primarySoft: Color(hex: 0xE5DEFF),
-        onPrimarySoft: Color(hex: 0x462FAA),
-        secondary: Color(hex: 0x0058BE),
+        primarySoft: Color(hex: 0xFBE3D6),
+        onPrimarySoft: Color(hex: 0x8A3110),
+        secondary: Color(hex: 0x34404F),
         onSecondary: .white,
         danger: Color(hex: 0xBA1A1A),
-        dangerSoft: Color(hex: 0xFFF1EC),
+        dangerSoft: Color(hex: 0xFDE7E7),
         onDangerSoft: Color(hex: 0x93000A),
-        divider: Color(hex: 0xC9C4D5),
-        outline: Color(hex: 0x797584),
-        glassTint: Color(hex: 0xFCF9F0).opacity(0.22),
-        shadow: Color(hex: 0x1C1C17).opacity(0.08)
+        divider: Color(hex: 0xD6D0C3),
+        outline: Color(hex: 0x7A7F87),
+        glassTint: Color(hex: 0xF8F4EA).opacity(0.22),
+        shadow: Color(hex: 0x1F2730).opacity(0.08)
     )
 
     static let dark = CrewPalette(
-        background: Color(hex: 0x14140F),
-        card: Color(hex: 0x20201B),
-        well: Color(hex: 0x2A2A25),
-        secondaryButton: Color(hex: 0x35352F),
-        ink: Color(hex: 0xE5E2DA),
-        body: Color(hex: 0xC9C4D5),
-        primary: Color(hex: 0xC9BFFF),
-        onPrimary: Color(hex: 0x2F0C94),
-        primarySoft: Color(hex: 0x3A2C8A),
-        onPrimarySoft: Color(hex: 0xE5DEFF),
-        secondary: Color(hex: 0xADC6FF),
-        onSecondary: Color(hex: 0x002E6A),
+        background: Color(hex: 0x161A20),
+        card: Color(hex: 0x1F252D),
+        well: Color(hex: 0x283039),
+        secondaryButton: Color(hex: 0x323B45),
+        ink: Color(hex: 0xECE6DA),
+        body: Color(hex: 0xC3C7CD),
+        primary: Color(hex: 0xFF8F5C),
+        onPrimary: Color(hex: 0x3A1404),
+        primarySoft: Color(hex: 0x5A2510),
+        onPrimarySoft: Color(hex: 0xFFDBCB),
+        secondary: Color(hex: 0xB7C4D4),
+        onSecondary: Color(hex: 0x1F2730),
         danger: Color(hex: 0xFFB4AB),
         dangerSoft: Color(hex: 0x3B1A17),
         onDangerSoft: Color(hex: 0xFFDAD6),
-        divider: Color(hex: 0x484553),
-        outline: Color(hex: 0x938E9F),
-        glassTint: Color(hex: 0x14140F).opacity(0.25),
+        divider: Color(hex: 0x3A434E),
+        outline: Color(hex: 0x8A929C),
+        glassTint: Color(hex: 0x161A20).opacity(0.25),
         shadow: Color.black.opacity(0.35)
     )
 }
 
 extension CrewPalette {
-    /// Night-trail gradient behind the runner hero. Same in light and dark.
-    static let heroGradient = [Color(hex: 0x1C1A2E), Color(hex: 0x3A2C8A), Color(hex: 0x6D5AD3)]
-    static let heroAccent = Color(hex: 0xC9BFFF)
+    /// Slate ground behind the course-profile hero, as on the app icon. Same in light and dark.
+    static let heroGradient = [Color(hex: 0x3A4658), Color(hex: 0x2A3340), Color(hex: 0x1E252F)]
+    /// Role label on the hero.
+    static let heroAccent = Color(hex: 0xFF9A66)
 }
 
 extension Color {
@@ -243,7 +244,7 @@ enum CrewButtonKind {
     case ghost
 }
 
-/// Capsule buttons from DESIGN.md: primary purple, tonal secondary, danger, and outline ghost.
+/// Capsule buttons from DESIGN.md: primary ember, tonal secondary, danger, and outline ghost.
 struct CrewButtonStyle: ButtonStyle {
     var kind: CrewButtonKind = .primary
 
@@ -284,6 +285,9 @@ private struct CrewButtonLabel: View {
                     Capsule().stroke(theme.ink, lineWidth: 2)
                 }
             }
+            // The whole capsule takes the tap, edge to edge and top to bottom: without this a
+            // ghost button's clear fill, and the padding around a short label, missed touches.
+            .contentShape(Capsule())
             .opacity(isEnabled || isBusy ? 1 : 0.45)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)

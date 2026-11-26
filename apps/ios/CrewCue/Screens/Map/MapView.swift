@@ -77,7 +77,8 @@ struct MapView: View {
                 glidePlaying: glidePlaying,
                 recenterRequest: model.recenterRequest,
                 replay: readOnly,
-                baseStyle: readOnly ? .automatic : model.baseMap,
+                // The replay draws terrain-style tiles, never the black night map.
+                baseStyle: readOnly ? .streets : model.baseMap,
                 pickAnchor: tool == .pick ? crosshair : nil,
                 pickTarget: model.pickTarget,
                 pickCoordinate: CoordinateText.parse(model.coordinateText).map {
@@ -237,7 +238,7 @@ private struct MapOverlayControls: View {
     private var bar: some View {
         VStack(spacing: CrewSpace.stackSm) {
             if !readOnly {
-                CrewTopBar(title: title, onSettings: onSettings)
+                CrewTopBar(title: title, onSettings: onSettings, courseStrip: CourseProgressStrip(readout: model.readout))
                     .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
                     .padding(.horizontal, 8)
                     .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { onBarBottom($0) }
@@ -374,7 +375,7 @@ private struct MapOverlayControls: View {
 
 struct AidPager: View {
     @Bindable var model: MapModel
-    @ScaledMetric private var height: CGFloat = 200
+    @ScaledMetric private var height: CGFloat = 156
     /// The page on show, kept on the model's aid. Only the person picks an aid: a drag, or
     /// VoiceOver's scroll. A pager laid out again (built with its pages already there by a display
     /// switch or a map tool closing, or at a new width after a rotation) lands on whatever page its
@@ -389,7 +390,7 @@ struct AidPager: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
                     ForEach(model.aidPages) { page in
-                        AidPeek(page: page, averagePace: model.readout.averagePaceLabel)
+                        AidPeek(page: page)
                             .frame(maxHeight: .infinity, alignment: .top)
                             .containerRelativeFrame(.horizontal)
                             .id(page.index)
@@ -441,6 +442,17 @@ struct AidPager: View {
             }
         }
         .frame(height: height)
+        // Gray carets say there's another aid that way; a tap steps to it, like a swipe.
+        .overlay(alignment: .leading) {
+            if model.aidIndex > 0 {
+                AidCaret(systemImage: "chevron.left", label: "Previous aid station") { step(-1) }
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if model.aidIndex < model.aidPages.count - 1 {
+                AidCaret(systemImage: "chevron.right", label: "Next aid station") { step(1) }
+            }
+        }
     }
 
     /// The model's aid: the next aid station while the sheet follows the runner.
@@ -456,61 +468,96 @@ struct AidPager: View {
         model.showAid(index: value)
     }
 
-    /// VoiceOver's three-finger scroll: the next or previous page.
+    /// VoiceOver's three-finger scroll, or a caret: the next or previous page.
     private func step(_ delta: Int) {
         let next = model.aidIndex + delta
         guard model.aidPages.indices.contains(next) else { return }
-        model.showAid(index: next)
+        withAnimation(.snappy) { model.showAid(index: next) }
     }
 }
 
-struct AidPeek: View {
-    let page: AidStationPage
-    var averagePace: String = "—"
+/// A small gray chevron at the pager's edge.
+private struct AidCaret: View {
+    let systemImage: String
+    let label: String
+    let action: () -> Void
     @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(.subheadline, weight: .bold))
+                .foregroundStyle(theme.outline.opacity(0.8))
+                .frame(width: 24, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+/// One aid station in the pager. Everything on it belongs to that aid, so it all changes with a
+/// swipe: its arrival (estimated, or the runner's real arrival once passed), the climb and distance
+/// to it, and its planned stop.
+struct AidPeek: View {
+    let page: AidStationPage
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
             HStack(alignment: .top, spacing: CrewSpace.stackSm) {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(verbatim: kicker)
                         .crewKicker()
-                        .foregroundStyle(theme.primary)
+                        .foregroundStyle(page.passed ? theme.body : theme.primary)
                     Text(verbatim: page.title.capitalized)
-                        .font(CrewFont.headline)
+                        .font(CrewFont.title)
                         .foregroundStyle(theme.ink)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: 2) {
                     Text(verbatim: CrewClock.short(page.arrivalAt) ?? page.clockLabel)
-                        .font(CrewFont.metricLarge)
-                        .foregroundStyle(theme.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text("EST. ARRIVAL")
+                        .font(CrewFont.metric)
+                        .foregroundStyle(page.passed ? theme.ink : theme.primary)
+                    Text(verbatim: page.arrivalCaption)
                         .font(CrewFont.kicker)
                         .tracking(1)
                         .foregroundStyle(theme.body)
-                    Text(verbatim: page.remainLabel)
-                        .font(CrewFont.title.monospacedDigit())
-                        .foregroundStyle(theme.onPrimarySoft)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .background(theme.primarySoft, in: Capsule())
+                    if !page.passed, !page.countdownLabel.isEmpty {
+                        Text(verbatim: page.countdownLabel)
+                            .font(CrewFont.label.monospacedDigit())
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundStyle(theme.onPrimarySoft)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(theme.primarySoft, in: Capsule())
+                            .padding(.top, 2)
+                    }
                 }
             }
             Divider().overlay(theme.divider)
             HStack(alignment: .top, spacing: 0) {
-                MetricColumn(label: "Distance\nremaining", value: page.distanceLabel.uppercased())
-                MetricDivider()
-                MetricColumn(label: "Elevation\nremaining", value: page.elevationLabel ?? "—")
-                MetricDivider()
-                MetricColumn(label: "Avg\npace", value: averagePace)
+                if page.passed {
+                    MetricColumn(label: "Left", value: CrewClock.short(page.actualDepartureAt) ?? "—", compact: true)
+                    MetricDivider()
+                    MetricColumn(label: "Stopped", value: page.actualStopLabel ?? "—", compact: true)
+                    MetricDivider()
+                    MetricColumn(label: "Planned stop", value: page.plannedStopLabel, compact: true)
+                } else {
+                    MetricColumn(label: "Distance to", value: page.distanceLabel.uppercased(), compact: true)
+                    MetricDivider()
+                    // A course with no elevation (a GPX without <ele>) shows no climb, not a 0.
+                    if let climb = page.elevationLabel {
+                        MetricColumn(label: "Climb to", value: climb, compact: true)
+                        MetricDivider()
+                    }
+                    MetricColumn(label: "Planned stop", value: page.plannedStopLabel, compact: true)
+                }
             }
         }
-        .padding(.horizontal, CrewSpace.margin)
+        .padding(.horizontal, CrewSpace.stackLg)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(page.scheduleLine)
         // The eyebrow ("Next aid station"), which the schedule line leaves out.
@@ -523,6 +570,9 @@ struct AidPeek: View {
         case "NEXT": "Next aid station"
         case "START": "Start"
         case "FINISHED": "Finished"
+        case "PASSED": "Passed"
+        case "AHEAD": "Later aid station"
+        case "FINISH": "Finish"
         default: page.kicker
         }
     }
@@ -534,7 +584,7 @@ private struct MetricDivider: View {
     var body: some View {
         Rectangle()
             .fill(theme.divider)
-            .frame(width: 1, height: 52)
+            .frame(width: 1, height: 40)
     }
 }
 
@@ -703,12 +753,11 @@ struct MapAidSheet: View {
                     .font(CrewFont.title)
                     .foregroundStyle(theme.ink)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
             }
             Spacer(minLength: 8)
             if let page {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("EST. ARRIVAL")
+                    Text(verbatim: page.arrivalCaption)
                         .font(CrewFont.kicker)
                         .tracking(1)
                         .foregroundStyle(theme.body)
@@ -729,6 +778,9 @@ struct MapAidSheet: View {
         case "NEXT": "Next aid station"
         case "START": "Start"
         case "FINISHED": "Finished"
+        case "PASSED": "Passed"
+        case "AHEAD": "Later aid station"
+        case "FINISH": "Finish"
         default: raw
         }
     }
@@ -812,31 +864,21 @@ struct MapAidSheet: View {
 
     @ViewBuilder
     private var expandedDetails: some View {
-        let page = model.aidPages.indices.contains(model.aidIndex) ? model.aidPages[model.aidIndex] : nil
         VStack(alignment: .leading, spacing: CrewSpace.gutter) {
-            VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-                HStack {
-                    Text("Course progress")
-                        .crewKicker()
-                        .foregroundStyle(theme.body)
-                    Spacer()
-                    Text(verbatim: model.readout.progressLabel)
-                        .font(CrewFont.title.monospacedDigit())
-                }
-                CrewProgressBar(fraction: model.readout.progressFraction)
+            // The whole race, whichever aid the pager shows. Course progress is in the top bar.
+            HStack(alignment: .top, spacing: 0) {
+                MetricColumn(label: "Race time", value: model.readout.elapsedLabel, compact: true)
+                MetricDivider()
+                MetricColumn(label: "Avg pace", value: model.readout.averagePaceLabel, compact: true)
             }
-            .padding(CrewSpace.margin)
-            .background(theme.well.opacity(0.85), in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
-            if let page {
-                HStack(spacing: 0) {
-                    MetricColumn(label: "Planned stop", value: page.stoppageDurationLabel)
-                    MetricColumn(label: "Elapsed", value: page.elapsedLabel)
-                    MetricColumn(label: "Delay", value: page.delayLabel ?? "—")
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("crewcue.aid-race-stats")
+            if model.aidShowsBackToNext {
+                Button(action: model.jumpToNextAid) {
+                    Label("Back to next aid", systemImage: "arrow.uturn.backward")
                 }
-            }
-            if model.aidFollow == false, let live = model.aidLiveNextIndex, live != model.aidIndex {
-                Button("Next station", action: model.jumpToNextAid)
-                    .buttonStyle(.crewSecondary)
+                .buttonStyle(.crewPill)
+                .frame(maxWidth: .infinity)
             }
         }
         .padding(.horizontal, CrewSpace.margin)
@@ -967,8 +1009,8 @@ struct MapCanvas: View {
             onStyleFailure: onStyleFailure,
             onStyleLoaded: onStyleLoaded,
             recenterRequest: recenterRequest,
-            lineColor: UIColor(theme.primary),
-            trackColor: UIColor(theme.secondary),
+            lineColor: UIColor(theme.secondary),
+            trackColor: UIColor(theme.primary),
             route: route,
             fitPadding: replay ? MapLibreCourseMap.replayFitPadding : MapLibreCourseMap.raceFitPadding,
             refitOnResize: replay,
@@ -985,6 +1027,7 @@ struct MapCanvas: View {
         map.hidesAttributionButton = hidesAttributionButton
         map.startLine = startLine
         map.startLineRequest = startLineRequest
+        map.followsRunner = replay
         return map
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityLabel("Course map")
@@ -1029,7 +1072,8 @@ struct MapPickSection: View {
             Button("Save checkpoint") {
                 Task { await onSave() }
             }
-            .buttonStyle(.crewPrimary)
+            .buttonStyle(.crewPillProminent)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .crewBusy(isBusy)
         }
         .accessibilityElement(children: .contain)
@@ -1099,7 +1143,8 @@ struct MapNavigateSection: View {
             Button("Start navigation") {
                 Task { await onStart() }
             }
-            .buttonStyle(.crewPrimary)
+            .buttonStyle(.crewPillProminent)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .crewBusy(isBusy)
         }
         .accessibilityElement(children: .contain)
@@ -1143,11 +1188,11 @@ struct MapLocationSection: View {
                     .font(CrewFont.body)
                 if isTracking {
                     Button("Stop tracking", action: onStop)
-                        .buttonStyle(.crewSecondary)
+                        .buttonStyle(CrewPillButtonStyle(destructive: true))
                         .accessibilityHint("Stops sharing your position with your crew")
                 } else {
                     Button("Start tracking", action: onStart)
-                        .buttonStyle(.crewPrimary)
+                        .buttonStyle(.crewPillProminent)
                         .accessibilityHint("Shares your position with your crew until the finish")
                 }
             } else {
@@ -1164,7 +1209,7 @@ struct MapLocationSection: View {
 
 /// The small info button under the top bar: who the base map comes from, with a link to each
 /// source's license. Required by the map data's licenses (ODbL, OpenMapTiles).
-private struct MapLicensingButton: View {
+struct MapLicensingButton: View {
     @State private var open = false
     @Environment(\.crew) private var theme
 

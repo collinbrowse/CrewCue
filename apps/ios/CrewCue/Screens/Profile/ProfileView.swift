@@ -5,8 +5,25 @@ struct ProfileTabPage: View {
     var model: ShellModel
 
     var body: some View {
+        page
+            // Room members and Incidents come in from the right over Profile and go back the
+            // same way, with their back control at the top: never a dead end.
+            .animation(.snappy(duration: 0.3), value: pageKey)
+    }
+
+    /// Which page shows: Profile, or one of the pages it opens. Invite is a sheet over Room members.
+    private var pageKey: String {
         switch model.route.featureId {
-        case "room-members":
+        case "room-members", "invite-share": "room-members"
+        case "readouts-incidents": "readouts-incidents"
+        default: "profile"
+        }
+    }
+
+    @ViewBuilder
+    private var page: some View {
+        switch model.route.featureId {
+        case "room-members", "invite-share":
             RoomMembersView(
                 model: model.membersModel,
                 userId: model.signedInUserId,
@@ -16,18 +33,24 @@ struct ProfileTabPage: View {
                 onProfile: { model.show(Route(featureId: "profile", state: .success)) },
                 onInvite: { model.show(Route(featureId: "invite-share", state: .success)) }
             )
-        case "invite-share":
-            InviteShareView(
-                model: model.inviteModel,
-                roomId: model.signedInRoomId,
-                onBack: { model.show(Route(featureId: "room-members", state: .success)) }
-            )
+            .transition(.move(edge: .trailing))
+            // Invite crew: one dismissible sheet over Room members, closed with its X or a swipe.
+            .sheet(isPresented: inviteShown) {
+                NavigationStack {
+                    InviteShareView(model: model.inviteModel, roomId: model.signedInRoomId)
+                        .barClose(identifier: "crewcue.invite-share.close") {
+                            model.show(Route(featureId: "room-members", state: .success))
+                        }
+                }
+                .presentationDetents([.medium, .large])
+            }
         case "readouts-incidents":
             IncidentsView(
                 model: model.incidentsModel,
                 roomId: model.signedInRoomId,
                 onProfile: { model.show(Route(featureId: "profile", state: .success)) }
             )
+            .transition(.move(edge: .trailing))
         default:
             ProfileView(
                 model: model.profileModel,
@@ -42,8 +65,9 @@ struct ProfileTabPage: View {
                 onSelectRace: { roomId in model.selectRace(roomId) },
                 onMembers: { model.show(Route(featureId: "room-members", state: .success)) },
                 onIncidents: { model.show(Route(featureId: "readouts-incidents", state: .success)) },
-                onJoin: { model.show(Route(featureId: "join-crew", state: .success)) },
+                onJoin: { model.openJoin() },
                 onRacePass: { model.showBilling() },
+                onFinishSetup: model.canResumeRaceSetup ? { model.resumeRaceSetup() } : nil,
                 onCreated: { roomId in
                     model.noteCreated(roomId: roomId)
                 },
@@ -62,6 +86,21 @@ struct ProfileTabPage: View {
     }
 }
 
+extension ProfileTabPage {
+    /// The Invite crew sheet is up while the route is `invite-share`; dismissing it (the X or a
+    /// swipe down) returns to Room members.
+    var inviteShown: Binding<Bool> {
+        Binding(
+            get: { model.route.featureId == "invite-share" },
+            set: { shown in
+                if !shown, model.route.featureId == "invite-share" {
+                    model.show(Route(featureId: "room-members", state: .success))
+                }
+            }
+        )
+    }
+}
+
 struct ProfileView: View {
     @Bindable var model: ProfileModel
     var userId: String?
@@ -77,6 +116,8 @@ struct ProfileView: View {
     var onIncidents: () -> Void
     var onJoin: () -> Void
     var onRacePass: () -> Void = {}
+    /// The active race's setup isn't finished (its Race Pass page was closed to here): back into it.
+    var onFinishSetup: (() -> Void)?
     var onCreated: @MainActor (String) -> Void
     var onDeleted: @MainActor (String) -> Void = { _ in }
     var onName: @MainActor (String) -> Void
@@ -141,8 +182,12 @@ struct ProfileView: View {
                             )
                             .accessibilityIdentifier("crewcue.race-rename")
                         }
+                        if let onFinishSetup {
+                            CrewListRow(systemImage: "flag.checkered", title: OnboardingCopy.finishSetupTitle, detail: OnboardingCopy.finishSetupDetail, action: onFinishSetup)
+                                .accessibilityIdentifier("crewcue.profile.finish-setup")
+                        }
                         if role == "athlete" {
-                            CrewListRow(systemImage: "ticket", title: "Race Pass", detail: "Unlock this race for your crew", action: onRacePass)
+                            CrewListRow(systemImage: "ticket", title: OnboardingCopy.racePassTitle, detail: "Unlock this race for your crew", action: onRacePass)
                         }
                         if let activeRace, activeRace.isOwned(by: userId) {
                             CrewListRow(
@@ -199,16 +244,26 @@ struct ProfileView: View {
                             .font(CrewFont.body)
                             .foregroundStyle(theme.body)
                     }
-                    TextField("Race name", text: $model.raceName)
-                        .textFieldStyle(.crew)
-                        .accessibilityLabel("Race name")
-                    Button("Create new race") {
-                        Task { await model.createRace(onCreated: onCreated) }
+                    HStack(spacing: CrewSpace.base) {
+                        TextField("New race name", text: $model.raceName)
+                            .textFieldStyle(.crewCompact)
+                            .submitLabel(.done)
+                            .accessibilityLabel("Race name")
+                        Button("Create") {
+                            Task { await model.createRace(onCreated: onCreated) }
+                        }
+                        .buttonStyle(.crewPillProminent)
+                        .crewBusy(model.creatingRace)
+                        .accessibilityLabel("Create new race")
                     }
-                    .buttonStyle(.crewPrimary)
-                    .crewBusy(model.creatingRace)
-                    Button("Join race room", action: onJoin)
-                        .buttonStyle(.crewSecondary)
+                    HStack(spacing: CrewSpace.base) {
+                        Text("Have an invite code?")
+                            .font(CrewFont.hint)
+                            .foregroundStyle(theme.outline)
+                        Spacer(minLength: 0)
+                        Button("Join race room", action: onJoin)
+                            .buttonStyle(.crewPill)
+                    }
                 }
                 .crewGlassCard()
                 .padding(.horizontal, CrewSpace.gutter)
@@ -250,7 +305,7 @@ struct ProfileView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Your crew sees the new name. Up to \(RaceName.maxLength) characters.")
+            Text(RaceRenameCopy.hint)
         }
     }
 
@@ -288,7 +343,7 @@ struct ProfileView: View {
 }
 
 /// One loaded race. Tapping it makes it the race Map, Pace, Chat, and Profile follow.
-/// The owner's races also get a delete button and a context menu entry; crew rows do not.
+/// The owner's races also get a Delete race context menu entry; crew rows do not.
 struct ProfileRaceRow: View {
     let race: RaceSummary
     let active: Bool
@@ -299,36 +354,30 @@ struct ProfileRaceRow: View {
     @Environment(\.crew) private var theme
 
     var body: some View {
-        HStack(spacing: CrewSpace.stackSm) {
-            selectButton
-            if canDelete {
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .foregroundStyle(theme.danger)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(deleting)
-                .accessibilityLabel(Text(verbatim: "Delete \(race.name)"))
-                .accessibilityIdentifier("crewcue.race-delete.\(race.id)")
-            }
-        }
+        // Delete race in Race & crew is the one visible delete; it removes the race for everyone.
+        // A long press on a row the runner owns offers the same delete without switching races.
+        selectButton
+            .disabled(deleting)
     }
 
     private var selectButton: some View {
         Button(action: action) {
             HStack(spacing: CrewSpace.stackSm) {
-                IconDisc(systemImage: active ? "flag.checkered" : "flag", tint: active ? theme.primary : nil)
+                Image(systemName: active ? "flag.checkered" : "flag")
+                    .font(.system(.body, weight: .medium))
+                    .foregroundStyle(theme.primary)
+                    .frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: race.name)
-                        .font(CrewFont.button)
+                        .font(CrewFont.rowTitle)
                         .foregroundStyle(active ? theme.primary : theme.ink)
-                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(verbatim: race.roleLabel)
-                        .font(CrewFont.body)
-                        .foregroundStyle(theme.body)
+                        .font(CrewFont.hint)
+                        .foregroundStyle(theme.outline)
                 }
+                .multilineTextAlignment(.leading)
                 Spacer(minLength: 8)
                 if active {
                     Image(systemName: "checkmark.circle.fill")
@@ -351,7 +400,7 @@ struct ProfileRaceRow: View {
     }
 }
 
-/// Runner hero: night-trail gradient, illustration, name, role, and live chip.
+/// Runner hero: slate ground, course-profile art, name, role, and live chip.
 struct ProfileHero: View {
     let name: String
     let role: String?
@@ -365,13 +414,9 @@ struct ProfileHero: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            Image("OnboardingRunner")
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.top, 8)
-                .padding(.trailing, -24)
-                .opacity(0.9)
+            CourseProfileArt(ground: false)
+                .padding(.top, 28)
+                .padding(.bottom, 64)
                 .accessibilityHidden(true)
             LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
             HStack(alignment: .bottom) {
@@ -394,7 +439,7 @@ struct ProfileHero: View {
             }
             .padding(CrewSpace.margin)
         }
-        .frame(height: 240)
+        .frame(height: 180)
         .clipShape(RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
         .shadow(color: theme.shadow, radius: 16, y: 6)
         .accessibilityElement(children: .combine)
@@ -415,9 +460,8 @@ struct ProfileStatCard: View {
                 .tracking(0.8)
                 .textCase(.uppercase)
                 .foregroundStyle(theme.body)
-            Spacer(minLength: 8)
             Text(verbatim: value)
-                .font(CrewFont.metricLarge)
+                .font(CrewFont.metric)
                 .foregroundStyle(accent ? theme.primary : theme.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.55)
@@ -427,8 +471,8 @@ struct ProfileStatCard: View {
                 .textCase(.uppercase)
                 .foregroundStyle(theme.body)
         }
-        .frame(minHeight: 120, alignment: .topLeading)
-        .crewGlassCard(padding: CrewSpace.gutter + 4)
+        .frame(alignment: .topLeading)
+        .crewGlassCard(padding: CrewSpace.gutter)
         .accessibilityElement(children: .combine)
     }
 }

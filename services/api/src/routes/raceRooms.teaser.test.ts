@@ -502,7 +502,7 @@ test("expired race stays blocked for the runner too", async () => {
   });
 });
 
-test("unpaid race: invites, invite accept and join-by-code return 402 room_unpaid; the runner still joins", async () => {
+test("unpaid race: invites and invite accept return 402 room_unpaid; crew may join by code and wait", async () => {
   await withApp(async (app) => {
     const runner = "runner-teaser-joins";
     const room = await setUpUnpaidRace(app, runner);
@@ -516,9 +516,10 @@ test("unpaid race: invites, invite accept and join-by-code return 402 room_unpai
     assert.equal(invite.statusCode, 402);
     assert.deepEqual(invite.json(), UNPAID_BODY);
 
+    // Join by code is open before the pass: the crew member waits on the locked race.
     const join = await joinByCode(app, room.joinCode, "crew-teaser-join");
-    assert.equal(join.statusCode, 402);
-    assert.deepEqual(join.json(), UNPAID_BODY);
+    assert.equal(join.statusCode, 200, join.body);
+    assert.equal((await get(app, `/race-rooms/${room.id}`, "crew-teaser-join")).statusCode, 402);
 
     // An invite issued while paid is refused on accept once the race is unpaid again.
     await setEntitlement(app, room.id, runner, "paid");
@@ -539,12 +540,12 @@ test("unpaid race: invites, invite accept and join-by-code return 402 room_unpai
     assert.equal(accept.statusCode, 402);
     assert.deepEqual(accept.json(), UNPAID_BODY);
 
-    // Nobody was added, and the refusal is not a crew-cap upsell.
+    // Only the code join was added, and the invite refusal is not a crew-cap upsell.
     const billing = (await get(app, `/race-rooms/${room.id}/billing`, runner)).json() as {
       crewCount: number;
       offers: string[];
     };
-    assert.equal(billing.crewCount, 0);
+    assert.equal(billing.crewCount, 1);
     assert.deepEqual(billing.offers, ["race_pass", "race_pass_full_crew"]);
   });
 });
@@ -564,7 +565,9 @@ test("unpaid race created for a runner: the runner still joins their own race by
     const join = await joinByCode(app, room.joinCode, runner);
     assert.equal(join.statusCode, 200, join.body);
     assert.equal((await get(app, `/race-rooms/${room.id}`, runner)).statusCode, 200);
-    assert.equal((await joinByCode(app, room.joinCode, "crew-for-runner")).statusCode, 402);
+    // Crew may join early and wait on the locked race.
+    assert.equal((await joinByCode(app, room.joinCode, "crew-for-runner")).statusCode, 200);
+    assert.equal((await get(app, `/race-rooms/${room.id}`, "crew-for-runner")).statusCode, 402);
   });
 });
 

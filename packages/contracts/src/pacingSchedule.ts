@@ -199,6 +199,12 @@ export interface ActivityHistoryRef {
   recordedAt: string;
   /** When CrewCue ingested the activity (ISO-8601 UTC). */
   ingestedAt: string;
+  /**
+   * The activity's own title from the file ("Morning Run" in a Strava GPX export), trimmed and at
+   * most {@link ACTIVITY_HISTORY_NAME_MAX_CHARS} characters. Absent when the file has none (COROS
+   * exports) and for rows imported before names were kept.
+   */
+  name?: string;
   distanceMeters?: number;
   elapsedSeconds?: number;
   elevationGainMeters?: number;
@@ -427,6 +433,16 @@ export function parseScheduleStop(value: unknown, field = "scheduleStop"): Sched
   return stop;
 }
 
+/** Longest stored activity name. */
+export const ACTIVITY_HISTORY_NAME_MAX_CHARS = 120;
+
+/** Trimmed, whitespace collapsed, capped at {@link ACTIVITY_HISTORY_NAME_MAX_CHARS}; undefined when blank. */
+export function normalizeActivityHistoryName(value: string): string | undefined {
+  const collapsed = value.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) return undefined;
+  return [...collapsed].slice(0, ACTIVITY_HISTORY_NAME_MAX_CHARS).join("").trim();
+}
+
 export function parseActivityHistoryRef(value: unknown, field = "activityHistoryRef"): ActivityHistoryRef {
   if (!isRecord(value)) {
     throw new TypeError(`${field} must be an object`);
@@ -441,6 +457,13 @@ export function parseActivityHistoryRef(value: unknown, field = "activityHistory
     recordedAt: parseIso8601Utc(value.recordedAt, `${field}.recordedAt`),
     ingestedAt: parseIso8601Utc(value.ingestedAt, `${field}.ingestedAt`)
   };
+  if (value.name !== undefined && value.name !== null) {
+    if (typeof value.name !== "string") {
+      throw new TypeError(`${field}.name must be a string`);
+    }
+    const name = normalizeActivityHistoryName(value.name);
+    if (name !== undefined) ref.name = name;
+  }
   if (value.distanceMeters !== undefined) {
     ref.distanceMeters = parseDistanceMeters(value.distanceMeters, `${field}.distanceMeters`);
   }

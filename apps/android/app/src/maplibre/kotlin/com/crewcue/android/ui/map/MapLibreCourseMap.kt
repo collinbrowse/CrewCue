@@ -105,7 +105,9 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         onStartLineShown: () -> Unit
     ) {
         val context = LocalContext.current
-        val dark = context.isDarkMode()
+        // The setup preview and the onboarding replay draw terrain-style tiles at every
+        // appearance, never the black night map; the race Map follows the phone's.
+        val dark = context.isDarkMode() && framing != CourseFraming.Preview && framing != CourseFraming.Replay
         val palette = remember(dark) { CoursePalette(dark) }
         val paletteState = rememberUpdatedState(palette)
         val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -246,6 +248,17 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                     mapView.getMapAsync { map ->
                         val style = map.style?.takeIf { it.isFullyLoaded } ?: return@getMapAsync
                         runCatching { drawGlide(style, trackState.value, timesState.value, frame, paletteState.value, drawnPath) }
+                        // The replay keeps the camera on the runner's dot, zoomed in, so it is seen
+                        // moving rather than lost under aid station names on a whole-course view.
+                        if (framingState.value == CourseFraming.Replay) {
+                            val track = trackState.value
+                            val dot = if (frame != null && track.isNotEmpty() && timesState.value.size == track.size) {
+                                GlideLayout.of(frame, track, timesState.value).dot
+                            } else {
+                                track.lastOrNull()
+                            }
+                            if (dot != null) followRunner(map, mapView, dot, framingState.value)
+                        }
                     }
                 }
             }
@@ -455,20 +468,51 @@ private fun drawDot(style: Style, dot: CoursePoint?, palette: CoursePalette) {
 
 private const val EMPTY_COLLECTION = """{"type":"FeatureCollection","features":[]}"""
 
-/** Course colors on the map: Night Trail primary line, white markers with dark labels. */
+/** Course colors on the map: slate course line, ember runner path, white markers with dark labels. */
 private class CoursePalette(dark: Boolean) {
-    /** The runner's path: the theme's secondary, so it reads apart from the course line. */
-    val track = Color.parseColor(if (dark) "#ADC6FF" else "#0058BE")
-    val line = Color.parseColor(if (dark) "#C9BFFF" else "#5440B9")
-    val marker = Color.parseColor(if (dark) "#20201B" else "#FFFFFF")
-    val label = Color.parseColor(if (dark) "#E5E2DA" else "#1C1C17")
-    val halo = Color.parseColor(if (dark) "#14140F" else "#FFFFFF")
+    /** The runner's path: the theme's primary, so the runner reads apart from the slate course line. */
+    val track = Color.parseColor(if (dark) "#FF8F5C" else "#B5441A")
+    val line = Color.parseColor(if (dark) "#B7C4D4" else "#34404F")
+    val marker = Color.parseColor(if (dark) "#1F252D" else "#FFFFFF")
+    val label = Color.parseColor(if (dark) "#ECE6DA" else "#1F2730")
+    val halo = Color.parseColor(if (dark) "#161A20" else "#FFFFFF")
 }
 
 /**
  * Fits the camera to the course line and its checkpoints with [framing]'s room around them. False
  * when there is nothing to fit or the map has no size yet (a camera fitted then is the whole world).
  */
+/** The zoom the replay holds on the runner (as on iOS). */
+private const val FOLLOW_ZOOM = 14.5
+
+/**
+ * Keeps the replay's dot in the open part of the pane (inside [framing]'s room): zoomed onto it
+ * the first time, then recentred only when it drifts toward the edge, not on every frame.
+ */
+private fun followRunner(map: MapLibreMap, view: MapView, dot: CoursePoint, framing: CourseFraming) {
+    if (view.width <= 0 || view.height <= 0) return
+    val density = view.resources.displayMetrics.density
+    val room = framing.paddingPx(density, view.width, view.height)
+    val openWidth = (view.width - room.left - room.right).coerceAtLeast(1)
+    val openHeight = (view.height - room.top - room.bottom).coerceAtLeast(1)
+    val point = map.projection.toScreenLocation(LatLng(dot.latitude, dot.longitude))
+    val driftX = kotlin.math.abs(point.x - (room.left + openWidth / 2f)) / openWidth
+    val driftY = kotlin.math.abs(point.y - (room.top + openHeight / 2f)) / openHeight
+    val zoomedIn = map.cameraPosition.zoom >= FOLLOW_ZOOM - 0.5
+    if (zoomedIn && maxOf(driftX, driftY) <= 0.3f) return
+    val zoom = maxOf(map.cameraPosition.zoom, FOLLOW_ZOOM)
+    map.animateCamera(
+        CameraUpdateFactory.newCameraPosition(
+            org.maplibre.android.camera.CameraPosition.Builder()
+                .target(LatLng(dot.latitude, dot.longitude))
+                .zoom(zoom)
+                .padding(room.left.toDouble(), room.top.toDouble(), room.right.toDouble(), room.bottom.toDouble())
+                .build()
+        ),
+        500
+    )
+}
+
 private fun fitCourse(
     map: MapLibreMap,
     view: MapView,

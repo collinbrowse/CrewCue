@@ -29,17 +29,23 @@ struct CrewTopBar: View {
     /// The active race's name, or the app's when there is no race.
     var title: String = "CrewCue"
     var onSettings: (() -> Void)?
+    /// Map and Pace: the runner's course progress under the bar's row. Nil elsewhere.
+    var courseStrip: CourseProgressStrip? = nil
     @Environment(\.crew) private var theme
 
     var body: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.base) {
+            barRow
+            if let courseStrip { courseStrip }
+        }
+        .padding(.horizontal, CrewSpace.gutter)
+        .padding(.vertical, CrewSpace.base)
+    }
+
+    private var barRow: some View {
         HStack(spacing: CrewSpace.stackSm) {
-            Image("OnboardingRunner")
-                .resizable()
-                .scaledToFill()
+            CairnAvatar()
                 .frame(width: 40, height: 40)
-                .background(theme.ink)
-                .clipShape(Circle())
-                .overlay { Circle().stroke(theme.primary, lineWidth: 2) }
                 .accessibilityHidden(true)
             Text(verbatim: title)
                 .font(CrewFont.wordmark)
@@ -60,8 +66,6 @@ struct CrewTopBar: View {
                 .accessibilityLabel("Settings")
             }
         }
-        .padding(.horizontal, CrewSpace.gutter)
-        .padding(.vertical, CrewSpace.base)
     }
 }
 
@@ -135,18 +139,21 @@ struct MetricColumn: View {
     var caption: String?
     var alignment: HorizontalAlignment = .center
     var valueColor: Color?
+    /// Smaller value type, for rows of three inside a sheet or card.
+    var compact = false
     @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: alignment, spacing: 6) {
+        VStack(alignment: alignment, spacing: compact ? 3 : 6) {
             Text(verbatim: label)
-                .font(CrewFont.label)
+                .font(compact ? CrewFont.kicker : CrewFont.label)
                 .tracking(0.8)
                 .textCase(.uppercase)
                 .foregroundStyle(theme.body)
                 .multilineTextAlignment(textAlignment)
+                .fixedSize(horizontal: false, vertical: true)
             Text(verbatim: value)
-                .font(CrewFont.metric)
+                .font(compact ? Font.system(.headline, weight: .bold).monospacedDigit() : CrewFont.metric)
                 .foregroundStyle(valueColor ?? theme.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -239,24 +246,31 @@ struct CrewListRow: View {
 
     var body: some View {
         Button(action: action) {
+            // Settings density: a plain icon, a subheadline title and a gray hint that wraps.
             HStack(spacing: CrewSpace.stackSm) {
-                IconDisc(systemImage: systemImage, tint: tint)
+                Image(systemName: systemImage)
+                    .font(.system(.body, weight: .medium))
+                    .foregroundStyle(tint ?? theme.primary)
+                    .frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(CrewFont.button)
+                        .font(CrewFont.rowTitle)
                         .foregroundStyle(tint ?? theme.ink)
                     if let detail, detail.isEmpty == false {
                         Text(verbatim: detail)
-                            .font(CrewFont.body)
-                            .foregroundStyle(theme.body)
+                            .font(CrewFont.hint)
+                            .foregroundStyle(theme.outline)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                .multilineTextAlignment(.leading)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
                     .font(.system(.footnote, weight: .bold))
                     .foregroundStyle(theme.outline)
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

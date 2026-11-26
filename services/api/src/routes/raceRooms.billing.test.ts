@@ -114,17 +114,22 @@ async function getRoomStatus(app: App, roomId: string, user: string): Promise<nu
   return response.statusCode;
 }
 
-test("unpaid room shows its runner the teaser, takes no crew, and its billing view offers the pass", async () => {
+test("unpaid room shows its runner the teaser, lets one crew wait, and its billing view offers the pass", async () => {
   const app = buildApp();
   await app.ready();
   const room = await createRunnerRoom(app, "runner-unpaid");
   // The runner sets up an unpaid race (teaser reads; raceRooms.teaser.test.ts covers the shape).
   assert.equal(await getRoomStatus(app, room.id, "runner-unpaid"), 200);
+  // Crew may join early and wait: the room stays locked to them until it is paid.
   const join = await joinByCode(app, room.joinCode, "crew-unpaid");
-  assert.equal(join.statusCode, 402);
-  assert.deepEqual(join.json(), { error: "Race not unlocked", code: "room_unpaid" });
+  assert.equal(join.statusCode, 200);
+  assert.equal(await getRoomStatus(app, room.id, "crew-unpaid"), 402);
+  // An unpaid race holds only the base crew cap, so early joins never become free seats.
+  const second = await joinByCode(app, room.joinCode, "crew-unpaid-2");
+  assert.equal(second.statusCode, 409);
+  assert.equal((second.json() as { code: string }).code, "crew_limit_reached");
   const view = await billing(app, room.id, "runner-unpaid");
-  assert.equal(view.crewCount, 0);
+  assert.equal(view.crewCount, 1);
   assert.equal(view.entitlement.status, "unpaid");
   assert.deepEqual(view.offers, ["race_pass", "race_pass_full_crew"]);
   assert.equal(view.crewLimit, 1);
@@ -373,9 +378,10 @@ test("refund drops the tier: existing crew stay, new joins are refused", async (
   assert.equal(locked.crewCount, 3);
   assert.equal(await getRoomStatus(app, room.id, "runner-refund"), 200);
   assert.equal(await getRoomStatus(app, room.id, "crew-r-1"), 402);
+  // Locked again with three crew already in: the base cap still refuses anyone new.
   const lockedJoin = await joinByCode(app, room.joinCode, "crew-r-5");
-  assert.equal(lockedJoin.statusCode, 402);
-  assert.equal((lockedJoin.json() as { code: string }).code, "room_unpaid");
+  assert.equal(lockedJoin.statusCode, 409);
+  assert.equal((lockedJoin.json() as { code: string }).code, "crew_limit_reached");
   await app.close();
 });
 

@@ -129,3 +129,37 @@ private let lockedBody = #"{"error":"This race has started, so its course and st
     roster.rename("missing", to: "X")
     #expect(roster.races.map(\.name) == ["A", "Bigfoot 200"])
 }
+
+@Test func runtimeRenameRaceAnswersTheSavedNameOrTheSharedFailureLine() async throws {
+    let server = LockServer(["PATCH /race-rooms/room": (200, roomJSON(name: "Canyons 100K"))])
+    let ok = try await RuntimeCall.renameRace(graph: lockGraph(server), roomId: "room", name: " Canyons 100K ")
+    #expect(ok["renamed"] as? Bool == true)
+    #expect(ok["id"] as? String == "room")
+    #expect(ok["name"] as? String == "Canyons 100K")
+    #expect(ok["message"] as? String == RaceRenameCopy.saved)
+
+    let empty = try await RuntimeCall.renameRace(graph: lockGraph(LockServer([:])), roomId: "room", name: "  ")
+    #expect(empty["renamed"] as? Bool == false)
+    #expect(empty["message"] as? String == RaceName.invalidMessage)
+
+    let refused = LockServer(["PATCH /race-rooms/room": (403, #"{"error":"Insufficient permissions"}"#)])
+    let failed = try await RuntimeCall.renameRace(graph: lockGraph(refused), roomId: "room", name: "Canyons")
+    #expect(failed["renamed"] as? Bool == false)
+    #expect(failed["message"] as? String == RaceRenameCopy.failed)
+
+    let expired = LockServer(["PATCH /race-rooms/room": (401, #"{"error":"Unauthorized"}"#)])
+    await #expect(throws: ClientHTTPError.self) {
+        _ = try await RuntimeCall.renameRace(graph: lockGraph(expired), roomId: "room", name: "Canyons")
+    }
+}
+
+@Test func runtimeRaceRenameCopyOffersTheRowToRaceSetupEditorsOnly() {
+    for role in ["athlete", "crew_chief", "team_manager"] {
+        #expect(RuntimeCall.raceRenameCopy(role: role)["mayRename"] as? Bool == true)
+    }
+    #expect(RuntimeCall.raceRenameCopy(role: "crew_member")["mayRename"] as? Bool == false)
+    let copy = RuntimeCall.raceRenameCopy(role: "athlete")
+    #expect(copy["rowTitle"] as? String == RaceRenameCopy.rowTitle)
+    #expect(copy["hint"] as? String == "Your crew sees the new name. Up to 80 characters.")
+    #expect(copy["maxLength"] as? Int == 80)
+}

@@ -39,74 +39,74 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.crewcue.android.ui.brand.CairnShakeLoader
 
-// Night Trail. Values mirror `nightTrail` in packages/contracts/src/designSystems.ts.
+// Ember: the app icon's slate, cream and orange. Values mirror `ember` in packages/contracts/src/designSystems.ts.
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF5440B9),
+    primary = Color(0xFFB5441A),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE5DEFF),
-    onPrimaryContainer = Color(0xFF462FAA),
-    inversePrimary = Color(0xFFC9BFFF),
-    secondary = Color(0xFF0058BE),
+    primaryContainer = Color(0xFFFBE3D6),
+    onPrimaryContainer = Color(0xFF8A3110),
+    inversePrimary = Color(0xFFFF8F5C),
+    secondary = Color(0xFF34404F),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFEBE8DF),
-    onSecondaryContainer = Color(0xFF1C1C17),
-    tertiary = Color(0xFF4E5566),
+    secondaryContainer = Color(0xFFE9E2D3),
+    onSecondaryContainer = Color(0xFF1F2730),
+    tertiary = Color(0xFF4E5A66),
     onTertiary = Color.White,
-    background = Color(0xFFFCF9F0),
-    onBackground = Color(0xFF1C1C17),
-    surface = Color(0xFFFCF9F0),
-    onSurface = Color(0xFF1C1C17),
-    surfaceVariant = Color(0xFFE5E2DA),
-    onSurfaceVariant = Color(0xFF484553),
-    surfaceTint = Color(0xFF5E4AC3),
-    inverseSurface = Color(0xFF31312B),
-    inverseOnSurface = Color(0xFFF4F1E8),
+    background = Color(0xFFF8F4EA),
+    onBackground = Color(0xFF1F2730),
+    surface = Color(0xFFF8F4EA),
+    onSurface = Color(0xFF1F2730),
+    surfaceVariant = Color(0xFFE3DCCC),
+    onSurfaceVariant = Color(0xFF4A5563),
+    surfaceTint = Color(0xFFB5441A),
+    inverseSurface = Color(0xFF2A3340),
+    inverseOnSurface = Color(0xFFF3ECDD),
     surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color(0xFFF6F3EA),
-    surfaceContainer = Color(0xFFF1EEE5),
-    surfaceContainerHigh = Color(0xFFEBE8DF),
-    surfaceContainerHighest = Color(0xFFE5E2DA),
-    surfaceDim = Color(0xFFDDDAD1),
-    surfaceBright = Color(0xFFFCF9F0),
-    outline = Color(0xFF797584),
-    outlineVariant = Color(0xFFC9C4D5),
+    surfaceContainerLow = Color(0xFFF3EEE3),
+    surfaceContainer = Color(0xFFF0EADD),
+    surfaceContainerHigh = Color(0xFFE9E2D3),
+    surfaceContainerHighest = Color(0xFFE3DCCC),
+    surfaceDim = Color(0xFFDDD7CB),
+    surfaceBright = Color(0xFFF8F4EA),
+    outline = Color(0xFF7A7F87),
+    outlineVariant = Color(0xFFD6D0C3),
     error = Color(0xFFBA1A1A),
     onError = Color.White,
-    errorContainer = Color(0xFFFFF1EC),
+    errorContainer = Color(0xFFFDE7E7),
     onErrorContainer = Color(0xFF93000A)
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFC9BFFF),
-    onPrimary = Color(0xFF2F0C94),
-    primaryContainer = Color(0xFF3A2C8A),
-    onPrimaryContainer = Color(0xFFE5DEFF),
-    inversePrimary = Color(0xFF5E4AC3),
-    secondary = Color(0xFFADC6FF),
-    onSecondary = Color(0xFF002E6A),
-    secondaryContainer = Color(0xFF35352F),
-    onSecondaryContainer = Color(0xFFE5E2DA),
-    tertiary = Color(0xFFC0C6DB),
-    onTertiary = Color(0xFF293040),
-    background = Color(0xFF14140F),
-    onBackground = Color(0xFFE5E2DA),
-    surface = Color(0xFF14140F),
-    onSurface = Color(0xFFE5E2DA),
-    surfaceVariant = Color(0xFF35352F),
-    onSurfaceVariant = Color(0xFFC9C4D5),
-    surfaceTint = Color(0xFFC9BFFF),
-    inverseSurface = Color(0xFFE5E2DA),
-    inverseOnSurface = Color(0xFF31312B),
-    surfaceContainerLowest = Color(0xFF0E0E0A),
-    surfaceContainerLow = Color(0xFF1C1C17),
-    surfaceContainer = Color(0xFF20201B),
-    surfaceContainerHigh = Color(0xFF2A2A25),
-    surfaceContainerHighest = Color(0xFF35352F),
-    surfaceDim = Color(0xFF14140F),
-    surfaceBright = Color(0xFF3A3933),
-    outline = Color(0xFF938E9F),
-    outlineVariant = Color(0xFF484553),
+    primary = Color(0xFFFF8F5C),
+    onPrimary = Color(0xFF3A1404),
+    primaryContainer = Color(0xFF5A2510),
+    onPrimaryContainer = Color(0xFFFFDBCB),
+    inversePrimary = Color(0xFFB5441A),
+    secondary = Color(0xFFB7C4D4),
+    onSecondary = Color(0xFF1F2730),
+    secondaryContainer = Color(0xFF323B45),
+    onSecondaryContainer = Color(0xFFECE6DA),
+    tertiary = Color(0xFFC0C8D2),
+    onTertiary = Color(0xFF263039),
+    background = Color(0xFF161A20),
+    onBackground = Color(0xFFECE6DA),
+    surface = Color(0xFF161A20),
+    onSurface = Color(0xFFECE6DA),
+    surfaceVariant = Color(0xFF323B45),
+    onSurfaceVariant = Color(0xFFC3C7CD),
+    surfaceTint = Color(0xFFFF8F5C),
+    inverseSurface = Color(0xFFECE6DA),
+    inverseOnSurface = Color(0xFF2A3340),
+    surfaceContainerLowest = Color(0xFF101318),
+    surfaceContainerLow = Color(0xFF1B2027),
+    surfaceContainer = Color(0xFF1F252D),
+    surfaceContainerHigh = Color(0xFF283039),
+    surfaceContainerHighest = Color(0xFF323B45),
+    surfaceDim = Color(0xFF161A20),
+    surfaceBright = Color(0xFF3A424D),
+    outline = Color(0xFF8A929C),
+    outlineVariant = Color(0xFF3A434E),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF3B1A17),
@@ -145,16 +145,20 @@ object CrewSpace {
     val card = 32.dp
 }
 
-/** Colors outside the Material scheme: hero gradient and the soft card shadow tint. */
+/** Colors outside the Material scheme: the slate hero ground and its role accent. */
 @Immutable
 data class CrewExtras(val heroGradient: List<Color>, val heroAccent: Color, val dark: Boolean)
 
 val LocalCrewExtras = staticCompositionLocalOf {
-    CrewExtras(listOf(Color(0xFF1C1A2E), Color(0xFF3A2C8A), Color(0xFF6D5AD3)), Color(0xFFC9BFFF), false)
+    CrewExtras(listOf(Color(0xFF3A4658), Color(0xFF2A3340), Color(0xFF1E252F)), Color(0xFFFF9A66), false)
 }
 
 /** Metric numerals: heavy, tabular. */
 val MetricStyle = TextStyle(fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, fontFeatureSettings = "tnum")
+/** The value in a compact row of three metrics (sheet pages, cards). */
+val MetricCompactStyle = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
+/** A list row's title at Settings density. */
+val RowTitleStyle = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
 val MetricLargeStyle = TextStyle(fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Black, fontFeatureSettings = "tnum")
 
 @Composable
@@ -162,8 +166,8 @@ fun CrewCueTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     androidx.compose.runtime.CompositionLocalProvider(
         LocalCrewExtras provides CrewExtras(
-            heroGradient = listOf(Color(0xFF1C1A2E), Color(0xFF3A2C8A), Color(0xFF6D5AD3)),
-            heroAccent = Color(0xFFC9BFFF),
+            heroGradient = listOf(Color(0xFF3A4658), Color(0xFF2A3340), Color(0xFF1E252F)),
+            heroAccent = Color(0xFFFF9A66),
             dark = dark
         )
     ) {

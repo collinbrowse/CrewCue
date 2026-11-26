@@ -199,7 +199,8 @@ final class FullWidthRowsTests: XCTestCase {
         assertFollowsTheColumn(first, in: app, occlusions, "You + 1 crew, scrolled")
         assertClear(buy, of: occlusions, "You + 1 crew's Buy, scrolled")
         assertFollowsTheColumn(second, in: app, occlusions, "Your whole crew, scrolled")
-        assertFollowsTheColumn(notNow, in: app, occlusions, "Not now, scrolled")
+        // Not now is a compact pill now, not a full-width row: it only has to stay clear.
+        assertClear(notNow, of: occlusions, "Not now, scrolled")
 
         app.swipeDown()
         assertEvenMargins(first, in: app, "You + 1 crew, back at the top")

@@ -9,6 +9,13 @@ struct IncidentsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // Back to Profile, at the top where a pushed page's back control sits.
+                Button(action: onProfile) {
+                    Label("Profile", systemImage: "chevron.left")
+                }
+                .buttonStyle(.crewPill)
+                .accessibilityLabel("Back to Profile")
+                .accessibilityIdentifier("crewcue.readouts-incidents.back")
                 ProductTitle(title: "Incidents", subtitle: "Log what the crew needs to know.")
                 if model.lines.isEmpty == false {
                     VStack(alignment: .leading, spacing: 10) {
@@ -51,13 +58,12 @@ struct IncidentsView: View {
                         Button("Submit") {
                             Task { await model.submit() }
                         }
-                        .buttonStyle(.crewPrimary)
+                        .buttonStyle(.crewPillProminent)
                         .disabled(model.working || model.summaryDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     .crewCard()
                 }
-                Button("Profile", action: onProfile)
-                    .buttonStyle(.crewSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }

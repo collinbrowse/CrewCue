@@ -290,10 +290,10 @@ private struct StepHeader: View {
 
 private struct SetupIllustration: View {
     var body: some View {
-        Image("OnboardingRunner")
-            .resizable()
-            .scaledToFit()
-            .frame(maxWidth: .infinity)
+        CourseProfileArt()
+            .aspectRatio(CourseProfile.aspectRatio, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: CrewRadius.lg, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: 240)
             .accessibilityHidden(true)
     }
 }
@@ -419,7 +419,7 @@ private struct CourseStep: View {
 
     private var courseFile: some View {
         VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-            if empty {
+            if empty, model.failure == nil {
                 // The checklist's Empty state.
                 Text(CrewCueClientCore.featureScreen(id: "onboarding-runner-setup", state: .empty).body)
                     .font(CrewFont.body)
@@ -427,7 +427,13 @@ private struct CourseStep: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("crewcue.onboarding.empty")
             }
-            if let name = model.shownCourseFileName {
+            if let failure = model.failure, failure != .offline, model.coursePreview == nil || model.pendingCourse != nil {
+                // The upload failed: only the error under the step says so, never the file's
+                // name as if it had uploaded. Offline, the file waits on this phone and stays named.
+                EmptyView()
+            } else if model.courseUploaded, let name = model.shownCourseFileName {
+                CourseUploaded(fileName: name)
+            } else if let name = model.shownCourseFileName {
                 Label(name, systemImage: "doc")
                     .font(CrewFont.label)
                     .foregroundStyle(theme.ink)
@@ -437,16 +443,21 @@ private struct CourseStep: View {
                 // back in, another phone): Continue keeps it, nothing is uploaded again.
                 SavedCourse(fileName: model.savedCourseFileName)
             }
-            Button(empty ? OnboardingCopy.chooseCourseFile : OnboardingCopy.chooseAnotherCourseFile) {
-                model.importingCourse = true
-            }
-            .buttonStyle(empty ? .crewPrimary : .crewSecondary)
-            .crewBusy(model.previewingCourse)
-            // The file creates the race, which needs its name first.
-            .disabled(!model.canChooseCourse)
-            .accessibilityIdentifier("crewcue.onboarding.choose-course")
-            if model.courseNeedsRetry {
-                // The preview failed: this reads the same file again, it doesn't move on. A race
+            if model.courseNeedsAnotherFile {
+                // The file itself can't work: choosing another is the one main action.
+                Button(OnboardingCopy.chooseAnotherCourseFile) {
+                    model.importingCourse = true
+                }
+                .buttonStyle(.crewPrimary)
+                .disabled(!model.canChooseCourse)
+                .accessibilityIdentifier("crewcue.onboarding.choose-course")
+                if model.pendingCourse != nil {
+                    Button(OnboardingCopy.pickerCancel, action: model.cancelPendingCourse)
+                        .buttonStyle(.crewGhost)
+                        .accessibilityIdentifier("crewcue.onboarding.cancel-course")
+                }
+            } else if model.courseNeedsRetry {
+                // The upload failed: this reads the same file again, it doesn't move on. A race
                 // still to be created needs its name first.
                 Button(OnboardingCopy.tryAgain) {
                     Task { await model.retryCourse() }
@@ -454,13 +465,37 @@ private struct CourseStep: View {
                 .buttonStyle(.crewPrimary)
                 .disabled(!model.canChooseCourse)
                 .accessibilityIdentifier("crewcue.onboarding.retry")
-                if model.pendingCourse != nil {
-                    // A file picked after Back that couldn't be read: keep the course from before.
-                    Button(OnboardingCopy.pickerCancel, action: model.cancelPendingCourse)
-                        .buttonStyle(.crewGhost)
-                        .accessibilityIdentifier("crewcue.onboarding.cancel-course")
+                HStack(spacing: CrewSpace.stackSm) {
+                    Button(OnboardingCopy.chooseAnotherCourseFile) {
+                        model.importingCourse = true
+                    }
+                    .buttonStyle(.crewPill)
+                    .disabled(!model.canChooseCourse)
+                    .accessibilityIdentifier("crewcue.onboarding.choose-course")
+                    if model.pendingCourse != nil {
+                        // A file picked after Back that couldn't be read: keep the course from before.
+                        Button(OnboardingCopy.pickerCancel, action: model.cancelPendingCourse)
+                            .buttonStyle(.crewPill)
+                            .accessibilityIdentifier("crewcue.onboarding.cancel-course")
+                    }
                 }
-            } else if !empty {
+            } else if empty {
+                Button(OnboardingCopy.chooseCourseFile) {
+                    model.importingCourse = true
+                }
+                .buttonStyle(.crewPrimary)
+                .crewBusy(model.previewingCourse)
+                // The file creates the race, which needs its name first.
+                .disabled(!model.canChooseCourse)
+                .accessibilityIdentifier("crewcue.onboarding.choose-course")
+            } else {
+                Button(OnboardingCopy.chooseAnotherCourseFile) {
+                    model.importingCourse = true
+                }
+                .buttonStyle(.crewPill)
+                .crewBusy(model.previewingCourse)
+                .disabled(!model.canChooseCourse)
+                .accessibilityIdentifier("crewcue.onboarding.choose-course")
                 Button(OnboardingCopy.continueLabel) {
                     Task { await model.continueCourse() }
                 }
@@ -469,6 +504,31 @@ private struct CourseStep: View {
                 .accessibilityIdentifier("crewcue.onboarding.continue")
             }
         }
+    }
+}
+
+/// The picked course previewed: a checkmark, "Course uploaded", and the file's name.
+private struct CourseUploaded: View {
+    let fileName: String
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: CrewSpace.stackSm) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(theme.primary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(OnboardingCopy.courseUploaded)
+                    .font(CrewFont.label)
+                    .foregroundStyle(theme.ink)
+                Text(verbatim: fileName)
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.body)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("crewcue.onboarding.course-uploaded")
     }
 }
 
@@ -661,13 +721,7 @@ private struct TeaserStep: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("crewcue.onboarding.teaser-finish")
-            // The checklist's Success state once the finish is in.
-            Text(model.teaser?.finishAt == nil
-                ? OnboardingCopy.lockedAidExplanation
-                : CrewCueClientCore.featureScreen(id: "onboarding-runner-setup", state: .success).body)
-                .font(CrewFont.body)
-                .foregroundStyle(theme.body)
-                .fixedSize(horizontal: false, vertical: true)
+            // The step's one subtitle is the header's (the checklist's Success line); no second line here.
             if model.teaserNeedsRetry {
                 // The load failed or came back without a finish: nothing else on this step moves on.
                 Button(OnboardingCopy.tryAgain) {

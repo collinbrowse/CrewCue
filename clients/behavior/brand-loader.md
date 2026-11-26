@@ -62,3 +62,14 @@ For small inline use, 16–24 pt, inside or next to a busy button. Units are the
 - Screen-level waits use the stacking loop on the page surface: the race list in Profile while races load and none are listed yet, the chat thread from opening until the first line or a status message, and the course map until its style loads or fails.
 - Busy buttons use the shake loader. A busy button is disabled but not dimmed, and shows a 20 pt shake loader before its label: Pace Recalculate, Starting estimate, Check in, Choose GPX file, Import GPX, Join, the sign-in button that was tapped, Create new race, Save checkpoint, and Start navigation.
 - The stones are cream on a dark fill and slate on a light one, so a primary button in light mode uses cream and in dark mode uses slate.
+
+## Course profile art
+The brand illustration on sign-in, runner setup and the Profile hero, and the place the old runner drawing used to be. It draws what the app tracks: a course, the runner on it, and the aid stations. No people.
+- Units are a 1000 × 600 canvas, y down. It stretches to its frame: x by width / 1000, y by height / 600. Line widths and radii scale by the smaller of the two.
+- Ground: vertical gradient `#3A4658` → `#2A3340` → `#1E252F`. The Profile hero draws its own ground and leaves it off the art.
+- Profile line through (0, 470), (120, 400), (220, 430), (350, 240), (470, 300), (590, 140), (700, 270), (820, 215), (1000, 350). The area under it is cream `#F3ECDD` at 8%.
+- The runner is at (590, 140). Behind the runner the line is orange `#FF7A3D`, width 14. Ahead of the runner it is cream at 55%, width 8, dashed 22 on 22. Both have round caps and joins.
+- Aid stations sit on the line at (220, 430), (470, 300) and (820, 215), radius 12. Passed ones are filled cream. The one ahead is slate `#34404F` with a cream ring, width 5.
+- Runner dot: an orange halo of radius 40 at 25%, then an orange dot of radius 20 with a cream ring, width 6.
+- Static. It never moves, so Reduce Motion needs nothing.
+- The top bar's avatar is the settled Cairn mark (cream stones, orange top) on a slate circle.

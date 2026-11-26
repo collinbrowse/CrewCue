@@ -22,8 +22,8 @@ struct MapLibreCourseMap: UIViewRepresentable {
     /// fallback). Fires again after camera moves; the setup course preview waits for the first.
     var onRendered: () -> Void = {}
     var recenterRequest = 0
-    var lineColor = UIColor(red: 0.329, green: 0.251, blue: 0.725, alpha: 1)
-    var trackColor = UIColor.systemOrange
+    var lineColor = UIColor(red: 0.204, green: 0.251, blue: 0.310, alpha: 1)
+    var trackColor = UIColor(red: 0.710, green: 0.267, blue: 0.102, alpha: 1)
     /// The course line from the server's GPX read (setup preview). Empty: the line joins the checkpoints.
     var route: [CLLocationCoordinate2D] = []
     /// Room kept clear when the course is framed. The race map leaves space for its chips and sheet.
@@ -136,6 +136,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
         context.coordinator.fitPadding = fitPadding
         context.coordinator.shrinksPaddingToFit = shrinksPaddingToFit
         context.coordinator.onPickCenter = onPickCenter
+        context.coordinator.followsRunner = followsRunner
         let dark = context.environment.colorScheme == .dark
         let key = baseStyle.styleName(dark: dark)
         if context.coordinator.styleKey != key {
@@ -168,6 +169,9 @@ struct MapLibreCourseMap: UIViewRepresentable {
 
     /// The race map draws its own info button (under the top bar), so MapLibre's is hidden.
     var hidesAttributionButton = false
+    /// The onboarding replay: the camera zooms onto the runner's dot and keeps it in view, so the
+    /// person sees it move instead of a whole-course view where aid station names cover it.
+    var followsRunner = false
 
     nonisolated static func isOffline(_ error: Error) -> Bool {
         if APIFailure.isTransport(error) {
@@ -203,14 +207,15 @@ struct MapLibreCourseMap: UIViewRepresentable {
         var dark = false
         /// True after the remote style failed and the blank local style replaced it.
         var usingBlankStyle = false
-        var lineColor = UIColor.systemPurple
-        var trackColor = UIColor.systemOrange
+        var lineColor = UIColor(red: 0.204, green: 0.251, blue: 0.310, alpha: 1)
+        var trackColor = UIColor(red: 0.710, green: 0.267, blue: 0.102, alpha: 1)
         var track: [CLLocationCoordinate2D] = []
         var trackTimes: [Date] = []
         var glideFrame: RunnerGlideFrame?
         var route: [CLLocationCoordinate2D] = []
         var fitPadding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
         var shrinksPaddingToFit = false
+        var followsRunner = false
         private var drawnPoints: [MapCoursePoint] = []
         /// The course has been framed on this map.
         private var framedCourse = false
@@ -374,6 +379,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
                 runnerMarker = nil
                 return
             }
+            defer { if followsRunner { follow(coordinate, on: mapView) } }
             if let runnerMarker {
                 if runnerMarker.coordinate.latitude != coordinate.latitude || runnerMarker.coordinate.longitude != coordinate.longitude {
                     runnerMarker.coordinate = coordinate
@@ -385,6 +391,28 @@ struct MapLibreCourseMap: UIViewRepresentable {
             marker.title = "Runner"
             mapView.addAnnotation(marker)
             runnerMarker = marker
+        }
+
+        /// The zoom the replay holds on the runner: close enough that the dot visibly moves along
+        /// the line, with the nearest aid station's name off to one side rather than on top of it.
+        static let followZoom = 14.5
+
+        /// Keeps the replay's dot in view: zoomed onto it the first time, then recentered only when
+        /// it drifts toward the edge, so the camera isn't moved on every one of the frames.
+        private func follow(_ coordinate: CLLocationCoordinate2D, on mapView: MLNMapView) {
+            let size = mapView.bounds.size
+            guard CLLocationCoordinate2DIsValid(coordinate), size.width > 0, size.height > 0 else { return }
+            // The open part of the pane: above the aid sheet, below the chips.
+            let padding = Self.padding(fitPadding, in: size)
+            let open = CGRect(x: padding.left, y: padding.top, width: max(1, size.width - padding.left - padding.right), height: max(1, size.height - padding.top - padding.bottom))
+            let point = mapView.convert(coordinate, toPointTo: mapView)
+            let drift = max(abs(point.x - open.midX) / open.width, abs(point.y - open.midY) / open.height)
+            let zoomedIn = mapView.zoomLevel >= Self.followZoom - 0.5
+            guard !zoomedIn || drift > 0.3 else { return }
+            let zoom = max(mapView.zoomLevel, Self.followZoom)
+            let altitude = MLNAltitudeForZoomLevel(zoom, 0, coordinate.latitude, size)
+            let camera = MLNMapCamera(lookingAtCenter: coordinate, altitude: altitude, pitch: 0, heading: mapView.direction)
+            mapView.setCamera(camera, withDuration: 0.5, animationTimingFunction: CAMediaTimingFunction(name: .easeInEaseOut), edgePadding: padding, completionHandler: nil)
         }
 
         private func clearTrack(on mapView: MLNMapView) {
@@ -631,7 +659,7 @@ final class CheckpointTitleView: MLNAnnotationView {
     override init(reuseIdentifier: String?) {
         super.init(reuseIdentifier: reuseIdentifier)
         backgroundColor = UIColor.white.withAlphaComponent(0.94)
-        layer.borderColor = UIColor(red: 0.329, green: 0.251, blue: 0.725, alpha: 1).cgColor
+        layer.borderColor = UIColor(red: 0.204, green: 0.251, blue: 0.310, alpha: 1).cgColor
         layer.borderWidth = 1.5
         layer.shadowColor = UIColor.black.cgColor
         layer.shadowOpacity = 0.12
@@ -639,7 +667,7 @@ final class CheckpointTitleView: MLNAnnotationView {
         layer.shadowOffset = CGSize(width: 0, height: 2)
         label.font = Self.font
         label.adjustsFontForContentSizeCategory = true
-        label.textColor = UIColor(red: 0.110, green: 0.110, blue: 0.090, alpha: 1)
+        label.textColor = UIColor(red: 0.122, green: 0.153, blue: 0.188, alpha: 1)
         label.textAlignment = .center
         addSubview(label)
     }

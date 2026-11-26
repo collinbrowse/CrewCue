@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deflateRawSync } from "node:zlib";
+import { deflateRawSync, gzipSync } from "node:zlib";
 import { buildApp } from "../app.js";
 import {
   countActivityHistoryRows,
@@ -412,3 +412,58 @@ test(
     await resetActivityHistoryStoreForTests();
   }
 );
+
+test("a Strava export's gzipped FIT and TCX import with their own source, and GPX names are kept", async () => {
+  await withApp(async (app, token) => {
+    // Strava's bulk export keeps each original upload as `<id>.fit.gz` / `<id>.tcx.gz`; only the
+    // activities Strava wrote itself are plain `.gpx`. Before, every `.gz` was skipped as unreadable,
+    // so a mixed export imported only its GPX runs.
+    const hill = fixture("activity-hill-run.fit");
+    const tcx = new TextDecoder()
+      .decode(fixture("activity-short-road.tcx"))
+      .replace(/2026-05-10/g, "2026-05-12")
+      .replace(/<Id>/, "<Notes>Tempo Tuesday</Notes>\n      <Id>");
+    const gpx = new TextDecoder().decode(fixture("activity-short-road.gpx")).replace(/2026-05-10/g, "2026-05-14");
+    const upload = zip([
+      { name: "export_1/activities/101.fit.gz", bytes: new Uint8Array(gzipSync(hill)) },
+      { name: "export_1/activities/102.tcx.gz", bytes: new Uint8Array(gzipSync(new TextEncoder().encode(tcx))) },
+      { name: "export_1/activities/103.gpx", bytes: new TextEncoder().encode(gpx) },
+      { name: "export_1/activities.csv", bytes: new TextEncoder().encode("Activity ID,Activity Name") }
+    ]);
+    const preview = await postRaw(app, token, "preview", "export_1.zip", upload);
+    assert.equal(preview.statusCode, 200);
+    const runs = preview.json().runs as Array<{ fileName: string; source: string; name?: string }>;
+    assert.deepEqual(
+      runs.map((run) => [run.fileName, run.source, run.name ?? null]),
+      [
+        ["101.fit.gz", "fit_upload", null],
+        ["103.gpx", "gpx_upload", "Short road 8k history"],
+        ["102.tcx.gz", "tcx_upload", "Tempo Tuesday"]
+      ]
+    );
+    assert.deepEqual(preview.json().skipped, { older: 0, notRun: 0, unreadable: 1 });
+
+    const imported = await postRaw(app, token, "import", "export_1.zip", upload);
+    assert.equal(imported.json().saved, 3);
+    const stored = await listActivityHistoryForAthlete("athlete-archive");
+    assert.deepEqual(stored.map((ref) => ref.source).sort(), ["fit_upload", "gpx_upload", "tcx_upload"]);
+
+    // The same FIT shared plain later is the same run: its fingerprint is the unpacked file's.
+    const again = await post(app, token, "/activity-history/file", "hill.fit", hill);
+    assert.equal(again.statusCode, 200);
+  });
+});
+
+test("a single gzipped activity imports; a corrupt gzip in a .zip is unreadable", async () => {
+  await withApp(async (app, token) => {
+    const single = await post(app, token, "/activity-history/file", "run.fit.gz", new Uint8Array(gzipSync(fixture("activity-short-road.fit"))));
+    assert.equal(single.statusCode, 201);
+    assert.equal(single.json().source, "fit_upload");
+    const broken = new Uint8Array([0x1f, 0x8b, 0x08, 0, 1, 2, 3, 4, 5]);
+    const res = await post(app, token, "/activity-history/preview", "export.zip", zip([
+      { name: "a/run.gpx", bytes: fixture("activity-short-road.gpx") },
+      { name: "a/bad.fit.gz", bytes: broken }
+    ]));
+    assert.deepEqual(res.json().unreadable.map((row: { fileName: string }) => row.fileName), ["bad.fit.gz"]);
+  });
+});

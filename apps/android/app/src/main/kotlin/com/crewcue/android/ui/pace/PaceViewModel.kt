@@ -32,7 +32,11 @@ data class PaceStop(
     val delay: String?,
     val line: String,
     /** Dwell rail label for the planned stop, e.g. "5 MIN STOP". */
-    val stopLabel: String = ""
+    val stopLabel: String = "",
+    /** "RACE 1:10:00": the planned race time at arrival, from client-core. */
+    val raceTime: String = "",
+    /** "Planned arrival 2:10 PM, 1 hour 10 minutes into the race". */
+    val plannedArrivalSpoken: String = ""
 )
 
 /** One checkpoint row in Pace edit mode (#250). Values come from client-core `StopPlanDraft`. */
@@ -114,8 +118,27 @@ class PaceViewModel(
         private set
     var cutoffLines by mutableStateOf<List<String>>(emptyList())
         private set
-    /** Checkpoint titles by id, for the course readout; the screen sets it from the selected race. */
+    /** Checkpoint titles by id, for the course readout and crew sheet; set with [noteCourseTitles]. */
     var courseTitles: Map<String, String> = emptyMap()
+        private set
+    /** The schedule's last read, so new titles rebuild the crew sheet and readout without a reload. */
+    private var scheduleRead: Pair<Boolean, Boolean>? = null
+
+    /**
+     * The race's checkpoints loaded (or one was added on the map): name the crew sheet's and the
+     * course readout's stops by title, not by id. Both rebuild from the cached schedule.
+     */
+    fun noteCourseTitles(titles: Map<String, String>) {
+        if (titles == courseTitles) return
+        courseTitles = titles
+        val read = scheduleRead ?: return
+        if (readOnly) return
+        viewModelScope.launch {
+            val exported = withContext(Dispatchers.IO) { raceDay.exportCrewSheet(roomId, raceName, titles) }
+            applyExport(exported, scheduleOffline = read.first, scheduleFailed = read.second)
+            loadCourseReadout(read.first)
+        }
+    }
     var mayEditStops by mutableStateOf(false)
         private set
     var stopEditing by mutableStateOf(false)
@@ -374,8 +397,10 @@ class PaceViewModel(
     private suspend fun loadScheduleAndExport() {
         val result = withContext(Dispatchers.IO) { raceDay.loadSchedule(roomId) }
         val offline = applySchedule(result)
-        val exported = withContext(Dispatchers.IO) { raceDay.exportCrewSheet(roomId, raceName) }
-        applyExport(exported, scheduleOffline = offline, scheduleFailed = result is RuntimeResult.Failure && !offline)
+        val failed = result is RuntimeResult.Failure && !offline
+        scheduleRead = offline to failed
+        val exported = withContext(Dispatchers.IO) { raceDay.exportCrewSheet(roomId, raceName, courseTitles) }
+        applyExport(exported, scheduleOffline = offline, scheduleFailed = failed)
         loadCourseReadout(offline)
     }
 
@@ -448,7 +473,7 @@ class PaceViewModel(
     }
 
     private fun applyEstimate(json: JSONObject) {
-        mayRecalculate = json.optBoolean("mayRecalculate") && !json.optBoolean("mayAutoRecompute")
+        mayRecalculate = mayShowRecalculate(json)
         val fingerprint = json.optString("historyFingerprint")
         if (fingerprint.isNotBlank()) historyFingerprint = fingerprint
         if (json.has("usableHistoryCount")) usableHistoryCount = json.optInt("usableHistoryCount")
@@ -588,7 +613,9 @@ class PaceViewModel(
                         stoppage = page.optString("stoppageDurationLabel").ifBlank { page.optString("stoppageLabel") },
                         delay = page.optString("delayLabel").ifBlank { null },
                         line = page.optString("scheduleLine"),
-                        stopLabel = json.optJSONObject("plannedStopLabels")?.optString(id).orEmpty()
+                        stopLabel = json.optJSONObject("plannedStopLabels")?.optString(id).orEmpty(),
+                        raceTime = page.optString("raceTimeCaption"),
+                        plannedArrivalSpoken = page.optString("plannedArrivalSpoken")
                     )
                 )
             }
@@ -662,3 +689,10 @@ class PaceViewModelFactory(
         return PaceViewModel(raceDay, roomId, readOnly) as T
     }
 }
+
+/**
+ * Recalculate shows for every role client-core lets ask for one (`PlanAuthority.mayExplicitRecalculate`),
+ * the runner included: the runner's phone also recomputes on its own (`mayAutoRecompute`), but a
+ * tap is still an explicit request (clients/behavior/pace-estimate.md).
+ */
+internal fun mayShowRecalculate(estimate: JSONObject): Boolean = estimate.optBoolean("mayRecalculate")

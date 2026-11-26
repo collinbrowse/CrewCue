@@ -20,6 +20,10 @@ struct PaceStop: Identifiable, Equatable {
     var stopLabel: String
     var delay: String?
     var line: String
+    /// "RACE 1:10:00": the planned race time at arrival, under the planned clock.
+    var raceTime: String = ""
+    /// "Planned arrival 2:10 PM, 1 hour 10 minutes into the race".
+    var spokenArrival: String = ""
 }
 
 @MainActor
@@ -597,7 +601,9 @@ final class PaceModel {
                 stoppage: ScheduleFormat.formatDurationSeconds(stop.plannedStoppageSeconds),
                 stopLabel: StopPlanDraft.stopLabel(seconds: stop.plannedStoppageSeconds),
                 delay: stop.delayOverrideSeconds.map { ScheduleFormat.formatDurationSeconds($0) },
-                line: "\(title)  \(duration)  \(clock)"
+                line: "\(title)  \(duration)  \(clock)",
+                raceTime: RaceTimeCopy.caption(elapsedSeconds: stop.elapsedSeconds),
+                spokenArrival: RaceTimeCopy.spokenArrival(clock: clock, elapsedSeconds: stop.elapsedSeconds)
             )
         }
     }

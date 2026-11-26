@@ -23,6 +23,7 @@ extension OnboardingCopy {
         case importHistory, skipHistory
         case finish, locked, elevation, coursePreview
         case continueStep, tryAgain
+        case back, close, courseUploaded, courseNoElevation
     }
 
     public static func label(_ label: Label) -> String {
@@ -53,6 +54,10 @@ extension OnboardingCopy {
         case .coursePreview: coursePreviewLabel
         case .continueStep: continueLabel
         case .tryAgain: tryAgain
+        case .back: back
+        case .close: close
+        case .courseUploaded: courseUploaded
+        case .courseNoElevation: courseNoElevation
         }
     }
 

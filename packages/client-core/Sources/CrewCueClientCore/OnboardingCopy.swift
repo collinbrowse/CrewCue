@@ -33,6 +33,11 @@ public enum OnboardingCopy {
     /// The course step once the race has a course this phone doesn't hold the file for (signed
     /// out and back in, another phone, a reinstall). Continue keeps it; nothing is uploaded again.
     public static let courseSaved = "Course saved"
+    /// The course step once the picked file previewed: a checkmark and this, then the file name.
+    public static let courseUploaded = "Course uploaded"
+    /// Under the preview when the course line carries no elevation (a GPX without `<ele>`): said
+    /// plainly instead of a profile that never draws.
+    public static let courseNoElevation = "This file has no elevation data, so there's no elevation profile. Choose a GPX file with elevation to see your climbs."
     public static let startLabel = "Start"
     public static let timeZoneLabel = "Time zone"
     public static let timeZoneSearch = "Search time zones"
@@ -43,6 +48,9 @@ public enum OnboardingCopy {
     public static let elevationProfileLabel = "Elevation profile"
     public static let loading = "Loading"
     public static let back = "Back"
+    /// The X at the top right of a page opened over the flow (Race Pass, Join your crew): it
+    /// returns to wherever the page was opened from.
+    public static let close = "Close"
     /// A step whose load failed (the teaser, a course preview): load it again.
     public static let tryAgain = "Try again"
     /// The way out of setup once a race exists: sign out, or open another of the person's races.
@@ -84,9 +92,10 @@ public enum OnboardingCopy {
         case .course: "Add your course file so CrewCue can estimate your finish."
         case .startTime: "Pick the date and time you start, in the time zone of the race."
         case .history: "CrewCue reads your pace on a past run, adjusted for its climbs, so your finish and aid station times fit how you run."
-        case .projectionTeaser: "This is your estimated finish time. Aid station times unlock with your race."
+        // The step's one subtitle: the checklist's Success line (onboarding-runner-setup.md).
+        case .projectionTeaser: "Your finish time is ready. Aid station times unlock with your race."
         case .preview: "A short replay on your course shows what your crew sees on race day."
-        case .paywall: "Unlock your race so your crew can follow you."
+        case .paywall: "Unlock your race for a fine-tuned projection and so your crew can follow you."
         default: nil
         }
     }
@@ -134,6 +143,17 @@ public enum OnboardingCopy {
         }
     }
 
+    /// Where to look during each beat, shown bold under the caption while the view it names is
+    /// highlighted (and the map zoomed onto the runner's dot).
+    public static func replayFocus(_ beat: DemoRaceBeat) -> String {
+        switch beat {
+        case .following: "Look at the dot on the map: that's you, moving along your course."
+        case .fallingBehind: "Look at the finish time in Pace as it moves later."
+        case .deadZone: "Look at Last update on the map while the dot waits for signal."
+        case .crewChat: "Look at the newest message in Chat."
+        }
+    }
+
     public static let replaySkip = "Skip"
     public static let replayPause = "Pause"
     public static let replayPlay = "Play"
@@ -155,6 +175,15 @@ public enum OnboardingCopy {
 
     // MARK: Paywall
 
+    /// The Race Pass page (Profile's Race Pass row, a new race, a gated action): one title and
+    /// one subtitle, and an X that returns to where it was opened from.
+    public static let racePassTitle = "Race Pass"
+    public static let racePassSubtitle = "Unlock this race for you and your crew."
+    /// Profile's row back into runner setup, after the Race Pass page was closed to the tab bar
+    /// on a race whose setup isn't finished.
+    public static let finishSetupTitle = "Finish race setup"
+    public static let finishSetupDetail = "Add your course and start time"
+
     public static let paywallRunnerPlusOneTitle = "You + 1 crew"
     // The paywall shows the store-localized price; these are the fallbacks `BillingProduct` already owns.
     public static let paywallRunnerPlusOneProduct = BillingProduct.racePass.title
@@ -165,7 +194,6 @@ public enum OnboardingCopy {
     /// What each option covers, under its title: the products' own `detail`.
     public static let paywallRunnerPlusOneDetail = BillingProduct.racePass.detail
     public static let paywallFullCrewDetail = BillingProduct.racePassFullCrew.detail
-    public static let paywallPitch = "Give your crew this on race day."
     /// The buy button's spoken label, filled with `product` and `price` (`paywallBuyLabel`).
     public static let paywallBuyLabelTemplate = "Buy {product}, {price}"
 
@@ -194,6 +222,12 @@ public enum OnboardingCopy {
 
     // MARK: Errors
 
+    /// The server found no route in the picked file (`gpx-preview` 400, or an answer with no
+    /// checkpoints): what to do about it, never the server's own words.
+    public static let courseUnreadable = "We couldn't find a route in that file. Choose a GPX file of your race course, exported from your watch app or the race website."
+    /// The course upload failed for any other reason (a server error, a body the app can't read).
+    public static let courseUploadFailed = "Your course didn't upload. Try again, or choose another file."
+
     /// Course save limit reached (HTTP 429).
     public static let courseSaveLimit = "You've changed the course a lot this hour. Try again in a bit."
     /// A race has to be created and there's no name for it: the race name field opens again.
@@ -214,7 +248,11 @@ public enum OnboardingCopy {
             if let text = explanation(for: step) { explanations[step.rawValue] = text }
         }
         var captions: [String: String] = [:]
-        for beat in DemoRaceBeat.allCases { captions[beat.rawValue] = replayCaption(beat) }
+        var focus: [String: String] = [:]
+        for beat in DemoRaceBeat.allCases {
+            captions[beat.rawValue] = replayCaption(beat)
+            focus[beat.rawValue] = replayFocus(beat)
+        }
         return [
             "chooserRunner": chooserRunner, "chooserCrew": chooserCrew,
             "chooserTitle": chooserTitle, "chooserRunnerDetail": chooserRunnerDetail,
@@ -231,9 +269,10 @@ public enum OnboardingCopy {
             "coursePreviewLabel": coursePreviewLabel, "elevationProfileLabel": elevationProfileLabel,
             "loading": loading, "back": back, "tryAgain": tryAgain, "accountMenu": accountMenu,
             "signOut": signOut, "switchRace": switchRace, "paywallNotNow": paywallNotNow, "lockedAidRow": lockedAidRow, "lockedAidExplanation": lockedAidExplanation,
-            "replaySkip": replaySkip, "paywallPitch": paywallPitch, "unpaidBanner": unpaidBanner,
+            "replaySkip": replaySkip, "unpaidBanner": unpaidBanner,
             "replayPause": replayPause, "replayPlay": replayPlay, "replayEmpty": replayEmpty,
             "replayError": replayError, "replayOffline": replayOffline,
+            "racePassTitle": racePassTitle, "racePassSubtitle": racePassSubtitle,
             "paywallRunnerPlusOneTitle": paywallRunnerPlusOneTitle,
             "paywallRunnerPlusOneProduct": paywallRunnerPlusOneProduct,
             "paywallRunnerPlusOnePrice": paywallRunnerPlusOnePrice,
@@ -246,7 +285,8 @@ public enum OnboardingCopy {
             "replayMapTitle": replayMapTitle, "replayPaceTitle": replayPaceTitle, "replayChatTitle": replayChatTitle,
             "courseSaveLimit": courseSaveLimit, "raceNameMissing": raceNameMissing,
             "startTimeDstGap": startTimeDstGap,
-            "stepTitles": titles, "stepExplanations": explanations, "beatCaptions": captions,
+            "stepTitles": titles, "stepExplanations": explanations, "beatCaptions": captions, "beatFocus": focus,
+            "courseUnreadable": courseUnreadable, "courseUploadFailed": courseUploadFailed,
             "labels": runtimeLabels
         ]
     }

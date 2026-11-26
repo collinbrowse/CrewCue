@@ -49,6 +49,17 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 
 /** Every app setting, reached from the top-bar gear on any tab. Settings deeplinks open it at their section. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -126,33 +137,85 @@ private fun SettingsNameSection(shell: ShellViewModel, roomId: String?) {
         factory = RoomMembersViewModelFactory(shell.container.raceDay, roomId)
     )
     val context = LocalContext.current
-    var draft by rememberSaveable(session.userId, roomId) { mutableStateOf(session.displayName.orEmpty()) }
     LaunchedEffect(roomId) { model.load(context.isOnline()) }
-    // The roster holds the saved name; the session may not carry one.
-    val saved = model.members.firstOrNull { it.userId == session.userId }?.displayName.orEmpty()
-    LaunchedEffect(saved) { if (draft.isBlank() && saved.isNotBlank()) draft = saved }
+    // The roster holds the saved name; the session may carry one before the roster loads.
+    val saved = (model.members.firstOrNull { it.userId == session.userId }?.displayName ?: session.displayName)
+        .orEmpty().trim()
+    var requested by rememberSaveable(session.userId, roomId) { mutableStateOf(false) }
+    var draft by rememberSaveable(session.userId, roomId) { mutableStateOf(saved) }
+    val editing = NameEditing.isEditing(requested, saved)
+    // A reload while the person types keeps their draft.
+    LaunchedEffect(saved) { draft = NameEditing.draftAfterReload(draft, saved, requested) }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val field = remember { FocusRequester() }
+    val save = {
+        focusManager.clearFocus()
+        keyboard?.hide()
+        model.saveName(session.userId, draft, context.isOnline()) { userId, name ->
+            shell.noteDisplayName(userId, name)
+            requested = false
+        }
+    }
     SettingRow(
         Icons.Outlined.Person,
         "Name your crew sees",
         hint = model.status ?: "Shown on your chat messages and in this race's crew list.",
         below = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CompactTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    placeholder = "Display name",
-                    modifier = Modifier.weight(1f)
-                )
-                PillButton(
-                    "Save",
-                    onClick = { model.saveName(session.userId, draft, context.isOnline(), shell::noteDisplayName) },
-                    prominent = true,
-                    enabled = !model.busy && draft.isNotBlank(),
-                    spoken = "Save name"
-                )
+                if (editing) {
+                    CompactTextField(
+                        value = draft,
+                        onValueChange = {
+                            draft = it
+                            requested = true
+                        },
+                        placeholder = "Display name",
+                        modifier = Modifier.weight(1f).focusRequester(field),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { if (draft.isNotBlank()) save() })
+                    )
+                    PillButton(
+                        "Save",
+                        onClick = save,
+                        prominent = true,
+                        enabled = draft.isNotBlank(),
+                        busy = model.busy,
+                        spoken = "Save name"
+                    )
+                } else {
+                    Text(
+                        saved,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 36.dp)
+                            .wrapContentHeight(Alignment.CenterVertically)
+                            .testTag("crewcue.settings.display-name")
+                    )
+                    PillButton(
+                        "Edit",
+                        onClick = {
+                            draft = saved
+                            requested = true
+                        },
+                        spoken = "Edit name"
+                    )
+                }
             }
+            // Edit opens the keyboard on the field.
+            LaunchedEffect(editing, requested) { if (editing && requested) runCatching { field.requestFocus() } }
         }
     )
+}
+
+/** Settings' name row: a saved name shows as text with Edit; no saved name starts in the field. */
+internal object NameEditing {
+    fun isEditing(requested: Boolean, saved: String): Boolean = requested || saved.isBlank()
+
+    /** A roster reload replaces the draft only while the person isn't editing it. */
+    fun draftAfterReload(draft: String, saved: String, requested: Boolean): String = if (requested) draft else saved
 }
 
 /** Scrolls this section into view when the sheet opened for it. */

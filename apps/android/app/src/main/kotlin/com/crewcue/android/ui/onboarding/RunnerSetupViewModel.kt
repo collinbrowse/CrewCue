@@ -449,8 +449,24 @@ class RunnerSetupViewModel(
      * Try again for the same file rather than Continue.
      */
     val courseNeedsRetry: Boolean
-        get() = !busy && (status is SetupStatus.Failed || status is SetupStatus.Offline) &&
+        get() = !busy && !courseNeedsAnotherFile && (status is SetupStatus.Failed || status is SetupStatus.Offline) &&
             (pendingCourse != null || (draft.courseFileName != null && preview == null))
+
+    /** The last pick failed because of the file itself (no route in it): Choose another file is the main button. */
+    val courseNeedsAnotherFile: Boolean
+        get() = !busy && (status as? SetupStatus.Failed)?.failure?.code == COURSE_UNREADABLE
+
+    /**
+     * The upload failed (not offline): the step shows only the error, never the picked file's
+     * name as if it had uploaded.
+     */
+    val courseUploadFailedShown: Boolean
+        get() = status is SetupStatus.Failed && (preview == null || pendingCourse != null)
+
+    /** The picked file previewed and nothing failed since: a checkmark, "Course uploaded" and its name. */
+    val courseUploaded: Boolean
+        get() = preview?.isEmpty == false && pendingCourse == null && status !is SetupStatus.Failed &&
+            !previewingCourse && draft.courseFileName != null
 
     /** The loader sits where the preview goes: while a file is read, and until its map is ready. */
     val courseLoading: Boolean
@@ -477,8 +493,8 @@ class RunnerSetupViewModel(
         val user = userId ?: return
         if (busy) return
         if (gpxXml.isNullOrBlank()) {
-            // Nothing to read: whatever course was there stays.
-            status = failed(text.setupError)
+            // Nothing to read: whatever course was there stays, and the step says what to do.
+            status = failed(text.courseUploadFailed.ifBlank { text.setupError }, code = COURSE_UPLOAD_FAILED)
             return
         }
         if (!canChooseCourse) return
@@ -514,7 +530,15 @@ class RunnerSetupViewModel(
                     status = offline()
                     return@work
                 }
-                val parsed = readCourse(user, picked.fileName, picked.xml, reading = true) ?: return@work
+                val parsed = readCourse(user, picked.fileName, picked.xml, reading = true)
+                if (parsed == null) {
+                    // A file with no route can never preview: it isn't kept as the race's file.
+                    if ((status as? SetupStatus.Failed)?.failure?.code == COURSE_UNREADABLE) {
+                        writeDraft(draft.copy(courseFileName = null, courseFingerprint = null, courseConfirmed = false))
+                        courseOnDevice = false
+                    }
+                    return@work
+                }
                 showPreview(parsed)
                 val onStartTime = freshRules().step == SetupSteps.START_TIME
                 writeDraft(
@@ -1137,7 +1161,7 @@ class RunnerSetupViewModel(
                     val read = CoursePreview.from(result.result)
                     if (result.result.optText("status") != "previewed" || read.isEmpty) {
                         readingCourse = false
-                        status = failed(text.setupError)
+                        status = failed(text.courseUnreadable.ifBlank { text.setupError }, code = COURSE_UNREADABLE)
                         null
                     } else {
                         parsed = read
@@ -1301,6 +1325,10 @@ class RunnerSetupViewModel(
             }
             result.offline -> offline()
             result.status == 429 && courseSave -> failed(text.courseSaveLimit, code = "rate_limited")
+            // A course save's own failures say what to do, never the server's words (as iOS's
+            // `OnboardingSetupFailure.courseUnreadable` and `.courseUploadFailed`).
+            result.status == 400 && courseSave -> failed(text.courseUnreadable.ifBlank { text.setupError }, code = COURSE_UNREADABLE)
+            courseSave -> failed(text.courseUploadFailed.ifBlank { text.setupError }, code = COURSE_UPLOAD_FAILED)
             else -> failed(text.setupError)
         }
     }
@@ -1453,6 +1481,9 @@ class RunnerSetupViewModel(
         const val ROOM_UNPAID = "room_unpaid"
         /** The failure code when the race needs a name and has none ([OnboardingText.raceNameMissing]). */
         const val RACE_NAME_MISSING = "race_name_missing"
+        /** A course save the server answered 400: no route in the file. */
+        const val COURSE_UNREADABLE = "course_unreadable"
+        const val COURSE_UPLOAD_FAILED = "course_upload_failed"
         const val DEFAULT_START_HOUR = 6
         /** The longest a preview waits for its map's first full frame before it shows anyway. */
         const val MAP_WAIT_MS = 8_000L

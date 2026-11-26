@@ -52,7 +52,7 @@ struct SharedRunImportSheet: View {
                 Button(more) {
                     withAnimation { model.showMoreTaps += 1 }
                 }
-                .buttonStyle(.crewSecondary)
+                .buttonStyle(.crewPill)
                 .accessibilityIdentifier("crewcue.run-share-import.show-more")
             }
             if preview.runs.count == 1, let run = preview.runs.first, run.track.count >= 2 {
@@ -89,19 +89,20 @@ struct SharedRunImportSheet: View {
     }
 
     @ViewBuilder private var actions: some View {
-        VStack(spacing: 8) {
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
             if case .preview(let preview) = model.state, preview.canImport {
+                Button("Cancel") { model.dismiss() }
+                    .buttonStyle(.crewPill)
+                    .accessibilityIdentifier("crewcue.run-share-import.cancel")
                 Button(preview.confirmLabel) {
                     Task { await model.confirm() }
                 }
-                .buttonStyle(.crewPrimary)
+                .buttonStyle(.crewPillProminent)
                 .accessibilityIdentifier("crewcue.run-share-import.confirm")
-                Button("Cancel") { model.dismiss() }
-                    .buttonStyle(.crewGhost)
-                    .accessibilityIdentifier("crewcue.run-share-import.cancel")
             } else if !isBusy {
                 Button(closeLabel) { model.dismiss() }
-                    .buttonStyle(.crewSecondary)
+                    .buttonStyle(.crewPill)
                     .accessibilityIdentifier("crewcue.run-share-import.cancel")
             }
         }

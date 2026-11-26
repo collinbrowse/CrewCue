@@ -170,4 +170,28 @@ class OnboardingModelsTest {
         assertEquals("crewcue.onboarding-runner-setup", SETUP_TAG)
         assertEquals("crewcue.onboarding-runner-setup.course.choose", setupTag("course.choose"))
     }
+
+    @Test
+    fun theRacePassAndReplayCopyComeFromClientCore() {
+        val copy = JSONObject(
+            """{"racePassTitle":"Race Pass","racePassSubtitle":"Unlock this race for you and your crew.",
+            "courseUnreadable":"We couldn't find a route in that file.","courseUploadFailed":"Your course didn't upload.",
+            "beatFocus":{"following":"Look at the dot on the map.","crewChat":"Look at the newest message in Chat.","deadZone":""},
+            "labels":{"close":"Close","courseUploaded":"Course uploaded"}}"""
+        )
+        val text = OnboardingText.from(copy, "s", "e", "x", "o")
+        assertEquals("Race Pass", text.racePassTitle)
+        assertEquals("Unlock this race for you and your crew.", text.racePassSubtitle)
+        assertEquals("We couldn't find a route in that file.", text.courseUnreadable)
+        assertEquals("Your course didn't upload.", text.courseUploadFailed)
+        assertEquals("Close", text.label("close"))
+        assertEquals("Course uploaded", text.label("courseUploaded"))
+        // Where to look, by beat; a blank line is dropped.
+        assertEquals("Look at the dot on the map.", text.replay.focus["following"])
+        assertEquals("Look at the newest message in Chat.", text.replay.focus["crewChat"])
+        assertFalse(text.replay.focus.containsKey("deadZone"))
+        // The beat each line is about decides which view gets the ring.
+        assertEquals(ReplayPanel.Chat, ReplayPanel.forBeat("crewChat"))
+        assertEquals(ReplayPanel.Map, ReplayPanel.forBeat("deadZone"))
+    }
 }
