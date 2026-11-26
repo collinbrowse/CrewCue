@@ -255,7 +255,7 @@ class OnboardingTourViewModel(
 
     private suspend fun startTracking(): Boolean {
         val room = roomId ?: context.activeRoomId ?: return false
-        val started = withContext(Dispatchers.IO) { runCatching { raceDay.startTrackingSession(room) }.getOrNull() }
+        val started = withContext(Dispatchers.IO) { runCatching { raceDay.startTrackingSession(room, test = true) }.getOrNull() }
         if (started !is RuntimeResult.Success) return false
         trackingStarted = true
         saved[KEY_TRACKING_STARTED] = true
@@ -268,8 +268,8 @@ class OnboardingTourViewModel(
         if (!trackingStarted) return
         trackingStarted = false
         saved[KEY_TRACKING_STARTED] = false
-        withContext(Dispatchers.IO) { runCatching { raceDay.stopTrackingSession() } }
-        RaceTrackingService.stop(appContext)
+        val stopped = withContext(Dispatchers.IO) { stopTestSession(raceDay) }
+        if (stopped) RaceTrackingService.stop(appContext)
     }
 
     /**
@@ -335,8 +335,7 @@ class OnboardingTourViewModel(
             val bridge = raceDay
             val context = appContext
             CoroutineScope(Dispatchers.IO + NonCancellable).launch {
-                runCatching { bridge.stopTrackingSession() }
-                RaceTrackingService.stop(context)
+                if (stopTestSession(bridge)) RaceTrackingService.stop(context)
             }
         }
         super.onCleared()
@@ -396,6 +395,18 @@ class OnboardingTourViewModel(
     }
 
     companion object {
+        /**
+         * Stops the saved session only while it is still the test's: a Start tracking for race
+         * day meanwhile saved an unmarked session over it, which the test must leave running.
+         * Answers whether it stopped (or there was nothing left to stop).
+         */
+        private fun stopTestSession(raceDay: RaceDayBridge): Boolean {
+            val session = (runCatching { raceDay.trackingSession() }.getOrNull() as? RuntimeResult.Success)?.result
+            if (session?.optBoolean("active") == true && !session.optBoolean("test")) return false
+            runCatching { raceDay.stopTrackingSession() }
+            return true
+        }
+
         private const val KEY_DEV = "tour.dev"
         private const val KEY_LOCATION = "tour.locationTest"
         private const val KEY_INVITE_SHARED = "tour.inviteShared"
