@@ -194,7 +194,8 @@ jobs:
         shell: bash
         run: |
           [ -f "$RUNNER_TEMP/ios-tests.log" ] || exit 0
-          grep -oE "Test Case '-\[[^]]+\]' failed" "$RUNNER_TEMP/ios-tests.log" | sed -E "s/Test Case '-\[(.*)\]' failed/\1/" | sort | uniq -c | while read -r count name; do
+          # grep exits 1 when nothing failed, which is the normal case.
+          { grep -oE "Test Case '-\[[^]]+\]' failed" "$RUNNER_TEMP/ios-tests.log" || true; } | sed -E "s/Test Case '-\[(.*)\]' failed/\1/" | sort | uniq -c | while read -r count name; do
             echo "::warning title=iOS test failed an attempt::$name failed $count of up to 3 attempts"
           done
       - uses: actions/upload-artifact@v7
