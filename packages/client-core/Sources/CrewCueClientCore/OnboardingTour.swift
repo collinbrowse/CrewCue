@@ -61,6 +61,16 @@ public struct TourCard: Equatable, Sendable {
     public var accessibilityIdentifier: String { "crewcue.onboarding.tour.\(step.rawValue)" }
 }
 
+/// A card as the phone shows it now (`OnboardingTour.view`): its buttons and the line under its text.
+public struct TourCardView: Equatable, Sendable {
+    /// Nil while the location test runs: no main button then.
+    public var primaryLabel: String?
+    public var primaryAction: TourAction
+    public var secondaryLabel: String?
+    public var secondaryOutcome: OnboardingOutcome?
+    public var status: String?
+}
+
 /// The tab-bar tour after setup (runner, once the race is unlocked) or after the join (crew). Which
 /// card shows comes from `OnboardingState`; the copy is `OnboardingTourCopy`. Pure.
 public enum OnboardingTour {
@@ -145,6 +155,53 @@ public enum OnboardingTour {
             guard state.status(step)?.isComplete != true else { return nil }
             return (step, step == .location ? .deferred : .skipped)
         }
+    }
+
+    /// The card's buttons and status line for what the phone knows now: notifications already
+    /// allowed (Next only, "Notifications are on."), the invite shared (the second button reads
+    /// Next and saves done), and the location test (its main button and line; On race morning
+    /// goes once the ping is sent, and the test that couldn't start for another race's tracking
+    /// leaves only On race morning).
+    public static func view(
+        _ card: TourCard,
+        notificationsOn: Bool,
+        inviteShared: Bool,
+        test: LocationTest?,
+        testBlocked: Bool = false
+    ) -> TourCardView {
+        let copy = OnboardingTourCopy.self
+        var view = TourCardView(
+            primaryLabel: card.primaryLabel, primaryAction: card.action,
+            secondaryLabel: card.secondaryLabel, secondaryOutcome: card.secondaryOutcome, status: nil
+        )
+        switch card.action {
+        case .enableNotifications where notificationsOn:
+            // The prompt answers at once when already allowed; Next registers this phone again.
+            view.primaryLabel = copy.next
+            view.secondaryLabel = nil
+            view.secondaryOutcome = nil
+            view.status = copy.notificationsOn
+        case .shareInvite where inviteShared:
+            view.secondaryLabel = copy.next
+            view.secondaryOutcome = .done
+        case .testTracking:
+            if testBlocked {
+                view.primaryLabel = nil
+                view.status = LocationTestCopy.otherRaceTracking
+            } else if let test, test.phase != .idle {
+                view.primaryLabel = test.primaryLabel
+                view.status = test.message
+                if test.phase == .sent {
+                    // Done: Next saves it; race morning no longer applies.
+                    view.primaryAction = .next
+                    view.secondaryLabel = nil
+                    view.secondaryOutcome = nil
+                }
+            }
+        default:
+            break
+        }
+        return view
     }
 
     /// The notifications card after the permission prompt: allowed is done, anything else skipped

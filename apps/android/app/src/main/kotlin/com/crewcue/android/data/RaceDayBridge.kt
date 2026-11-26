@@ -713,6 +713,56 @@ class RaceDayBridge private constructor(
      */
     fun demoRaceRunner(): RuntimeResult = call("demoRaceRunner")
 
+    /**
+     * A tour op (`RuntimeOnboardingTour.swift`): `onboardingTour` reads, `onboardingTourAnswer`,
+     * `onboardingTourSkip`, `setupChecklistOpen` and `setupChecklistHide` save. With [dev] (the dev
+     * route's `{role, answers}`) nothing is saved and the answers come back as `dev`; else the
+     * user's progress with [races] and [activeRoomId], as [readOnboarding]. [notificationsOn] and
+     * [locationAlways] are this phone's permissions, for the setup checklist. Answers `state`,
+     * `card`, `checklist`, and `progress` or `dev`.
+     */
+    fun tour(
+        op: String,
+        races: JSONArray?,
+        activeRoomId: String?,
+        dev: JSONObject?,
+        notificationsOn: Boolean,
+        locationAlways: Boolean,
+        fill: JSONObject.() -> Unit = {}
+    ): RuntimeResult = call(op) {
+        if (dev != null) put("dev", dev) else onboardingContext(races, activeRoomId)
+        put("notificationsOn", notificationsOn)
+        put("locationAlways", locationAlways)
+        put("timeZone", java.time.ZoneId.systemDefault().id)
+        fill()
+    }
+
+    /**
+     * client-core `LocationTest`: [event] (start, permission, pingSent, pingQueuedOffline, tick,
+     * read) on [test] (the last answer's `test`, null before the first). Pure and quick.
+     */
+    fun locationTest(test: JSONObject?, event: String, fill: JSONObject.() -> Unit = {}): RuntimeResult = call("locationTest") {
+        if (test != null) put("test", test)
+        put("event", event)
+        fill()
+    }
+
+    /**
+     * client-core `OnboardingTour.view`: the buttons and status line of the card [step] of the
+     * [role]'s tour, for this phone's [notificationsOn], [inviteShared] and location [test].
+     */
+    fun tourCardView(step: String, role: String, notificationsOn: Boolean, inviteShared: Boolean, test: JSONObject?): RuntimeResult =
+        call("tourCardView") {
+            put("step", step)
+            put("role", role)
+            put("notificationsOn", notificationsOn)
+            put("inviteShared", inviteShared)
+            if (test != null) put("test", test)
+        }
+
+    /** client-core `OnboardingTourCopy`, `LocationTestCopy` and the checklist's labels. Pure and quick. */
+    fun onboardingTourCopy(): RuntimeResult = call("onboardingTourCopy")
+
     private fun JSONObject.onboardingContext(races: JSONArray?, activeRoomId: String?) {
         if (races != null) put("races", races)
         if (!activeRoomId.isNullOrBlank()) put("activeRoomId", activeRoomId)

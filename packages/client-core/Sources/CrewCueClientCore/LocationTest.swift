@@ -41,6 +41,14 @@ public struct LocationTest: Equatable, Sendable {
 
     public init() {}
 
+    /// A test as Android keeps it between `locationTest` ops (`RuntimeOnboardingTour.swift`).
+    init(phase: Phase, whenInUseOnly: Bool, wasTracking: Bool, startedAt: Date?) {
+        self.phase = phase
+        self.whenInUseOnly = whenInUseOnly
+        self.wasTracking = wasTracking
+        self.startedAt = startedAt
+    }
+
     /// Test tracking now. `alreadyTracking`: race-day tracking is on, so the test must not stop it.
     public mutating func start(alreadyTracking: Bool, at now: Date) {
         phase = .asking
@@ -147,4 +155,6 @@ public enum LocationTestCopy {
     public static let denied = "Location is off for CrewCue. Turn it on in Settings, or test on race morning."
     public static let offline = "Offline. The test ping is saved on this phone and goes when you're back online."
     public static let failed = "No test ping yet. Try again outside, or test on race morning."
+    /// Tracking is already on for another race: the test doesn't replace it.
+    public static let otherRaceTracking = "Tracking is on for another race. Test this race's tracking on race morning."
 }

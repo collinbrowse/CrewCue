@@ -16,6 +16,12 @@ public struct CrewTourDemo: Equatable, Sendable {
     public var etaClock: String
     public var planClock: String
 
+    /// No example lines: for a card whose buttons or a runner tour card are all that's needed,
+    /// so the clock times aren't formatted for nothing.
+    static let placeholder = CrewTourDemo(
+        runnerName: "", mileText: "", lastUpdateAge: "", nextAid: "", nextAidAheadText: "", etaClock: "", planClock: ""
+    )
+
     /// Where the demo runner is, how old their last ping is, and how far behind plan they run.
     static let progressMeters = 21_000.0
     static let pingAgeMinutes = 4
