@@ -1,9 +1,10 @@
 name: Knowledge base drift watch
 
-# PRs do not commit docs/kb/generated; kb-refresh.yml regenerates it after each merge. This is the
+# PRs do not commit docs/kb/generated; kb-refresh.yml regenerates it once a day. This is the
 # alarm for that loop silently stopping (missing credentials or bot token, a refresh PR whose CI
-# never runs, auto-merge off). Daily, it runs kb:check on main. Stale with a refresh PR opened in
-# the last 24 hours is normal lag. Stale with none, or with an older one, opens or updates an issue.
+# never runs, auto-merge off). Daily, it runs kb:check on main. Stale is normal lag while the oldest
+# code change the pages have not caught up with is under 30 hours old (one daily refresh, plus time
+# for its PR to merge). Older than that opens or updates an issue.
 
 on:
   schedule:
@@ -13,7 +14,6 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
 
 jobs:
   watch:
@@ -21,6 +21,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -34,15 +36,11 @@ jobs:
             echo "stale=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Allow a fresh refresh PR
+      - name: Allow a day of lag
         id: lag
         if: steps.check.outputs.stale == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          created="$(gh pr list --repo "$GITHUB_REPOSITORY" --head kb/refresh --state open --json createdAt --jq '.[0].createdAt')"
-          if [ -n "$created" ] && [ $(( $(date +%s) - $(date -d "$created" +%s) )) -lt 86400 ]; then
-            echo "::notice::KB is stale, but a refresh PR opened at $created is in flight."
+          if node scripts/kb/unrefreshed-age.mjs --max-hours 30; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
@@ -60,6 +58,6 @@ jobs:
             gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "Still stale: $RUN_URL"
           else
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
-              --body "docs/kb/generated on main does not match the code, and no kb/refresh PR has been open for less than 24 hours: $RUN_URL. Check the latest Knowledge base refresh run, whether KB_BOT_TOKEN is set (refresh PRs opened with GITHUB_TOKEN get no CI), and whether its PR is stuck. To fix by hand: run the refresh workflow, or open a PR with \`npm run kb:generate\`."
+              --body "docs/kb/generated on main does not match the code, and has not for more than 30 hours: $RUN_URL. Check the latest Knowledge base refresh run, whether KB_BOT_TOKEN is set (refresh PRs opened with GITHUB_TOKEN get no CI), and whether its PR is stuck. To fix by hand: run the refresh workflow, or open a PR with \`npm run kb:generate\`."
           fi
           exit 1
