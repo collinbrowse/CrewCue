@@ -67,7 +67,7 @@ final class OnboardingTourModel {
         locationTest.start(alreadyTracking: wasTracking, at: clock.now())
         let sentBefore = map.pingsSent
         let queuedBefore = map.pingsQueuedOffline
-        if !wasTracking { map.startTracking() }
+        if !wasTracking { map.startTestTracking() }
         watch = Task { [weak self, weak map] in
             var sentAt: Date?
             while !Task.isCancelled {
@@ -90,7 +90,7 @@ final class OnboardingTourModel {
                         try? await Task.sleep(for: .milliseconds(500))
                         continue
                     }
-                    if self.locationTest.stopsTracking { map.stopTracking() }
+                    if self.locationTest.stopsTracking { map.stopTestTracking() }
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(500))
@@ -104,7 +104,7 @@ final class OnboardingTourModel {
         watch?.cancel()
         watch = nil
         if locationTest.phase != .idle, !locationTest.wasTracking, map.trackingActive {
-            map.stopTracking()
+            map.stopTestTracking()
         }
         locationTest = LocationTest()
     }
