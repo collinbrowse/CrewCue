@@ -20,8 +20,12 @@ type UploadJob = {
   result: UploadJobState;
   /** Set when the owner starts another upload: the reader stops at its next yield. */
   cancelled: boolean;
+  /** Set when the owner's account is deleted: the job also stops before its next write. */
+  writesStopped: boolean;
   /** When a finished job is dropped (ms since epoch). */
   expiresAtMs: number | null;
+  /** Resolves once the job's work has stopped, finished or not. */
+  settled: Promise<void>;
 };
 
 /** How long a finished job's result waits for the app's next poll. */
@@ -46,6 +50,8 @@ export class UploadJobCancelled extends Error {
 export type UploadJobContext = {
   /** Lets other requests (location pings) run; throws `UploadJobCancelled` once replaced. */
   yieldNow(): Promise<void>;
+  /** Throws `UploadJobCancelled` once the owner's account is being deleted. Call before each write. */
+  throwIfWritesStopped(): void;
 };
 
 function sweep(nowMs: number): void {
@@ -68,17 +74,28 @@ export function startUploadJob(
   for (const other of jobs.values()) {
     if (other.ownerId === ownerId && other.result.state === "running") other.cancelled = true;
   }
-  const job: UploadJob = { id: randomUUID(), ownerId, result: { state: "running" }, cancelled: false, expiresAtMs: null };
+  const job: UploadJob = {
+    id: randomUUID(),
+    ownerId,
+    result: { state: "running" },
+    cancelled: false,
+    writesStopped: false,
+    expiresAtMs: null,
+    settled: Promise.resolve()
+  };
   jobs.set(job.id, job);
   const context: UploadJobContext = {
     async yieldNow() {
       await new Promise<void>((resolve) => setImmediate(resolve));
       if (job.cancelled) throw new UploadJobCancelled();
+    },
+    throwIfWritesStopped() {
+      if (job.writesStopped) throw new UploadJobCancelled();
     }
   };
   const gate = workGateForTests;
   workGateForTests = undefined;
-  void (async () => {
+  job.settled = (async () => {
     try {
       await context.yieldNow();
       if (gate) await gate();
@@ -95,6 +112,19 @@ export function startUploadJob(
     job.expiresAtMs = Date.now() + UPLOAD_JOB_RESULT_TTL_MS;
   })();
   return job.id;
+}
+
+/**
+ * Account deletion: stop the owner's running uploads and wait until none of them can write again,
+ * so an import still reading an export cannot save runs after the account's rows are gone.
+ */
+export async function cancelUploadJobsFor(ownerId: string): Promise<void> {
+  const running = [...jobs.values()].filter((job) => job.ownerId === ownerId && job.result.state === "running");
+  for (const job of running) {
+    job.cancelled = true;
+    job.writesStopped = true;
+  }
+  await Promise.all(running.map((job) => job.settled));
 }
 
 /** The job's state for its owner; null when it doesn't exist, expired, or isn't theirs. */
