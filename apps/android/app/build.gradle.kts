@@ -170,7 +170,7 @@ gradle.taskGraph.whenReady {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
+    val composeBom = platform("androidx.compose:compose-bom:2026.11.01")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.activity:activity-ktx:1.9.3")
@@ -190,8 +190,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("com.auth0.android:auth0:4.3.1")
     // Store purchases (#649). Only com.crewcue.android.billing.RevenueCatPurchaser imports it.
-    implementation("com.revenuecat.purchases:purchases:11.2.1")
-    implementation("io.sentry:sentry-android:8.64.0")
+    implementation("com.revenuecat.purchases:purchases:11.4.3")
+    implementation("io.sentry:sentry-android:8.65.1")
     // Crew invites installed from the join page's Play link (`referrer=crewcue_join%3D<code>`).
     // Only com.crewcue.android.invite.PlayInstallReferrer imports it.
     implementation("com.android.installreferrer:installreferrer:2.2")
@@ -205,7 +205,7 @@ dependencies {
     // Real org.json for JVM tests that parse client-core bridge JSON (android.jar only has stubs).
     testImplementation("org.json:json:20260814")
     // ViewModel tests: a test Main dispatcher for viewModelScope.
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
