@@ -461,6 +461,16 @@ fun CourseMapPreview(
         }
         if (course.elevation.size >= 2) {
             ElevationProfile(course.elevation, text.label("elevation"), hidden)
+        } else if (course.line.size > maxOf(course.checkpoints.size, 1)) {
+            // The route came back without elevation (a GPX with no <ele>): say so plainly, rather
+            // than a profile that never draws. A line of checkpoints alone says nothing either way.
+            val note = text.label("courseNoElevation")
+            Text(
+                note,
+                modifier = hidden.testTag(setupTag("preview.no-elevation")),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

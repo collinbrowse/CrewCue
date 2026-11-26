@@ -42,6 +42,9 @@ class MapViewModel(
         private set
     var aidFollow by mutableStateOf(true)
         private set
+    /** The pager is off the runner's next aid (a GPX aid or a dropped pin): offer the way back. */
+    var aidShowsBackToNext by mutableStateOf(false)
+        private set
     var line by mutableStateOf<List<CoursePoint>>(emptyList())
         private set
     var courseStatus by mutableStateOf<String?>(null)
@@ -336,7 +339,7 @@ class MapViewModel(
             try {
                 val result = try {
                     withContext(Dispatchers.IO) {
-                        raceDay.placeCheckpoint(roomId, id, title, latitude, longitude)
+                        raceDay.placeCheckpoint(roomId, id, title, latitude, longitude, AidRequest.line(line))
                     }
                 } catch (_: Throwable) {
                     pickMessage = PICK_ERROR
@@ -344,9 +347,17 @@ class MapViewModel(
                 }
                 pickMessage = when {
                     result.isOfflineResult() -> PICK_OFFLINE
+                    // client-core keeps a pin far off the course line from becoming a checkpoint.
+                    result is RuntimeResult.Success && result.result.optBoolean("rejected") ->
+                        result.result.optString("message").ifBlank { PICK_ERROR }
                     result is RuntimeResult.Success -> {
+                        // Clear the form so a second tap can't save the same stop twice, and say
+                        // what was saved (as iOS does).
+                        pickLatitude = ""
+                        pickLongitude = ""
+                        pickTitle = ""
                         load()
-                        PICK_SUCCESS
+                        "Saved $title."
                     }
                     else -> PICK_ERROR
                 }
@@ -504,10 +515,16 @@ class MapViewModel(
         val follow = aidFollow
         val profile = elevation
         val projection = live
+        val arrivals = AidRequest.liveArrivals(timeline)
+        val path = AidRequest.track(track, trackTimes)
         viewModelScope.launch {
             val result = try {
                 withContext(Dispatchers.IO) {
-                    raceDay.projectAidSheet(sheet, checkpoints, latest, index, follow, profile, projection)
+                    raceDay.projectAidSheet(
+                        sheet, checkpoints, latest, index, follow, profile, projection,
+                        liveArrivals = arrivals,
+                        track = path
+                    )
                 }
             } catch (_: Throwable) {
                 return@launch
@@ -551,15 +568,33 @@ class MapViewModel(
                     arrivalAt = row.optString("arrivalAt").ifBlank { null },
                     elevationLabel = row.optString("elevationLabel").ifBlank { null },
                     stoppageDurationLabel = row.optString("stoppageDurationLabel", "—"),
-                    elapsedLabel = row.optString("elapsedLabel", "—")
+                    elapsedLabel = row.optString("elapsedLabel", "—"),
+                    passed = row.optBoolean("passed"),
+                    arrivalCaption = row.optString("arrivalCaption").ifBlank { "EST. ARRIVAL" },
+                    plannedStopLabel = row.optString("plannedStopLabel").ifBlank { "0 min" },
+                    actualArrivalAt = row.optString("actualArrivalAt").ifBlank { null },
+                    actualDepartureAt = row.optString("actualDepartureAt").ifBlank { null },
+                    actualStopLabel = row.optString("actualStopLabel").ifBlank { null },
+                    countdownLabel = row.optString("countdownLabel"),
+                    raceTimeCaption = row.optString("raceTimeCaption").ifBlank { null },
+                    plannedArrivalSpoken = row.optString("plannedArrivalSpoken").ifBlank { null }
                 )
             }
         }
         payload.optJSONObject("readout")?.let { readout = parseReadout(it) }
         payload.optJSONArray("timeline")?.let { timeline = parseTimeline(it) }
+        // A checkpoint added or removed moves the pages: stay on the aid that was on show.
+        val shown = if (aidFollow) null else aidPages.getOrNull(aidIndex)?.checkpointId
         aidPages = pages
-        aidIndex = payload.optInt("selectedIndex", 0)
         aidLiveNext = if (payload.isNull("liveNextIndex")) null else payload.optInt("liveNextIndex")
+        val selected = payload.optInt("selectedIndex", 0)
+        val kept = AidRequest.keptIndex(pages, shown, selected)
+        aidIndex = kept
+        aidShowsBackToNext = if (kept == selected) {
+            payload.optBoolean("showsBackToNext")
+        } else {
+            aidLiveNext != null && kept != aidLiveNext
+        }
     }
 
     private fun parseReadout(row: JSONObject) = RaceReadout(
@@ -578,7 +613,9 @@ class MapViewModel(
         finishEtaAt = row.optString("finishEtaAt").ifBlank { null },
         finishWindowStartAt = row.optString("finishWindowStartAt").ifBlank { null },
         finishWindowEndAt = row.optString("finishWindowEndAt").ifBlank { null },
-        liveEtaStale = row.optBoolean("liveEtaStale")
+        liveEtaStale = row.optBoolean("liveEtaStale"),
+        courseStripLabel = row.optString("courseStripLabel").ifBlank { null },
+        courseStripSpoken = row.optString("courseStripSpoken").ifBlank { null }
     )
 
     private fun parseTimeline(array: JSONArray): List<TimelineRow> {

@@ -25,6 +25,7 @@ import com.crewcue.android.billing.PRODUCT_RACE_PASS_FULL_CREW
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.findActivity
 import com.crewcue.android.ui.map.isOnline
+import com.crewcue.android.ui.theme.PillButton
 import com.crewcue.android.ui.theme.PrimaryButton
 import com.crewcue.android.ui.theme.ProductCard
 import com.crewcue.android.ui.theme.ProductTitle
@@ -64,7 +65,7 @@ private fun StatusLine(state: BillingUiState, tag: String) {
  * whenever the active room is unpaid. Only the runner buys; crew see the room's billing line.
  */
 @Composable
-fun PaywallScreen(shell: ShellViewModel, roomId: String, onContinue: () -> Unit, modifier: Modifier = Modifier) {
+fun PaywallScreen(shell: ShellViewModel, roomId: String, onContinue: () -> Unit, modifier: Modifier = Modifier, onClose: (() -> Unit)? = null) {
     val model = rememberBillingModel(shell, roomId, "billing-purchase")
     val context = LocalContext.current
     val activity = context.findActivity()
@@ -72,16 +73,43 @@ fun PaywallScreen(shell: ShellViewModel, roomId: String, onContinue: () -> Unit,
     val state = model.state
     val runner = shell.session?.role == "athlete" || shell.races.firstOrNull { it.id == roomId }?.role == "athlete"
     val unlocked = (state as? BillingUiState.Success)?.unlocked == true || model.billing?.isPaid == true
+    val text = shell.onboardingText
+    val title = text.racePassTitle.ifBlank { "Race Pass" }
     Column(
         modifier
             .fillMaxSize()
             .testTag("crewcue.billing-purchase")
-            .semantics { contentDescription = "Race Pass" }
+            .semantics { contentDescription = title }
+    ) {
+        // The X at the top right: back to wherever the page was opened from.
+        if (onClose != null) {
+            com.crewcue.android.ui.theme.CrewCloseBar(
+                text.label("close").ifBlank { "Close" },
+                "crewcue.billing-purchase.close",
+                enabled = !model.busy,
+                onClose = onClose
+            )
+        }
+    Column(
+        Modifier
+            .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        ProductTitle("Race Pass", "One purchase per race. Your crew joins free.")
+        // One title and one subtitle; an unpaid race shows no extra status line.
+        ProductTitle(title, text.racePassSubtitle)
         StatusLine(state, "crewcue.billing-purchase.status")
+        if (!runner && !unlocked) {
+            // Crew wait for the runner: a state, not an error.
+            val waiting = shell.inviteText.raceLockedReason
+            if (waiting.isNotBlank()) {
+                Text(
+                    waiting,
+                    modifier = Modifier.padding(top = 12.dp).testTag("crewcue.billing-purchase.waiting"),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+        }
         if (unlocked) {
             PrimaryButton(
                 "Continue to race",
@@ -114,6 +142,7 @@ fun PaywallScreen(shell: ShellViewModel, roomId: String, onContinue: () -> Unit,
             BillingActions(model, redeemEnabled = false, onRedeem = {})
         }
     }
+    }
 }
 
 @Composable
@@ -134,7 +163,7 @@ private fun OfferCard(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        PrimaryButton(button, onClick = onClick, modifier = Modifier.padding(top = 12.dp).testTag(tag), enabled = enabled, busy = busy)
+        PillButton(button, onClick = onClick, modifier = Modifier.padding(top = 12.dp).testTag(tag), prominent = true, enabled = enabled, busy = busy)
     }
 }
 
@@ -144,13 +173,13 @@ private fun BillingActions(model: BillingViewModel, redeemEnabled: Boolean, onRe
     val context = LocalContext.current
     Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         when (model.state) {
-            is BillingUiState.Pending -> SecondaryButton(
+            is BillingUiState.Pending -> PillButton(
                 "Check again",
                 onClick = model::checkAgain,
                 enabled = !model.busy,
                 busy = model.busy
             )
-            is BillingUiState.Error, is BillingUiState.Offline -> SecondaryButton(
+            is BillingUiState.Error, is BillingUiState.Offline -> PillButton(
                 "Try again",
                 onClick = { model.load(context.isOnline()) },
                 enabled = !model.busy
@@ -158,7 +187,7 @@ private fun BillingActions(model: BillingViewModel, redeemEnabled: Boolean, onRe
             else -> Unit
         }
         if (redeemEnabled) {
-            SecondaryButton(
+            PillButton(
                 "Redeem code",
                 onClick = onRedeem,
                 modifier = Modifier.testTag("crewcue.billing-redeem.open"),
@@ -238,8 +267,9 @@ fun UpgradeCard(shell: ShellViewModel, roomId: String, isRunner: Boolean, modifi
             )
         }
         if (isRunner && billing?.offers?.contains(PRODUCT_CREW_UPGRADE) == true) {
-            PrimaryButton(
+            PillButton(
                 "Add Full Crew · ${model.price(PRODUCT_CREW_UPGRADE)}",
+                prominent = true,
                 onClick = { model.buy(activity, PRODUCT_CREW_UPGRADE, context.isOnline()) },
                 modifier = Modifier.padding(top = 12.dp).testTag("crewcue.billing-upgrade.buy"),
                 enabled = !model.busy,

@@ -36,6 +36,8 @@ private val text = OnboardingText(
     courseSaveLimit = "You've changed the course a lot this hour. Try again in a bit.",
     startTimeDstGap = "That time doesn't exist on that date because of daylight saving. Pick another time.",
     raceNameMissing = "Add a race name to continue.",
+    courseUnreadable = "We couldn't find a route in that file. Choose a GPX file of your race course, exported from your watch app or the race website.",
+    courseUploadFailed = "Your course didn't upload. Try again, or choose another file.",
     labels = mapOf("readingCourse" to "Reading your course…", "courseSaved" to "Course saved"),
     setupError = "Couldn't save this step.",
     setupOffline = "Offline. Setup needs the network. Your answers stay on this phone until you reconnect."
@@ -438,8 +440,45 @@ class RunnerSetupViewModelTest {
         val model = model()
         model.sync(flow(SetupSteps.COURSE))
         model.chooseCourse("big.gpx", null, online = true)
-        assertEquals(text.setupError, (model.status as SetupStatus.Failed).failure.message)
+        assertEquals(text.courseUploadFailed, (model.status as SetupStatus.Failed).failure.message)
         assertNull(runtime.created)
+    }
+
+    @Test
+    fun aFileWithNoRouteAsksForAnotherFileAndIsNotKept() = runTest(dispatcher) {
+        runtime.answer("gpxPreview", RuntimeResult.Failure("GPX must include at least two track points.", offline = false, status = 400))
+        val model = model()
+        model.sync(flow(SetupSteps.COURSE))
+        model.updateRaceName("Canyons 2027")
+        model.chooseCourse("route.kml", "<kml/>", online = true)
+        val failed = model.status as SetupStatus.Failed
+        // What to do about it, never the server's words.
+        assertEquals(text.courseUnreadable, failed.failure.message)
+        assertTrue(model.courseNeedsAnotherFile)
+        assertFalse(model.courseNeedsRetry)
+        // The file isn't kept as the race's, so its name never shows beside the error.
+        assertNull(model.draft.courseFileName)
+        assertTrue(model.courseUploadFailedShown)
+        assertFalse(model.courseUploaded)
+    }
+
+    @Test
+    fun aServerErrorKeepsTheFileForTryAgainButShowsOnlyTheError() = runTest(dispatcher) {
+        runtime.answer("gpxPreview", RuntimeResult.Failure("Internal Server Error", offline = false, status = 500), ok(PREVIEW))
+        val model = model()
+        model.sync(flow(SetupSteps.COURSE))
+        model.updateRaceName("Canyons 2027")
+        model.chooseCourse("route.gpx", "<gpx/>", online = true)
+        assertEquals(text.courseUploadFailed, (model.status as SetupStatus.Failed).failure.message)
+        assertFalse(model.courseNeedsAnotherFile)
+        assertTrue(model.courseNeedsRetry)
+        assertTrue(model.courseUploadFailedShown)
+        assertEquals("route.gpx", model.draft.courseFileName)
+        model.retry(online = true)
+        assertEquals(SetupStatus.Ready, model.status)
+        // Uploaded: the checkmark line, and no error.
+        assertTrue(model.courseUploaded)
+        assertFalse(model.courseUploadFailedShown)
     }
 
     @Test
@@ -1293,7 +1332,8 @@ class RunnerSetupViewModelTest {
         runtime.answer("gpxPreview", RuntimeResult.Failure("Couldn't read this GPX file.", offline = false, status = 400))
         model.chooseCourse("broken.gpx", "<nope/>", online = true)
         assertTrue(model.status is SetupStatus.Failed)
-        assertTrue(model.courseNeedsRetry)
+        // No route in the file (400): Choose another file, not Try again.
+        assertTrue(model.courseNeedsAnotherFile)
         assertTrue(model.canCancelCourse)
         assertEquals("broken.gpx", model.shownCourseFileName)
         // No loader over a failed preview: the error and Try again, the course before it shown.
@@ -1512,7 +1552,8 @@ class RunnerSetupViewModelTest {
         runtime.answer("gpxPreview", RuntimeResult.Failure("Couldn't read this GPX file.", offline = false, status = 400))
         io.release()
         assertTrue(model.status is SetupStatus.Failed)
-        assertTrue(model.courseNeedsRetry)
+        // No route in the file (400): Choose another file, not Try again.
+        assertTrue(model.courseNeedsAnotherFile)
         assertTrue(model.canCancelCourse)
         assertFalse(model.courseLoading)
         advanceTimeBy(60_000)
@@ -1576,7 +1617,8 @@ class RunnerSetupViewModelTest {
         assertTrue(model.status is SetupStatus.Failed)
         assertFalse(model.courseLoading)
         assertNull(model.courseLoadingCaption)
-        assertTrue(model.courseNeedsRetry)
+        // No route in the file (400): Choose another file, not Try again.
+        assertTrue(model.courseNeedsAnotherFile)
     }
 
     private fun <T> assertNotNullAnd(value: T?): T {

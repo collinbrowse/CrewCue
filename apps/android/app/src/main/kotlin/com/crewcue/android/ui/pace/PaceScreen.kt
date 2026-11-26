@@ -43,6 +43,29 @@ import com.crewcue.android.ui.theme.SettingRow
 import com.crewcue.android.ui.theme.SettingsGroup
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.AcUnit
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Remove
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -94,7 +117,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val TOOL_FOCUSES = setOf("check-in", "gpx-import", "crew-sheet-export", "course-settings", "outbox-status")
+private val TOOL_FOCUSES = setOf(
+    "check-in", "gpx-import", "crew-sheet-export", "course-settings", "outbox-status", "pace-estimate", "cold-start"
+)
 
 @Composable
 fun PaceScreen(
@@ -160,10 +185,13 @@ fun PaceContent(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             model.raceName = race?.raceName.orEmpty()
-            model.courseTitles = titles.entries.mapNotNull { entry -> entry.value?.let { entry.key to it.toString() } }.toMap()
+            val named = titles.entries.mapNotNull { entry -> entry.value?.let { entry.key to it.toString() } }.toMap()
+            LaunchedEffect(named) { model.noteCourseTitles(named) }
             PaceHeader(race?.raceName.orEmpty(), readout)
-            EstimateCard(model)
-            if (!readOnly && (model.mayEditStops || model.stopMessage != null)) {
+            if (readOnly) {
+                // The replay has no race tools, so its estimate stays on the page.
+                EstimateCard(model)
+            } else if (model.mayEditStops || model.stopMessage != null) {
                 StopEditBar(model, onBegin = { model.beginStopEdit(passedIds) })
             }
             PaceTimeline(
@@ -171,6 +199,7 @@ fun PaceContent(
                 liveStale = readout.liveEtaStale,
                 stops = model.scheduleStops,
                 message = model.scheduleMessage,
+                editing = model.stopEditing,
                 editRows = if (model.stopEditing) model.stopRows else emptyList(),
                 onStopMinutes = model::updateStopMinutes,
                 onStepStop = model::stepStop,
@@ -183,7 +212,8 @@ fun PaceContent(
                 locked = locked?.let { LockedRows(model.lockedIds, titles, it) }
             )
         }
-        if (!readOnly) {
+        // Hidden while editing stops: it would cover the last stepper.
+        if (!readOnly && !model.stopEditing) {
             FloatingActionButton(
                 onClick = { showsTools = true },
                 shape = CircleShape,
@@ -211,15 +241,10 @@ private fun PaceHeader(raceName: String, readout: RaceReadout) {
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
                 Kicker("Course progress", color = MaterialTheme.colorScheme.primary)
-                Text(
-                    raceName.ifBlank { "Your race" },
-                    style = MaterialTheme.typography.displaySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Text(raceName.ifBlank { "Your race" }, style = MaterialTheme.typography.headlineSmall)
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(readout.totalMilesLabel, style = MetricLargeStyle, color = MaterialTheme.colorScheme.primary)
+            Column(Modifier.padding(start = 8.dp), horizontalAlignment = Alignment.End) {
+                Text(readout.totalMilesLabel, style = MetricStyle, color = MaterialTheme.colorScheme.primary)
                 Kicker("Total miles")
             }
         }
@@ -249,6 +274,16 @@ private fun windowText(start: String?, end: String?): String? {
 }
 
 /** Under a live arrival: the window, the plan, and an old-ping flag. */
+/**
+ * A collapsed row, spoken: its title, the planned arrival and race time in words, then the live
+ * arrival when there is one.
+ */
+private fun compactSpoken(row: TimelineRow, stop: PaceStop?): String = listOfNotNull(
+    stop?.title ?: row.title,
+    stop?.plannedArrivalSpoken?.takeIf { it.isNotBlank() },
+    CrewClock.short(row.liveArrivalAt)?.let { "Live arrival $it" }
+).joinToString(". ")
+
 private fun liveCaption(row: TimelineRow, stale: Boolean): String = listOfNotNull(
     windowText(row.arrivalWindowStartAt, row.arrivalWindowEndAt),
     CrewClock.short(row.clockArrivalAt)?.let { "PLAN $it" } ?: "LIVE",
@@ -287,12 +322,42 @@ private fun EstimateCard(model: PaceViewModel) {
     }
 }
 
+/** Race tools → Pace: the estimate as the row's hint, with a small Recalculate beside it. */
+@Composable
+private fun PaceEstimateRow(model: PaceViewModel) {
+    val hint = listOfNotNull(model.estimateMessage, model.estimateDetail).joinToString(" ")
+    SettingRow(
+        if (model.showsColdStart) Icons.Outlined.AcUnit else Icons.AutoMirrored.Outlined.ShowChart,
+        "Pace estimate",
+        modifier = Modifier
+            .testTag("crewcue.pace-estimate")
+            .then(if (model.showsColdStart) Modifier.testTag("crewcue.cold-start") else Modifier)
+            .semantics { contentDescription = "Pace estimate" },
+        hint = hint.ifBlank { null },
+        trailing = if (model.mayRecalculate) {
+            {
+                PillButton(
+                    "Recalculate",
+                    onClick = model::recalculate,
+                    prominent = true,
+                    busy = model.estimateBusy,
+                    icon = Icons.Outlined.Refresh
+                )
+            }
+        } else {
+            null
+        }
+    )
+}
+
 @Composable
 private fun PaceTimeline(
     rows: List<TimelineRow>,
     liveStale: Boolean = false,
     stops: List<PaceStop>,
     message: String?,
+    /** Planned stops are being edited: the cards turn into editors inside a dashed panel. */
+    editing: Boolean = false,
     editRows: List<StopEditRow> = emptyList(),
     onStopMinutes: (String, String) -> Unit = { _, _ -> },
     onStepStop: (String, Int) -> Unit = { _, _ -> },
@@ -303,11 +368,24 @@ private fun PaceTimeline(
     /** Set in the onboarding replay: the withheld aid stations show as locked rows. */
     locked: LockedRows? = null
 ) {
+    val colors = MaterialTheme.colorScheme
+    // Edit mode steps the cards back inside a tinted, dashed panel, so it reads as a different mode.
+    // The panel keeps to the page's own margins: nothing widens or reaches the screen edge.
+    val panel = if (editing) {
+        Modifier
+            .background(colors.primaryContainer.copy(alpha = 0.22f), RoundedCornerShape(EDIT_PANEL_RADIUS))
+            .dashedBorder(colors.primary.copy(alpha = 0.5f), EDIT_PANEL_RADIUS)
+            .padding(horizontal = 8.dp, vertical = 12.dp)
+    } else {
+        Modifier
+    }
     Column(
         Modifier
             .testTag("crewcue.schedule-sheet")
-            .semantics { contentDescription = "Schedule" },
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .semantics { contentDescription = "Schedule" }
+            .animateContentSize()
+            .then(panel),
+        verticalArrangement = Arrangement.spacedBy(if (editing) 8.dp else 12.dp)
     ) {
         message?.let { line ->
             Text(
@@ -327,7 +405,7 @@ private fun PaceTimeline(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (showsActions) {
-                    PrimaryButton("Import a course", onClick = onImport, modifier = Modifier.padding(top = 12.dp))
+                    PillButton("Import a course", onClick = onImport, modifier = Modifier.padding(top = 12.dp), prominent = true)
                 }
             }
         } else {
@@ -353,17 +431,18 @@ private fun PaceTimeline(
                 // While editing, the dwell rail shows the draft stop, like the arrivals above it.
                 val stop = stops.firstOrNull { it.id == row.checkpointId }
                     ?.let { live -> edit?.let { live.copy(stopLabel = it.stopLabel) } ?: live }
-                if (row.state == "current") {
+                if (editing) {
+                    StopEditCard(
+                        row,
+                        stop,
+                        edit,
+                        onMinutes = { onStopMinutes(row.checkpointId, it) },
+                        onStep = { onStepStop(row.checkpointId, it) }
+                    )
+                } else if (row.state == "current") {
                     CurrentCheckpoint(row, stop, liveStale, onCheckIn = if (showsActions) ({ onCheckIn(stop?.id ?: row.checkpointId) }) else null)
                 } else {
                     CompactCheckpoint(row, stop, liveStale)
-                }
-                editRows.firstOrNull { it.checkpointId == row.checkpointId && it.editable }?.let { edit ->
-                    StopEditor(
-                        edit,
-                        onMinutes = { onStopMinutes(edit.checkpointId, it) },
-                        onStep = { onStepStop(edit.checkpointId, it) }
-                    )
                 }
             }
         }
@@ -379,27 +458,26 @@ private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Bool
         modifier = Modifier
             .fillMaxWidth()
             .alpha(if (done) 0.75f else 1f)
-            .semantics(mergeDescendants = true) { contentDescription = stop?.line ?: row.title },
+            .semantics(mergeDescendants = true) { contentDescription = compactSpoken(row, stop) },
         shape = MaterialTheme.shapes.large,
         color = if (row.isFinish) colors.surfaceContainer else colors.surfaceContainerLowest,
         border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.6f))
     ) {
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Marker(row)
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
                 Text(row.kicker, style = MaterialTheme.typography.labelSmall, color = if (row.isFinish) colors.primary else colors.onSurfaceVariant)
+                // Titles wrap; they never shrink or truncate.
                 Text(
                     row.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = if (done) colors.onSurfaceVariant else colors.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    style = CardTitleStyle,
+                    color = if (done) colors.onSurfaceVariant else colors.onSurface
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     liveClock?.let { "ETA $it" } ?: CrewClock.short(row.clockArrivalAt) ?: "—",
-                    style = MetricStyle,
+                    style = CardClockStyle,
                     color = when {
                         row.isFinish -> colors.primary
                         done -> colors.onSurfaceVariant
@@ -410,16 +488,18 @@ private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Bool
                     when {
                         liveClock != null -> liveCaption(row, liveStale)
                         row.isFinish -> "TARGET"
-                        // Every stop shows its local clock and elapsed time; projected stops add the planned stop.
+                        // The clock above is the planned arrival; under it, the planned race time at
+                        // that aid ("RACE 1:10:00"), and on stops still ahead the planned stop.
                         stop != null -> listOfNotNull(
-                            "${stop.arrival} · ${stop.elapsed}",
+                            stop.raceTime.takeIf { it.isNotBlank() },
                             stop.stopLabel.takeIf { !done && it.isNotBlank() && it != "NO STOP" }
                         ).joinToString(" · ")
                         done -> "PLANNED"
                         else -> "PROJECTED"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant
+                    color = colors.onSurfaceVariant,
+                    textAlign = TextAlign.End
                 )
             }
         }
@@ -439,36 +519,39 @@ private fun CurrentCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Bool
         border = BorderStroke(1.5.dp, colors.primary.copy(alpha = 0.5f)),
         shadowElevation = 3.dp
     ) {
-        Column(Modifier.padding(24.dp)) {
+        Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.Top) {
                 Marker(row)
-                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
                     Text(row.kicker, style = MaterialTheme.typography.labelSmall, color = colors.primary)
-                    Text(row.title, style = MaterialTheme.typography.headlineSmall)
+                    Text(row.title, style = MaterialTheme.typography.titleLarge)
                 }
                 StatusChip("In progress", ChipStyle.Filled)
             }
-            HorizontalDivider(Modifier.padding(vertical = 16.dp), color = colors.outlineVariant)
+            HorizontalDivider(Modifier.padding(vertical = 12.dp), color = colors.outlineVariant)
             Row {
+                // The caption below already says OLD PING, so the label is just "Live ETA".
                 MetricColumn(
-                    if (liveClock == null) "Est. arrival" else if (liveStale) "Live ETA (old ping)" else "Live ETA",
+                    if (liveClock == null) "Est. arrival" else "Live ETA",
                     liveClock ?: CrewClock.short(row.clockArrivalAt) ?: "—",
                     Modifier.weight(1f),
                     alignment = Alignment.Start,
-                    valueColor = colors.primary
+                    valueColor = colors.primary,
+                    compact = true
                 )
                 MetricColumn(
                     "Cutoff",
                     CrewClock.short(row.cutoffAt) ?: "—",
                     Modifier.weight(1f),
-                    valueColor = if (row.cutoffStatus == "warn" || row.cutoffStatus == "breach") colors.error else colors.onSurface
+                    valueColor = if (row.cutoffStatus == "warn" || row.cutoffStatus == "breach") colors.error else colors.onSurface,
+                    compact = true
                 )
-                MetricColumn("Dist. to", row.distanceToLabel, Modifier.weight(1f), alignment = Alignment.End)
+                MetricColumn("Dist. to", row.distanceToLabel, Modifier.weight(1f), alignment = Alignment.End, compact = true)
             }
             if (liveClock != null) {
                 Text(
                     liveCaption(row, liveStale),
-                    modifier = Modifier.padding(top = 12.dp).testTag("crewcue.live-eta.current"),
+                    modifier = Modifier.padding(top = 10.dp).testTag("crewcue.live-eta.current"),
                     style = MaterialTheme.typography.labelMedium,
                     color = colors.onSurfaceVariant
                 )
@@ -481,7 +564,9 @@ private fun CurrentCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Bool
                     color = colors.onSurfaceVariant
                 )
             }
-            if (onCheckIn != null) SecondaryButton("Check in", onClick = onCheckIn, modifier = Modifier.padding(top = 12.dp))
+            if (onCheckIn != null) {
+                PillButton("Check in", onClick = onCheckIn, modifier = Modifier.padding(top = 12.dp), icon = Icons.Outlined.CheckCircle)
+            }
         }
     }
 }
@@ -519,7 +604,10 @@ private fun LockedCheckpoint(row: TeaserRow.Locked, label: String) {
     }
 }
 
-/** #250 Pace edit: enter/leave planned-stop editing and save the draft. */
+/**
+ * #250 Pace edit: the timeline's header. A small Edit stops pill; while editing, Cancel and Save sit
+ * on the same line and the cards below turn into editors.
+ */
 @Composable
 private fun StopEditBar(model: PaceViewModel, onBegin: () -> Unit) {
     val colors = MaterialTheme.colorScheme
@@ -529,39 +617,49 @@ private fun StopEditBar(model: PaceViewModel, onBegin: () -> Unit) {
             .semantics { contentDescription = "Planned stops" },
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (model.stopEditing) {
-            Kicker("Planned stops", color = colors.primary)
-            Text(
-                "Minutes at each aid. Later arrivals move with your changes; nothing is saved until you tap Save.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.onSurfaceVariant
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Kicker(
+                if (model.stopEditing) "Editing planned stops" else "Aid stations",
+                modifier = Modifier.weight(1f),
+                color = if (model.stopEditing) colors.primary else colors.onSurfaceVariant
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GhostButton(
+            if (model.stopEditing) {
+                PillButton(
                     "Cancel",
                     onClick = model::cancelStopEdit,
                     enabled = !model.stopBusy,
-                    modifier = Modifier.weight(1f).testTag("crewcue.pace.cancel-stops")
+                    modifier = Modifier.testTag("crewcue.pace.cancel-stops")
                 )
-                PrimaryButton(
-                    "Save stops",
+                PillButton(
+                    "Save",
                     onClick = model::saveStops,
+                    prominent = true,
                     enabled = model.stopCanSave,
                     busy = model.stopBusy,
-                    modifier = Modifier.weight(1f).testTag("crewcue.pace.save-stops")
+                    spoken = "Save stops",
+                    modifier = Modifier.testTag("crewcue.pace.save-stops")
+                )
+            } else if (model.mayEditStops) {
+                PillButton(
+                    "Edit stops",
+                    onClick = onBegin,
+                    icon = Icons.Outlined.Edit,
+                    spoken = "Edit planned stops",
+                    modifier = Modifier.testTag("crewcue.pace.edit-stops")
                 )
             }
-        } else if (model.mayEditStops) {
-            SecondaryButton(
-                "Edit planned stops",
-                onClick = onBegin,
-                modifier = Modifier.testTag("crewcue.pace.edit-stops")
+        }
+        if (model.stopEditing) {
+            Text(
+                "Set the minutes at each aid ahead. Later arrivals move as you change them. Nothing saves until you tap Save.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.onSurfaceVariant
             )
         }
         model.stopMessage?.let { line ->
             Text(
                 line,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = colors.onSurfaceVariant,
                 modifier = Modifier
                     .testTag("crewcue.pace.stops-message")
@@ -571,61 +669,142 @@ private fun StopEditBar(model: PaceViewModel, onBegin: () -> Unit) {
     }
 }
 
-/** Minutes field with − / + for one checkpoint's planned stop. */
+/**
+ * One checkpoint while planned stops are being edited. Aids ahead of the runner get a dashed outline
+ * and a minutes stepper; the start, the finish and passed aids are dimmed and locked.
+ */
 @Composable
-private fun StopEditor(row: StopEditRow, onMinutes: (String) -> Unit, onStep: (Int) -> Unit) {
+private fun StopEditCard(
+    row: TimelineRow,
+    stop: PaceStop?,
+    edit: StopEditRow?,
+    onMinutes: (String) -> Unit,
+    onStep: (Int) -> Unit
+) {
     val colors = MaterialTheme.colorScheme
-    val name = row.title.lowercase().replaceFirstChar { it.titlecase() }
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = colors.surfaceContainerLowest,
-        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.6f))
+    val editable = edit?.editable == true
+    val shape = RoundedCornerShape(16.dp)
+    val lockedCaption = when {
+        row.state == "done" -> "PASSED"
+        row.isFinish -> "FINISH"
+        else -> "LOCKED"
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .alpha(if (editable) 1f else 0.6f)
+            .background(colors.surfaceContainerLowest.copy(alpha = if (editable) 1f else 0.6f), shape)
+            .then(if (editable) Modifier.dashedBorder(colors.primary.copy(alpha = 0.7f), 16.dp, dash = 6.dp, gap = 4.dp) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .semantics(mergeDescendants = false) { contentDescription = row.title },
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "Stop at $name",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                StepButton("−", "One minute less at $name") { onStep(-1) }
-                CrewTextField(
-                    value = row.minutesText,
-                    onValueChange = onMinutes,
-                    label = "Min",
-                    modifier = Modifier
-                        .size(width = 84.dp, height = 64.dp)
-                        .testTag("crewcue.pace.stop-minutes.${row.checkpointId}")
-                        .semantics { contentDescription = "Planned stop minutes at $name" },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
-                StepButton("+", "One minute more at $name") { onStep(1) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(row.kicker, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                Text(row.title, style = CardTitleStyle, color = colors.onSurface)
             }
-            when {
-                row.error != null -> Text(row.error, style = MaterialTheme.typography.labelMedium, color = colors.error)
-                row.changed -> Text("Was ${row.savedLabel.lowercase()}", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+            Column(horizontalAlignment = Alignment.End) {
+                // The draft timeline's clock, so later arrivals move as the minutes change.
+                Text(CrewClock.short(row.clockArrivalAt) ?: stop?.arrival ?: "—", style = CardClockStyle, color = colors.onSurface)
+                Text(
+                    if (editable) "ARRIVE" else lockedCaption,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant
+                )
+            }
+        }
+        if (edit != null && editable) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Planned stop", style = MaterialTheme.typography.labelLarge, color = colors.onSurface)
+                    when {
+                        edit.error != null -> Text(edit.error, style = MaterialTheme.typography.bodySmall, color = colors.error)
+                        edit.changed -> Text(
+                            "Was ${edit.savedLabel.lowercase()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant
+                        )
+                    }
+                }
+                MinutesStepper(edit, onMinutes, onStep)
             }
         }
     }
 }
 
-/** Compact − / + for the stop editor; the theme buttons always fill the row width. */
+/** − minutes + for one checkpoint's planned stop. */
 @Composable
-private fun StepButton(label: String, spoken: String, onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = Modifier
-            .size(48.dp)
-            .semantics { contentDescription = spoken },
-        shape = CircleShape,
-        contentPadding = PaddingValues(0.dp)
-    ) {
-        Text(label, style = MaterialTheme.typography.titleLarge)
+private fun MinutesStepper(row: StopEditRow, onMinutes: (String) -> Unit, onStep: (Int) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val name = row.title.lowercase().replaceFirstChar { it.titlecase() }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        StepButton(Icons.Outlined.Remove, "One minute less at $name") { onStep(-1) }
+        Row(
+            Modifier
+                .heightIn(min = 32.dp)
+                .background(colors.surfaceContainerHigh.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            BasicTextField(
+                value = row.minutesText,
+                onValueChange = onMinutes,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = colors.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFeatureSettings = "tnum",
+                    textAlign = TextAlign.End
+                ),
+                cursorBrush = SolidColor(colors.primary),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier
+                    .width(34.dp)
+                    .testTag("crewcue.pace.stop-minutes.${row.checkpointId}")
+                    .semantics { contentDescription = "Planned stop minutes at $name" }
+            )
+            Text("min", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+        }
+        StepButton(Icons.Outlined.Add, "One minute more at $name") { onStep(1) }
     }
 }
+
+/** A round 32dp step button; its touch target is the full 48dp. */
+@Composable
+private fun StepButton(icon: ImageVector, spoken: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .minimumInteractiveComponentSize()
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = spoken },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+private val EDIT_PANEL_RADIUS = 28.dp
+/** A compact timeline card's title: headline-ish, wraps instead of shrinking. */
+private val CardTitleStyle = androidx.compose.ui.text.TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.3.sp)
+private val CardClockStyle = androidx.compose.ui.text.TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold, fontFeatureSettings = "tnum")
+
+/** A dashed rounded outline, drawn inside the bounds. */
+private fun Modifier.dashedBorder(color: Color, radius: Dp, width: Dp = 1.5.dp, dash: Dp = 7.dp, gap: Dp = 5.dp): Modifier =
+    drawBehind {
+        val stroke = width.toPx()
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(stroke / 2, stroke / 2),
+            size = Size(size.width - stroke, size.height - stroke),
+            cornerRadius = CornerRadius(radius.toPx()),
+            style = Stroke(width = stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash.toPx(), gap.toPx())))
+        )
+    }
 
 @Composable
 private fun Marker(row: TimelineRow) {
@@ -678,9 +857,18 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
                 model.checkInMessage?.let { line ->
                     Text(line, modifier = Modifier.semantics { contentDescription = line })
                 }
-                PrimaryButton("Check in", onClick = model::submitCheckIn, busy = model.checkInBusy)
+                PillButton(
+                    "Check in",
+                    onClick = model::submitCheckIn,
+                    modifier = Modifier.align(Alignment.End),
+                    prominent = true,
+                    busy = model.checkInBusy
+                )
             }
         }
+    }
+    SettingsGroup("Pace", bringIntoViewWhen(focus == "pace-estimate" || focus == "cold-start")) {
+        PaceEstimateRow(model)
     }
     SettingsGroup("Course", bringIntoViewWhen(focus == "gpx-import")) {
         var pasting by rememberSaveable { mutableStateOf(false) }

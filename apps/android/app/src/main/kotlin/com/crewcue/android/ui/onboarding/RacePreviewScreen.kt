@@ -2,6 +2,7 @@ package com.crewcue.android.ui.onboarding
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -38,7 +39,6 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.allVerticalHingeBounds
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
@@ -63,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -309,9 +310,12 @@ private fun ReplayPanels(
     // Read by the map on each new frame, without recomposing the screen. Animations off: no glide,
     // the dot steps to each new ping.
     val glide = remember(model, animations) { { if (animations) model.glide else null } }
+    // The view the beat is about gets the ring: the Map pane here, or the view over it.
+    val focused = model.status == RacePreviewStatus.Playing &&
+        ReplayPanel.forBeat(model.beat) == (if (split) ReplayPanel.Map else model.panel)
     Column(Modifier.fillMaxSize()) {
         if (!split) PanelStrip(model, text)
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(Modifier.weight(1f).fillMaxWidth().replayFocusRing(focused, animations)) {
             Box(Modifier.fillMaxSize().then(if (covered) Modifier.clearAndSetSemantics {} else Modifier)) {
                 MapContent(
                     views.map,
@@ -386,15 +390,58 @@ private fun animatorsOn(context: android.content.Context): Boolean =
         1f
     ) != 0f
 
+/**
+ * The ring around the replay view the beat is about: an accent border that pulses gently (held
+ * still with animations off). Drawn over the view, so it never takes a touch.
+ */
+@Composable
+private fun Modifier.replayFocusRing(active: Boolean, animations: Boolean): Modifier {
+    val color = MaterialTheme.colorScheme.primary
+    val shown by animateFloatAsState(if (active) 1f else 0f, animationSpec = tween(250), label = "focus-ring")
+    val pulse = if (active && animations) {
+        val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "focus-pulse")
+        transition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                tween<Float>(900),
+                androidx.compose.animation.core.RepeatMode.Reverse
+            ),
+            label = "focus-pulse-alpha"
+        ).value
+    } else {
+        1f
+    }
+    return this.drawWithContent {
+        drawContent()
+        val alpha = shown * pulse
+        if (alpha > 0f) {
+            val stroke = 3.dp.toPx()
+            drawRoundRect(
+                color = color.copy(alpha = alpha),
+                topLeft = androidx.compose.ui.geometry.Offset(stroke / 2, stroke / 2),
+                size = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(stroke)
+            )
+        }
+    }
+}
+
 /** Medium and expanded: Pace beside the Map, or Chat at its beat. */
 @Composable
 private fun SupportingView(model: RacePreviewViewModel, replay: RacePreviewReplay, shell: ShellViewModel, text: OnboardingText) {
     val views = rememberReplayViews(replay, shell)
+    val shown = if (model.panel == ReplayPanel.Chat) ReplayPanel.Chat else ReplayPanel.Pace
+    val focused = model.status == RacePreviewStatus.Playing && ReplayPanel.forBeat(model.beat) == shown
+    val animations = rememberAnimationsOn()
+    Box(Modifier.fillMaxSize().replayFocusRing(focused, animations)) {
     AnimatedContent(
         targetState = if (model.panel == ReplayPanel.Chat) ReplayPanel.Chat else ReplayPanel.Pace,
         transitionSpec = { fadeIn() togetherWith fadeOut() },
         label = "replay-supporting"
     ) { panel -> PanelView(panel, views, replay, text) }
+    }
 }
 
 @Composable
@@ -537,6 +584,22 @@ private fun ReplayCaption(model: RacePreviewViewModel, text: OnboardingText, tit
                     }
                     AnimatedContent(targetState = model.caption, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "replay-caption") { caption ->
                         Text(caption, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface)
+                    }
+                }
+                // Where to look, bold, for the view ringed below. Every line laid out, hidden, so
+                // the card keeps one height.
+                Box(Modifier.padding(top = 8.dp)) {
+                    text.replay.focus.values.forEach { line ->
+                        Text(line, modifier = Modifier.alpha(0f).clearAndSetSemantics {}, style = MaterialTheme.typography.titleSmall)
+                    }
+                    AnimatedContent(targetState = text.replay.focus[model.beat].orEmpty(), transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "replay-focus") { line ->
+                        Text(
+                            line,
+                            modifier = Modifier.testTag(racePreviewTag("focus")),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = colors.primary
+                        )
                     }
                 }
             }
@@ -701,17 +764,13 @@ private fun PaywallColumn(content: @Composable () -> Unit) {
     }
 }
 
-/** Back: the replay again from its start. */
+/** Back: the replay again from its start. The same top bar arrow as every runner setup step. */
 @Composable
 private fun PaywallBack(model: RacePreviewViewModel, text: OnboardingText, busy: Boolean) {
-    TextButton(
-        onClick = model::replayFromStart,
-        enabled = !busy,
-        modifier = Modifier.testTag(onboardingPaywallTag("back")).semantics { contentDescription = text.replay.back }
-    ) { Text(text.replay.back, style = MaterialTheme.typography.labelLarge) }
+    com.crewcue.android.ui.theme.CrewBackBar(text.replay.back, onboardingPaywallTag("back"), enabled = !busy, onBack = model::replayFromStart)
 }
 
-/** The title, the explanation and the pitch. */
+/** The title and its one subtitle. */
 @Composable
 private fun PaywallCopy(text: OnboardingText) {
     val colors = MaterialTheme.colorScheme
@@ -723,9 +782,13 @@ private fun PaywallCopy(text: OnboardingText) {
             color = colors.onSurface
         )
         text.explanation(PAYWALL_STEP).takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+            Text(
+                it,
+                modifier = Modifier.testTag(onboardingPaywallTag("subtitle")),
+                style = MaterialTheme.typography.bodyLarge,
+                color = colors.onSurfaceVariant
+            )
         }
-        Text(text.replay.pitch, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface)
     }
 }
 
@@ -769,28 +832,18 @@ private fun PaywallOptions(
             when (billing.state) {
                 // The store took the payment and the server hasn't unlocked the race yet: read it
                 // again, never buy a second time.
-                is BillingUiState.Pending -> SetupSecondaryButton(
-                    CHECK_AGAIN,
-                    onboardingPaywallTag("check-again"),
-                    onClick = billing::checkAgain,
-                    enabled = !busy
-                )
-                is BillingUiState.Error, is BillingUiState.Offline -> SetupSecondaryButton(
-                    text.label("tryAgain"),
-                    onboardingPaywallTag("try-again"),
-                    onClick = { billing.load(context.isOnline()) },
-                    enabled = !busy
-                )
+                is BillingUiState.Pending -> com.crewcue.android.ui.theme.PillButton(CHECK_AGAIN, onClick = billing::checkAgain, modifier = Modifier.testTag(onboardingPaywallTag("check-again")), enabled = !busy)
+                is BillingUiState.Error, is BillingUiState.Offline -> com.crewcue.android.ui.theme.PillButton(text.label("tryAgain"), onClick = { billing.load(context.isOnline()) }, modifier = Modifier.testTag(onboardingPaywallTag("try-again")), enabled = !busy)
                 else -> Unit
             }
-            SetupSecondaryButton(
+            com.crewcue.android.ui.theme.PillButton(
                 REDEEM_CODE,
-                onboardingPaywallTag("redeem"),
                 onClick = { billing.redeem(activity, context.isOnline()) },
+                modifier = Modifier.testTag(onboardingPaywallTag("redeem")),
                 enabled = !busy && !unlocked
             )
         }
-        SetupSecondaryButton(text.replay.notNow, onboardingPaywallTag("not-now"), onClick = model::notNow, enabled = !busy)
+        com.crewcue.android.ui.theme.PillButton(text.replay.notNow, onClick = model::notNow, modifier = Modifier.testTag(onboardingPaywallTag("not-now")), enabled = !busy)
     }
 }
 
