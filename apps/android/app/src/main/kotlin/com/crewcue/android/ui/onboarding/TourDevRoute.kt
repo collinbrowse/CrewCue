@@ -3,7 +3,6 @@ package com.crewcue.android.ui.onboarding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
@@ -13,13 +12,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.crewcue.android.ui.CrewTabBar
+import com.crewcue.android.ui.CrewNavigationSuite
+import com.crewcue.android.ui.TAB_BAR_SPACE
 import com.crewcue.android.ui.FeatureScreen
 import com.crewcue.android.ui.ShellTab
 import com.crewcue.android.ui.ShellViewModel
@@ -51,44 +50,41 @@ fun TourDevRoute(shell: ShellViewModel, role: String) {
     val tourOver = tour.card == null && tour.checklist != null
     LaunchedEffect(tourOver) { if (tourOver) tabName = ShellTab.Map.name }
     Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(bottom = 96.dp)
-        ) {
-            val checklist = tour.checklist?.takeIf { tour.card == null && tab == ShellTab.Map }
-            if (checklist != null) {
-                SetupChecklistPanel(
-                    checklist = checklist,
-                    onOpen = { row ->
-                        when (row.opens) {
-                            "inviteShare" -> tabName = ShellTab.Profile.name
-                            "paceStopEdit" -> tabName = ShellTab.Pace.name
-                        }
-                        tour.openChecklistItem(row.kind)
-                    },
-                    onHide = tour::hideChecklist,
-                    maxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.4f,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-            // A fixture's copy is a client-core call: read once per tab, off the main thread.
-            val screen by produceState<ScreenCopy?>(null, tab) {
-                value = withContext(Dispatchers.IO) { runCatching { shell.fixtureScreen(tab.url) }.getOrNull() }
-            }
-            screen?.let { FeatureScreen(UiState.Success(it), Modifier.weight(1f)) } ?: Spacer(Modifier.weight(1f))
-        }
-        CrewTabBar(
+        CrewNavigationSuite(
             selected = tab,
             chatUnread = 0,
             onSelect = { tabName = it.name },
-            anchors = anchors,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        )
+            anchors = anchors
+        ) { rail ->
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(bottom = if (rail) 0.dp else TAB_BAR_SPACE)
+            ) {
+                val checklist = tour.checklist?.takeIf { tour.card == null && tab == ShellTab.Map }
+                if (checklist != null) {
+                    SetupChecklistPanel(
+                        checklist = checklist,
+                        onOpen = { row ->
+                            when (row.opens) {
+                                "inviteShare" -> tabName = ShellTab.Profile.name
+                                "paceStopEdit" -> tabName = ShellTab.Pace.name
+                            }
+                            tour.openChecklistItem(row.kind)
+                        },
+                        onHide = tour::hideChecklist,
+                        maxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.4f,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+                // A fixture's copy is a client-core call: read once per tab, off the main thread.
+                val screen by produceState<ScreenCopy?>(null, tab) {
+                    value = withContext(Dispatchers.IO) { runCatching { shell.fixtureScreen(tab.url) }.getOrNull() }
+                }
+                screen?.let { FeatureScreen(UiState.Success(it), Modifier.weight(1f)) } ?: Spacer(Modifier.weight(1f))
+            }
+        }
         TourOverlayHost(
             tour = tour,
             anchors = anchors,
