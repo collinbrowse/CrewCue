@@ -140,7 +140,7 @@ Create a tenant and API (audience e.g. `https://api.crewcue.local`), add a nativ
 
 ## 10) Production rollout notes
 
-1. Repeat setup for production tenant after staging soak.
+1. Production shares the staging tenant, with its own API and application: follow step 4 of [launch-owner-setup.md](launch-owner-setup.md).
 2. Keep connection names consistent across staging and production or document environment-specific values.
 3. Do not commit secrets into git; use CI/secret manager only.
 
