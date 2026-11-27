@@ -45,11 +45,13 @@ declare module "fastify" {
 }
 
 /**
- * Route `onRequest` hook for routes that take large bodies: answers 401 before the body is read.
- * Needs the auth plugin's `onRequest` hook to have run (it is registered first).
+ * Route `onRequest` hook for routes that take large bodies: a request with no bearer token gets
+ * 401 before its body is read. It only checks that the header is there; the token itself is
+ * still verified by the auth plugin's `preHandler` hook, after the body is parsed.
  */
-export async function requireIdentityBeforeBody(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!request.identity) {
+export async function requireBearerBeforeBody(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const header = request.headers.authorization;
+  if (typeof header !== "string" || !/^Bearer\s+\S/i.test(header.trim())) {
     await reply.code(401).send({ error: "Unauthorized" });
   }
 }
@@ -61,7 +63,7 @@ export async function requireIdentityBeforeBody(request: FastifyRequest, reply: 
 export function largeBodyRoute(bodyLimit: number, bodyTooLarge: BodyTooLargeReply = BODY_TOO_LARGE) {
   return {
     bodyLimit,
-    onRequest: requireIdentityBeforeBody,
+    onRequest: requireBearerBeforeBody,
     config: { bodyTooLarge }
   };
 }

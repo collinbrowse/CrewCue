@@ -1,4 +1,4 @@
--- Room code lookups that found no room, per account (or signed-out address) and across everyone,
+-- Room code lookups that found no room, per account (or signed-out address),
 -- in fixed one-hour windows (see src/lib/joinCodeBudget.ts). Shared by every API instance.
 -- Old windows are deleted as new ones are counted.
 CREATE TABLE IF NOT EXISTS join_code_failures (

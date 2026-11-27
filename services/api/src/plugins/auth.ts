@@ -32,9 +32,7 @@ export const authPlugin = fp(async (app) => {
 
   app.decorateRequest("identity", undefined);
 
-  // onRequest, before the body is read, so routes that take large bodies can refuse callers
-  // without a valid token first (`requireIdentityBeforeBody`).
-  app.addHook("onRequest", async (request) => {
+  app.addHook("preHandler", async (request) => {
     if (request.url.startsWith("/health")) {
       return;
     }

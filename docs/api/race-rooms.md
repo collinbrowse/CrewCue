@@ -4,7 +4,7 @@ This document describes the **current** HTTP surface for race rooms, invites, an
 
 ## Authentication
 
-All routes except `/health` run the auth hook (`services/api/src/plugins/auth.ts`, `onRequest`, before the body is read):
+All routes except `/health` run the auth pre-handler (`services/api/src/plugins/auth.ts`):
 
 - Requests may include `Authorization: Bearer <jwt>`.
 - If verification fails, or the JWT payload does not match the expected claims shape, `request.identity` is unset and protected handlers respond with **401 Unauthorized** (`{ "error": "Unauthorized" }`).
@@ -353,9 +353,9 @@ Unlike `PUT /race-rooms/:roomId/course`, this does **not** reset course-dependen
 
 ## Input limits
 
-- **Request bodies** are capped at 1 MB. Routes that take files have their own cap: `PUT .../course` about 24 MB (the GPX preview plus `courseGpxXml`), `PUT .../map-workspace` 8 MB, `POST .../course/gpx-preview` and `POST /activity-history/gpx` about 20 MB (a 10 MB `gpxXml`), the activity file, preview and archive routes their base64 file cap, `POST /activity-history/upload` 200 MB, chat photos 10 MB. An oversized body answers **413** `{ "error", "code" }` (`file_too_large` on file routes, else `body_too_large`). These routes answer **401** before reading the body when the token is missing or invalid.
+- **Request bodies** are capped at 1 MB. Routes that take files have their own cap: `PUT .../course` about 24 MB (the GPX preview plus `courseGpxXml`), `PUT .../map-workspace` 8 MB, `POST .../course/gpx-preview` and `POST /activity-history/gpx` about 20 MB (a 10 MB `gpxXml`), the activity file, preview and archive routes their base64 file cap, `POST /activity-history/upload` 200 MB, chat photos 10 MB. An oversized body answers **413** `{ "error", "code" }` (`file_too_large` on file routes, else `body_too_large`). These routes answer **401** before reading the body when the request has no bearer token; a token that fails verification still gets 401 from the handler.
 - **Course and map workspace**: `courseGpxXml` at most 10 MB of text (the GPX upload cap), `courseFileName` 500 characters, at most 500 checkpoints, 10,000 baseline points, 20,000 vertices per route line and 100 lines per layer; ids at most 200 characters.
-- **Room codes** are 6 digits from a CSPRNG (the apps take exactly 6). `POST /race-rooms/join-by-code` and `GET /race-rooms/join-preview/:roomCode` share a budget of codes that match no room: 20 per hour per account (per client address when signed out) and 500 per hour across everyone, kept in Postgres so every instance shares it (`join_code_failures`, migration 0026). Past it they answer **429** `Too many requests` with `retry-after`, before looking the code up.
+- **Room codes** are 6 digits from a CSPRNG (the apps take exactly 6). `POST /race-rooms/join-by-code` and `GET /race-rooms/join-preview/:roomCode` share a budget of codes that match no room: 20 per hour per account (per client address when signed out), kept in Postgres so every instance shares it (`join_code_failures`, migration 0026). Past it they answer **429** `Too many requests` with `retry-after`, before looking the code up.
 
 ## Notes for consumers
 

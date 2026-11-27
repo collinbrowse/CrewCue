@@ -169,11 +169,20 @@ test("routes that take files refuse a missing token before reading the body", as
       });
       assert.equal(response.statusCode, 401, url);
       assert.deepEqual(response.json(), { error: "Unauthorized" });
+
+      // A token that fails verification is still refused, by the handler after parsing.
+      const badToken = await app.inject({
+        method,
+        url,
+        headers: { authorization: "Bearer not-a-real-jwt", "content-type": "application/json" },
+        payload: JSON.stringify({})
+      });
+      assert.equal(badToken.statusCode, 401, url);
     }
   });
 });
 
-test("room code failures share one budget per account and across everyone", async () => {
+test("room code failures share one budget per account (per address when signed out)", async () => {
   await withApp(async (app) => {
     await resetJoinCodeBudgetForTests();
     const now = Date.now();
@@ -185,38 +194,35 @@ test("room code failures share one budget per account and across everyone", asyn
     await recordJoinCodeFailure(subject, now);
     const retryAfter = await joinCodeBudgetRetryAfterSeconds(subject, now);
     assert.ok(retryAfter !== null && retryAfter >= 1 && retryAfter <= 3600);
+    // Other accounts keep their own budget.
     assert.equal(await joinCodeBudgetRetryAfterSeconds(`other-${randomUUID()}`, now), null);
     // The next window starts fresh.
     assert.equal(await joinCodeBudgetRetryAfterSeconds(subject, now + JOIN_CODE_FAILURE_BUDGET.windowMs), null);
 
-    // Spend the shared budget: every caller is refused before the code is looked up.
-    await resetJoinCodeBudgetForTests();
-    for (let i = 0; i < JOIN_CODE_FAILURE_BUDGET.global; i += 1) {
-      await recordJoinCodeFailure(`spender-${i % 100}`);
-    }
-    const join = await app.inject({
-      method: "POST",
-      url: "/race-rooms/join-by-code",
-      headers: { authorization: `Bearer ${tokenFor(app, `fresh-${randomUUID()}`)}` },
-      payload: { roomCode: "000000" }
-    });
-    assert.equal(join.statusCode, 429);
-    assert.ok(Number(join.headers["retry-after"]) >= 1);
-    const preview = await app.inject({ method: "GET", url: "/race-rooms/join-preview/000000" });
-    assert.equal(preview.statusCode, 429);
     await resetJoinCodeBudgetForTests();
 
-    // Unknown codes count; the route answers 404 until the account's budget is spent.
+    // Unknown codes count; the route answers 404 until the account's budget is spent, then 429
+    // before the code is looked up. Another account still gets 404.
     const crew = `counted-${randomUUID()}`;
-    const miss = await app.inject({
-      method: "POST",
-      url: "/race-rooms/join-by-code",
-      headers: { authorization: `Bearer ${tokenFor(app, crew)}` },
-      payload: { roomCode: "000000" }
-    });
-    assert.equal(miss.statusCode, 404);
+    const join = (sub: string) =>
+      app.inject({
+        method: "POST",
+        url: "/race-rooms/join-by-code",
+        headers: { authorization: `Bearer ${tokenFor(app, sub)}` },
+        payload: { roomCode: "000000" }
+      });
+    assert.equal((await join(crew)).statusCode, 404);
     for (let i = 1; i < JOIN_CODE_FAILURE_BUDGET.perSubject; i += 1) await recordJoinCodeFailure(crew);
-    assert.notEqual(await joinCodeBudgetRetryAfterSeconds(crew), null);
+    const refused = await join(crew);
+    assert.equal(refused.statusCode, 429);
+    assert.ok(Number(refused.headers["retry-after"]) >= 1);
+    assert.equal((await join(`fresh-${randomUUID()}`)).statusCode, 404);
+
+    // Signed-out previews count against the client address.
+    const preview = () => app.inject({ method: "GET", url: "/race-rooms/join-preview/000000" });
+    assert.equal((await preview()).statusCode, 404);
+    for (let i = 1; i < JOIN_CODE_FAILURE_BUDGET.perSubject; i += 1) await recordJoinCodeFailure("ip:127.0.0.1");
+    assert.equal((await preview()).statusCode, 429);
     await resetJoinCodeBudgetForTests();
   });
 });
