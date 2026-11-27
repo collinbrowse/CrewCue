@@ -385,6 +385,93 @@ test("refund drops the tier: existing crew stay, new joins are refused", async (
   await app.close();
 });
 
+test("a refund locks the race the pass was bought for, whatever room the refund event names", async () => {
+  const app = buildApp();
+  await app.ready();
+  const runner = `runner-two-races-${Date.now()}`;
+  const roomA = await createRunnerRoom(app, runner);
+  const roomB = await createRunnerRoom(app, runner);
+  await webhook(app, rcEvent({ productId: "race_pass", transactionId: "tx-two-a", roomId: roomA.id, appUserId: runner }));
+  // The runner bought for race B last, so the store's room attribute now names B.
+  await webhook(app, rcEvent({ productId: "race_pass", transactionId: "tx-two-b", roomId: roomB.id, appUserId: runner }));
+  assert.equal((await billing(app, roomA.id, runner)).entitlement.status, "paid");
+  assert.equal((await billing(app, roomB.id, runner)).entitlement.status, "paid");
+
+  // Refund A's purchase in an event that names B: A locks, B stays paid.
+  const refund = await webhook(
+    app,
+    rcEvent({ type: "CANCELLATION", productId: "race_pass", transactionId: "tx-two-a", roomId: roomB.id, appUserId: runner })
+  );
+  assert.equal(refund.statusCode, 200);
+  assert.equal((refund.json() as { entitlement: { status: string } }).entitlement.status, "unpaid");
+  assert.equal((await getBillingGrant("tx-two-a"))?.roomId, roomA.id);
+  assert.equal((await billing(app, roomA.id, runner)).entitlement.status, "unpaid");
+  assert.equal((await billing(app, roomB.id, runner)).entitlement.status, "paid");
+
+  // The same refund again changes nothing.
+  const again = await webhook(
+    app,
+    rcEvent({ type: "CANCELLATION", productId: "race_pass", transactionId: "tx-two-a", roomId: roomB.id, appUserId: runner })
+  );
+  assert.equal((again.json() as { duplicate: boolean }).duplicate, true);
+  assert.equal((await billing(app, roomA.id, runner)).entitlement.status, "unpaid");
+  assert.equal((await billing(app, roomB.id, runner)).entitlement.status, "paid");
+
+  // Refund reversed with no room attribute still finds A.
+  const reversed = await webhook(
+    app,
+    rcEvent({ type: "REFUND_REVERSED", productId: "race_pass", transactionId: "tx-two-a", appUserId: runner })
+  );
+  assert.equal((reversed.json() as { unknownRoom?: boolean }).unknownRoom, undefined);
+  assert.equal((await billing(app, roomA.id, runner)).entitlement.status, "paid");
+  await app.close();
+});
+
+test("a refund that names no room, or an unknown one, still locks the race the pass was bought for", async () => {
+  const app = buildApp();
+  await app.ready();
+  const runner = `runner-refund-no-room-${Date.now()}`;
+  const roomA = await createRunnerRoom(app, runner);
+  const roomB = await createRunnerRoom(app, runner);
+  await webhook(app, rcEvent({ productId: "race_pass", transactionId: "tx-nr-a", roomId: roomA.id, appUserId: runner }));
+  await webhook(app, rcEvent({ productId: "race_pass", transactionId: "tx-nr-b", roomId: roomB.id, appUserId: runner }));
+
+  const refund = await webhook(
+    app,
+    rcEvent({ type: "CANCELLATION", productId: "race_pass", transactionId: "tx-nr-a", appUserId: runner })
+  );
+  assert.equal(refund.statusCode, 200);
+  assert.equal((refund.json() as { unknownRoom?: boolean }).unknownRoom, undefined);
+  assert.equal((await getBillingGrant("tx-nr-a"))?.status, "revoked");
+  assert.equal((await getBillingGrant("tx-nr-a"))?.roomId, roomA.id);
+  assert.equal((await billing(app, roomA.id, runner)).entitlement.status, "unpaid");
+  assert.equal((await billing(app, roomB.id, runner)).entitlement.status, "paid");
+
+  // Repeat refund (a new delivery) is a no-op.
+  const again = await webhook(
+    app,
+    rcEvent({ type: "CANCELLATION", productId: "race_pass", transactionId: "tx-nr-a", appUserId: runner })
+  );
+  assert.equal((again.json() as { duplicate: boolean }).duplicate, true);
+  assert.equal((await billing(app, roomA.id, runner)).entitlement.status, "unpaid");
+
+  // B's refund names a room that does not exist: B still locks.
+  const unknownRoom = await webhook(
+    app,
+    rcEvent({
+      type: "CANCELLATION",
+      productId: "race_pass",
+      transactionId: "tx-nr-b",
+      roomId: "00000000-0000-4000-8000-000000000000",
+      appUserId: runner
+    })
+  );
+  assert.equal(unknownRoom.statusCode, 200);
+  assert.equal((unknownRoom.json() as { unknownRoom?: boolean }).unknownRoom, undefined);
+  assert.equal((await billing(app, roomB.id, runner)).entitlement.status, "unpaid");
+  await app.close();
+});
+
 test("two crew joining at the same moment take one seat between them (room lock)", async () => {
   const app = buildApp();
   await app.ready();

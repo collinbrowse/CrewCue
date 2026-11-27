@@ -76,7 +76,7 @@ struct OnboardingPaywallView: View {
         }
         .animation(.snappy(duration: 0.3), value: sideBySide)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(CrewBackground())
+        .background(CrewBackground(glow: .onboarding))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.onboarding-paywall")
         .accessibilityLabel(OnboardingCopy.title(for: .paywall) ?? "")

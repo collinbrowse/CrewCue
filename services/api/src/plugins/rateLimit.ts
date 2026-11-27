@@ -24,6 +24,8 @@ export const RATE_LIMITED_ROUTES: Readonly<Record<string, Limit>> = {
   "/strava/oauth/callback": { max: 10, windowMs: MINUTE },
   "/strava/connection": { max: 30, windowMs: MINUTE }, // GET status shares this pattern
   "/me/export": { max: 5, windowMs: MINUTE },
+  // Each upload stores up to 10 MB in the photo bucket. Per user across all their races.
+  "/chat/rooms/:roomId/photos": { max: 60, windowMs: HOUR },
   // Each estimate runs the micro-model, and an unpaid race can compute and attach them before
   // paying. One route method each (POST and PUT), so the pattern alone names it.
   "/pacing-estimates": { max: 20, windowMs: HOUR },

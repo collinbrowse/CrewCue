@@ -20,6 +20,7 @@ import {
   type ChatPushDispatchInput
 } from "../lib/chatPushDispatch.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
+import { fakeApnsToken } from "../lib/testPushTokens.js";
 
 // 50k fixture aids inherit DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS (PR D #484: 120s).
 const AID1_PLANNED_STOPPAGE = 120;
@@ -115,7 +116,7 @@ async function registerDevice(app: TestApp, token: string, userId: string) {
   const res = await app.inject({
     method: "POST",
     url: "/chat/push/tokens",
-    payload: { deviceId: `dev-${userId}`, platform: "ios", token: `apns-${userId}` },
+    payload: { deviceId: `dev-${userId}`, platform: "ios", token: fakeApnsToken(`apns-${userId}`) },
     headers: { authorization: `Bearer ${token}` }
   });
   assert.equal(res.statusCode, 201);

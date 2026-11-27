@@ -11,11 +11,7 @@ import { isFootActivity, parseActivityFile, simplifyPositions } from "@crewcue/m
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { parseActivityHistoryRef, type ActivityHistoryRef } from "@crewcue/contracts";
-import {
-  fingerprintGpxExternalId,
-  GpxActivityParseError,
-  parseGpxActivityMetrics
-} from "../lib/gpxActivityHistory.js";
+import { fingerprintGpxExternalId, GpxActivityParseError } from "../lib/gpxActivityHistory.js";
 import { MAX_GPX_XML_CHARS } from "../lib/gpxLimits.js";
 import {
   base64JsonBodyLimitBytes,
@@ -29,8 +25,10 @@ import {
   fingerprintActivityFile,
   gunzipActivityFile,
   MAX_ACTIVITY_FILE_BYTES,
-  parseActivityFileMetrics
+  parseActivityFileMetrics,
+  type ParsedActivityFileMetrics
 } from "../lib/activityFileHistory.js";
+import { parseUploadInWorker, UploadParseLimitError } from "../lib/uploadParse.js";
 import { looksLikeZip, zipEntries, ZipArchiveError } from "../lib/zipArchive.js";
 import { startUploadJob, uploadJobFor } from "../lib/uploadJobs.js";
 import {
@@ -134,7 +132,10 @@ function toIsoNow(): string {
 
 /** One activity file → a history row to store. @throws {ActivityFileError} */
 function refFromFile(bytes: Uint8Array, fileName: string, externalId?: string): ActivityHistoryRef {
-  const metrics = parseActivityFileMetrics(bytes, fileName);
+  return refFromMetrics(parseActivityFileMetrics(bytes, fileName), bytes, externalId);
+}
+
+function refFromMetrics(metrics: ParsedActivityFileMetrics, bytes: Uint8Array, externalId?: string): ActivityHistoryRef {
   const ingestedAt = toIsoNow();
   return parseActivityHistoryRef({
     id: randomUUID(),
@@ -362,10 +363,13 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
 
     let metrics;
     try {
-      metrics = parseGpxActivityMetrics(parsedBody.data.gpxXml);
+      metrics = await parseUploadInWorker({ kind: "gpxActivity", gpxXml: parsedBody.data.gpxXml });
     } catch (err) {
       if (err instanceof GpxActivityParseError) {
         return reply.code(400).send({ error: err.message, code: err.code });
+      }
+      if (err instanceof UploadParseLimitError) {
+        return reply.code(422).send({ error: err.message, code: err.code });
       }
       throw err;
     }
@@ -417,10 +421,18 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
     let ref: ActivityHistoryRef;
     try {
       const activity = gunzipActivityFile(bytes, parsedBody.data.fileName);
-      ref = refFromFile(activity.bytes, activity.fileName, parsedBody.data.externalId);
+      const metrics = await parseUploadInWorker({
+        kind: "activityFile",
+        bytes: activity.bytes,
+        fileName: activity.fileName
+      });
+      ref = refFromMetrics(metrics, activity.bytes, parsedBody.data.externalId);
     } catch (err) {
       if (err instanceof ActivityFileError) {
         return reply.code(err.code === "file_too_large" ? 413 : 400).send({ error: err.message, code: err.code });
+      }
+      if (err instanceof UploadParseLimitError) {
+        return reply.code(422).send({ error: err.message, code: err.code });
       }
       throw err;
     }

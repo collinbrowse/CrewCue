@@ -30,6 +30,16 @@ function input(targets: ChatPushDispatchInput["targets"]): ChatPushDispatchInput
 
 const apnsConfig = { keyP8: ecKey, keyId: "KEY123", teamId: "TEAM456", topic: "com.crewcue.app" };
 
+test("APNs: the token is escaped in the request path", async () => {
+  const calls: Parameters<ApnsRequest>[0][] = [];
+  const transport = apnsTransport(apnsConfig, async (req) => {
+    calls.push(req);
+    return { status: 200, body: "" };
+  }, { sleep: noSleep });
+  await transport(input([{ platform: "ios", token: "ab/../cd?x#y", userId: "u1", deviceId: "d1" }]));
+  assert.equal(calls[0]?.path, "/3/device/ab%2F..%2Fcd%3Fx%23y");
+});
+
 test("APNs: signs a provider JWT and posts the alert to the token's gateway", async () => {
   const calls: Parameters<ApnsRequest>[0][] = [];
   const transport = apnsTransport(apnsConfig, async (req) => {

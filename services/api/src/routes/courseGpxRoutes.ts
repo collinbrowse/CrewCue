@@ -1,26 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { buildRaceCourseFromGpx, parseGpxTrack, parsedTrackToWorkspaceLayer } from "@crewcue/map-core";
 import { MAX_GPX_XML_CHARS } from "../lib/gpxLimits.js";
 import { GPX_FILE_TOO_LARGE, GPX_JSON_BODY_LIMIT_BYTES, largeBodyRoute } from "../lib/bodyLimits.js";
+import { parseUploadInWorker, UploadParseLimitError } from "../lib/uploadParse.js";
 import { getRaceRoom } from "./raceRooms.js";
+
+export { coursePreviewFromGpx } from "../lib/coursePreview.js";
 
 const gpxPreviewInput = z.object({
   gpxXml: z.string().min(1).max(MAX_GPX_XML_CHARS),
   courseFileName: z.string().trim().min(1).max(500)
 });
-
-/** Server-side GPX parse. Clients upload the file; they do not reimplement course geometry. */
-export function coursePreviewFromGpx(gpxXml: string, courseFileName: string) {
-  const parsed = parseGpxTrack(gpxXml);
-  const built = buildRaceCourseFromGpx(parsed);
-  return {
-    course: built.course,
-    plannedPaceSecondsPerKm: built.plannedPaceSecondsPerKm,
-    routeOverlayLayer: parsedTrackToWorkspaceLayer(courseFileName, parsed),
-    courseFileName
-  };
-}
 
 export async function courseGpxRoutes(app: FastifyInstance): Promise<void> {
   app.post(
@@ -44,8 +34,17 @@ export async function courseGpxRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: "Invalid GPX payload" });
       }
       try {
-        return reply.send(coursePreviewFromGpx(parsed.data.gpxXml, parsed.data.courseFileName));
+        return reply.send(
+          await parseUploadInWorker({
+            kind: "coursePreview",
+            gpxXml: parsed.data.gpxXml,
+            courseFileName: parsed.data.courseFileName
+          })
+        );
       } catch (error) {
+        if (error instanceof UploadParseLimitError) {
+          return reply.code(422).send({ error: error.message, code: error.code });
+        }
         const message = error instanceof Error ? error.message : "Couldn't read the route file.";
         return reply.code(400).send({ error: message });
       }

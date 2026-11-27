@@ -26,14 +26,17 @@ import {
   listChatNotificationPrefsForUsers,
   listChatPushDevicesForUsers,
   setChatNotificationPref,
+  deleteChatPushDeviceForUser,
   upsertChatPushDevice
 } from "../lib/chatPersistence.js";
 import {
+  forgetChatPhotoUpload,
   hasChatMessageBefore,
   initChatMessageStore,
   insertChatMessage,
   latestChatMessageSeq,
   listChatMessages,
+  recordChatPhotoUpload,
   type StoredChatMessage
 } from "../lib/chatMessageStore.js";
 import {
@@ -41,10 +44,12 @@ import {
   MemoryChatPhotoStore,
   chatPhotoKeyBelongsTo,
   chatPhotoStore,
+  detectChatPhotoContentType,
   newChatPhotoKey
 } from "../lib/chatPhotoStore.js";
 import { publishChatRoom, subscribeChatRoom } from "../lib/chatLive.js";
 import { roomUnpaidError } from "../lib/billingEntitlement.js";
+import { raceOwnerOf } from "../lib/planAuthority.js";
 import { chatPushBody, devicesToTargets, dispatchChatPush } from "../lib/chatPushDispatch.js";
 
 const UNKNOWN_SENDER = "Crew member";
@@ -55,12 +60,27 @@ const notificationPrefSchema = z.object({
   preference: z.enum(["all", "mentions", "none"])
 });
 
-const pushDeviceSchema = z.object({
-  deviceId: z.string().trim().min(1).max(200),
-  platform: z.enum(["ios", "android", "web"]),
-  token: z.string().trim().min(1).max(4096),
-  apnsEnvironment: z.enum(["development", "production"]).optional()
-});
+/**
+ * Push token shapes. iOS sends the APNs device token as hex (32 bytes today; Apple says it may
+ * grow, so up to 200 bytes). FCM registration tokens use URL-safe base64 plus `:`. Either way a
+ * token never holds `/`, `?`, `#`, `%` or whitespace, so it is safe in the APNs request path.
+ */
+const APNS_TOKEN = /^(?:[0-9a-fA-F]{2}){16,200}$/;
+const FCM_TOKEN = /^[A-Za-z0-9_:.-]{1,4096}$/;
+
+const deviceIdSchema = z.string().trim().min(1).max(200);
+
+const pushDeviceSchema = z
+  .object({
+    deviceId: deviceIdSchema,
+    platform: z.enum(["ios", "android", "web"]),
+    token: z.string().trim().min(1).max(4096),
+    apnsEnvironment: z.enum(["development", "production"]).optional()
+  })
+  .refine((body) => (body.platform === "ios" ? APNS_TOKEN : FCM_TOKEN).test(body.token), {
+    path: ["token"],
+    message: "Invalid push token"
+  });
 
 const cursorSchema = z.string().regex(/^\d{1,18}$/);
 
@@ -350,6 +370,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         ? { photoKey, photoContentType: photo.contentType, photoByteSize: photo.byteSize }
         : {})
     });
+    if (photoKey) await forgetChatPhotoUpload(photoKey);
     if (!duplicate) {
       publishChatRoom(roomId, "message");
       schedulePush(room, message, app.log);
@@ -371,16 +392,24 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     if (!Buffer.isBuffer(body) || body.length === 0) {
       return reply.code(400).send({ error: "Empty photo" });
     }
+    // The bytes, not the header, decide the type: anything that is not one of the four image
+    // formats, or is a different one than declared, is refused.
+    const detected = detectChatPhotoContentType(body);
+    if (detected !== contentType) {
+      return reply.code(415).send({ error: "Photos must be JPEG, PNG, HEIC or WebP" });
+    }
     const store = chatPhotoStore();
     if (!store) return reply.code(503).send({ error: "Chat photos are not configured on this deployment" });
-    const photoKey = newChatPhotoKey(roomId, request.identity!.sub, contentType);
+    const photoKey = newChatPhotoKey(roomId, request.identity!.sub, detected);
     try {
-      await store.put(photoKey, body, contentType);
+      // Recorded first, so a failed store leaves a row the unattached-photo sweep clears.
+      await recordChatPhotoUpload(photoKey, roomId);
+      await store.put(photoKey, body, detected);
     } catch (err) {
       request.log.error({ err, roomId }, "chat_photo_upload_failed");
       return reply.code(502).send({ error: "Couldn't store the photo" });
     }
-    const response: ChatPhotoUploadResponse = { photoKey, contentType, byteSize: body.length };
+    const response: ChatPhotoUploadResponse = { photoKey, contentType: detected, byteSize: body.length };
     return reply.code(201).send(response);
   });
 
@@ -394,7 +423,13 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const { exp, sig } = (request.query ?? {}) as { exp?: string; sig?: string };
     const photo = store.read(key, exp, sig);
     if (!photo) return reply.code(404).send({ error: "Not found" });
-    return reply.header("content-type", photo.contentType).header("cache-control", "private, max-age=3600").send(photo.bytes);
+    return reply
+      .header("content-type", photo.contentType)
+      .header("cache-control", "private, max-age=3600")
+      .header("x-content-type-options", "nosniff")
+      .header("content-disposition", "inline")
+      .header("content-security-policy", "default-src 'none'; sandbox")
+      .send(photo.bytes);
   });
 
   const registerDevice = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -421,6 +456,22 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/chat/devices", registerDevice);
   app.post("/chat/push/tokens", registerDevice);
+
+  // Sign-out: this phone stops getting the account's pushes. Only the caller's own row; 404 when
+  // the caller has none for this device (never registered, or already removed).
+  app.delete("/chat/devices/:deviceId", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const parsed = deviceIdSchema.safeParse((request.params as { deviceId?: string }).deviceId);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid device id" });
+    }
+    if (!(await deleteChatPushDeviceForUser(request.identity.sub, parsed.data))) {
+      return reply.code(404).send({ error: "Push device not found" });
+    }
+    return reply.code(204).send();
+  });
 
   app.get("/chat/rooms/:roomId/notification-prefs", async (request, reply) => {
     if (!request.identity) {
@@ -468,7 +519,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
-    if (room.athleteId !== request.identity.sub) {
+    if (raceOwnerOf(room) !== request.identity.sub) {
       return reply.code(403).send({ error: "Only the race owner can delete chat data" });
     }
     const result = await deleteChatRoomData(roomId);

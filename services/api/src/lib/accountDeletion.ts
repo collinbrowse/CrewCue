@@ -24,6 +24,7 @@ import { deleteChatDataForUser } from "./chatPersistence.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
 import { deleteRoomRemovalsForUser } from "./roomRemovalStore.js";
 import { cancelUploadJobsFor } from "./uploadJobs.js";
+import { raceOwnerOf } from "./planAuthority.js";
 import {
   deleteOAuthPendingStatesForAthlete,
   deleteStravaConnection,
@@ -81,7 +82,8 @@ export async function deleteAccountData(
   const ownedRoomIds: string[] = [];
   let membershipsRemoved = 0;
   for (const room of rooms) {
-    if (room.athleteId === sub) {
+    // Owned: their own race, or one they created that has no athlete yet (they own it until then).
+    if (room.athleteId === sub || raceOwnerOf(room) === sub) {
       // The same full delete the unpaid race sweeper uses (room, track, chat, effort, history).
       await deleteRaceRoomAndData(room.id);
       ownedRoomIds.push(room.id);

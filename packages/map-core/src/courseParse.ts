@@ -1,4 +1,5 @@
 import type { RaceCourse, RaceCourseBaselineTrack, RaceCourseCheckpointCutoff } from "@crewcue/contracts";
+import { firstOpenToLastClose, scanXmlElements } from "./xmlScan.js";
 
 export type GpxTrackPoint = {
   latitude: number;
@@ -159,7 +160,7 @@ export type ParseGpxTrackAsyncOptions = {
 
 /**
  * Async GPX parse with progress. Same result shape as {@link parseGpxTrack}.
- * Progress is driven by regex scan position through the XML (point extraction).
+ * Progress is driven by the scan position through the XML (point extraction).
  */
 export async function parseGpxTrackAsync(
   gpxXml: string,
@@ -420,17 +421,14 @@ export function buildExpectedAidStationSplitsFromCourse(
   return { totalDistanceMeters, totalDurationSeconds, splits };
 }
 
+function pointTagNames(mode: GpxPointTagMode): string {
+  return mode === "trk" ? "trkpt" : mode === "rte" ? "rtept" : "trkpt|rtept";
+}
+
 function extractTrackPoints(gpxXml: string, mode: GpxPointTagMode = "all"): GpxTrackPoint[] {
-  const tag = mode === "trk" ? "trkpt" : mode === "rte" ? "rtept" : "(?:trkpt|rtept)";
-  const trackPointPattern = new RegExp(
-    `<(?:[\\w-]+:)?${tag}\\b([^>]*)>([\\s\\S]*?)<\\/(?:[\\w-]+:)?${tag}>`,
-    "gi"
-  );
   const points: GpxTrackPoint[] = [];
 
-  for (const match of gpxXml.matchAll(trackPointPattern)) {
-    const attributes = match[1] ?? "";
-    const body = match[2] ?? "";
+  for (const { attributes, body } of scanXmlElements(gpxXml, pointTagNames(mode))) {
     const latitude = extractCoordinate(attributes, "lat");
     const longitude = extractCoordinate(attributes, "lon");
     const elevationMeters = extractOptionalNumericTag(body, "ele");
@@ -456,20 +454,11 @@ async function extractTrackPointsProgressive(
     yieldEveryPoints: number;
   }
 ): Promise<GpxTrackPoint[]> {
-  const mode = options.mode ?? "all";
-  const tag = mode === "trk" ? "trkpt" : mode === "rte" ? "rtept" : "(?:trkpt|rtept)";
-  const trackPointPattern = new RegExp(
-    `<(?:[\\w-]+:)?${tag}\\b([^>]*)>([\\s\\S]*?)<\\/(?:[\\w-]+:)?${tag}>`,
-    "gi"
-  );
   const points: GpxTrackPoint[] = [];
   const totalBytes = Math.max(1, gpxXml.length);
   let sinceYield = 0;
-  let match: RegExpExecArray | null;
 
-  while ((match = trackPointPattern.exec(gpxXml)) !== null) {
-    const attributes = match[1] ?? "";
-    const body = match[2] ?? "";
+  for (const { attributes, body, end } of scanXmlElements(gpxXml, pointTagNames(options.mode ?? "all"))) {
     const latitude = extractCoordinate(attributes, "lat");
     const longitude = extractCoordinate(attributes, "lon");
     const elevationMeters = extractOptionalNumericTag(body, "ele");
@@ -482,9 +471,9 @@ async function extractTrackPointsProgressive(
     sinceYield += 1;
     if (sinceYield >= options.yieldEveryPoints) {
       sinceYield = 0;
-      const ratio = Math.min(1, trackPointPattern.lastIndex / totalBytes);
+      const ratio = Math.min(1, end / totalBytes);
       await options.onProgress?.(ratio);
-      // Let React Native paint between heavy regex batches.
+      // Let the caller paint between heavy batches.
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
   }
@@ -737,12 +726,9 @@ function extractWaypointDescription(body: string): string | undefined {
 }
 
 function extractWaypointsFromXml(gpxXml: string): GpxWaypoint[] {
-  const waypointPattern = /<(?:[\w-]+:)?wpt\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?wpt>/gi;
   const waypoints: GpxWaypoint[] = [];
 
-  for (const match of gpxXml.matchAll(waypointPattern)) {
-    const attributes = match[1] ?? "";
-    const body = match[2] ?? "";
+  for (const { attributes, body } of scanXmlElements(gpxXml, "wpt")) {
     const latitude = extractCoordinate(attributes, "lat");
     const longitude = extractCoordinate(attributes, "lon");
     if (latitude === null || longitude === null) {
@@ -761,28 +747,21 @@ function extractWaypointsFromXml(gpxXml: string): GpxWaypoint[] {
   return waypoints;
 }
 
-/**
- * Placemarks with a name and a Point. Scans with indexOf-style regexes (no lazy `[\s\S]*?`
- * chains), so a file with many unclosed `<Placemark` tags stays linear.
- */
+/** Placemarks with a name and a Point, read with the linear element scanner. */
 function extractKmlWaypoints(kml: string): GpxWaypoint[] {
   const waypoints: GpxWaypoint[] = [];
-  const openTag = /<Placemark/gi;
-  const closeTag = /<\/Placemark>/gi;
-  for (;;) {
-    const open = openTag.exec(kml);
-    if (!open) break;
-    closeTag.lastIndex = open.index;
-    const close = closeTag.exec(kml);
-    if (!close) break;
-    const block = kml.slice(open.index, close.index + close[0].length);
-    openTag.lastIndex = close.index + close[0].length;
+  const placemarks = scanXmlElements(kml, "Placemark", { prefix: null, openTagEnds: false, wordBoundary: false });
+  for (const placemark of placemarks) {
+    const block = kml.slice(placemark.start, placemark.end);
 
     const nameMatch = /<name>([^<]+)<\/name>/i.exec(block);
     if (!nameMatch) continue;
     const afterName = block.slice(nameMatch.index + nameMatch[0].length);
-    const pointMatch = /<Point>([^]*)<\/Point>/i.exec(afterName);
-    const coordinatesMatch = pointMatch ? /<coordinates>([^<]+)<\/coordinates>/i.exec(pointMatch[1] ?? "") : null;
+    // The first `<Point>` to the last `</Point>`, as the greedy match it replaces.
+    const point = firstOpenToLastClose(afterName, "<Point>", "<\\/Point>");
+    const coordinatesMatch = point
+      ? /<coordinates>([^<]+)<\/coordinates>/i.exec(afterName.slice(point.bodyStart, point.bodyEnd))
+      : null;
     if (!coordinatesMatch) continue;
 
     const name = (nameMatch[1] ?? "").trim();
@@ -1329,7 +1308,8 @@ function extractCoordinate(attributes: string, key: "lat" | "lon"): number | nul
 }
 
 function extractOptionalNumericTag(body: string, tagName: string): number | null {
-  const match = body.match(new RegExp(`<(?:[\\w-]+:)?${tagName}>\\s*([^<]+)\\s*<\\/(?:[\\w-]+:)?${tagName}>`, "i"));
+  // `([^<]+)` rather than `\s*([^<]+)\s*`: parseFloat skips the same whitespace, with no backtracking.
+  const match = body.match(new RegExp(`<(?:[\\w-]+:)?${tagName}>([^<]+)<\\/(?:[\\w-]+:)?${tagName}>`, "i"));
   if (!match) {
     return null;
   }

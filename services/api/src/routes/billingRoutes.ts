@@ -19,6 +19,7 @@ import {
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
 import {
   forgetWebhookEvent,
+  getBillingGrant,
   listBillingGrantsForRoom,
   recordWebhookEvent,
   updateWebhookEventOutcome,
@@ -37,35 +38,46 @@ function secretMatches(expected: string | undefined, provided: string | string[]
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** Recompute one room's entitlement from all of its grants, under the room lock. */
+async function recomputeRoomEntitlement(roomId: string): Promise<RaceRoom | undefined> {
+  return commitRaceRoomUpdateAsync(roomId, async (latest) => {
+    const grants = await listBillingGrantsForRoom(latest.id);
+    const entitlement = entitlementFromGrants(grants, new Date().toISOString());
+    return entitlement ? { ...latest, entitlement } : latest;
+  });
+}
+
 /**
- * Apply one grant and recompute the room's entitlement from all of its grants,
- * under the room lock so it serializes with joins and other grants.
- * Returns the updated room, or undefined when the room does not exist.
+ * Apply one grant and recompute the entitlement of the room it belongs to, under the
+ * room lock so it serializes with joins and other grants.
+ *
+ * A transaction keeps the first room it was stored with, so a later event for it (a
+ * refund, a refund reversed) can name another room or none. The stored grant's room is
+ * the one recomputed; the event's room, when different, is recomputed too, which leaves
+ * it as its own grants say. Returns the stored grant's room (else the event's), or
+ * undefined when neither exists.
  */
 export async function applyBillingGrant(
   grant: Omit<BillingGrant, "createdAt" | "updatedAt">,
   log: FastifyBaseLogger
 ): Promise<{ room?: RaceRoom; changed: boolean }> {
-  const { changed } = await upsertBillingGrant(grant);
-  if (!grant.roomId) {
-    return { changed };
-  }
-  const room = await commitRaceRoomUpdateAsync(grant.roomId, async (latest) => {
-    const grants = await listBillingGrantsForRoom(latest.id);
-    const entitlement = entitlementFromGrants(grants, new Date().toISOString());
-    return entitlement ? { ...latest, entitlement } : latest;
-  });
-  if (room) {
+  const { grant: stored, changed } = await upsertBillingGrant(grant);
+  const roomIds = [...new Set([stored.roomId, grant.roomId].filter((id): id is string => Boolean(id)))];
+  let room: RaceRoom | undefined;
+  for (const roomId of roomIds) {
+    const updated = await recomputeRoomEntitlement(roomId);
+    if (!updated) continue;
+    room ??= updated;
     log.info(
       {
         billing: {
-          roomId: room.id,
+          roomId: updated.id,
           transactionId: grant.transactionId,
           productId: grant.productId,
           source: grant.source,
-          grantStatus: grant.status,
-          entitlementStatus: room.entitlement.status,
-          crewTier: room.entitlement.crewTier
+          grantStatus: stored.status,
+          entitlementStatus: updated.entitlement.status,
+          crewTier: updated.entitlement.crewTier
         }
       },
       "billing_grant_applied"
@@ -136,7 +148,11 @@ export async function billingRoutes(app: FastifyInstance) {
       throw lookupFailure;
     }
     const knownRoom = event.roomId ? await getRaceRoom(event.roomId) : undefined;
-    if (!knownRoom) {
+    // A later event for a stored transaction (a refund naming no room, or a room that is
+    // gone) still applies to the room the transaction was stored with.
+    const storedRoomId = knownRoom ? undefined : (await getBillingGrant(event.transactionId))?.roomId;
+    const targetRoomId = knownRoom?.id ?? storedRoomId ?? undefined;
+    if (!targetRoomId) {
       // Kept for support (the runner paid; a person can attach it) but never applied.
       await upsertBillingGrant({
         transactionId: event.transactionId,
@@ -168,7 +184,7 @@ export async function billingRoutes(app: FastifyInstance) {
       const { room, changed } = await applyBillingGrant(
         {
           transactionId: event.transactionId,
-          roomId: knownRoom.id,
+          roomId: targetRoomId,
           productId: event.productId,
           appUserId: event.appUserId ?? null,
           source: "revenuecat",
