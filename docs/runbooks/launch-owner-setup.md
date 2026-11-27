@@ -146,7 +146,8 @@ Deleting an account in the app also deletes the Auth0 login, through a separate 
 1. [ ] **Applications → Applications → Create Application** → **Machine to Machine** → name it `CrewCue production account deletion`.
 2. [ ] Authorize it for the **Auth0 Management API** with only the `delete:users` permission.
 3. [ ] In Railway **production**, set `AUTH0_MGMT_DOMAIN` (`<tenant-domain>`, no `https://`), `AUTH0_MGMT_CLIENT_ID` and `AUTH0_MGMT_CLIENT_SECRET`.
-4. [ ] In Railway **staging**, leave all three unset. Staging then deletes its own data and leaves the Auth0 login alone. With one tenant, a staging deletion would otherwise remove the same person's production login.
+4. [ ] In Railway **production** and **staging**, set `ROOM_REMOVAL_HASH_KEY` to a private random string of at least 32 characters (`openssl rand -hex 32`), a different one per environment. It keeps room removals in force after a removed member deletes their account; with `NODE_ENV=production` the API refuses to start without it. Don't change it later.
+5. [ ] In Railway **staging**, leave the three `AUTH0_MGMT_*` variables unset. Staging then deletes its own data and leaves the Auth0 login alone. With one tenant, a staging deletion would otherwise remove the same person's production login.
 
 Paste the secret only into Railway. If it ends up in a chat or a screenshot, rotate it under the application's **Credentials** tab.
 

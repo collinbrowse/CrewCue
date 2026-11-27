@@ -18,6 +18,7 @@ import {
   listUnpaidRaceRoomsCreatedBefore,
   listUnpaidRaceRoomsForReminders
 } from "./routes/raceRooms.js";
+import { validateRoomRemovalEnv } from "./lib/roomRemovalEnv.js";
 import { captureError, flushErrorReporting, initErrorReporting, installProcessHandlers } from "./lib/errorReporting.js";
 
 /** Load monorepo-root `.env` when present (Node 20.12+). Does not override existing process.env keys. */
@@ -35,6 +36,7 @@ installProcessHandlers();
 async function start() {
   validateRoomPersistenceEnv();
   validateAuthEnv();
+  validateRoomRemovalEnv();
   await startTelemetry();
   const app = buildApp();
   // Tracking reminder pushes: ticks every minute from when the app is ready, stops on app.close().

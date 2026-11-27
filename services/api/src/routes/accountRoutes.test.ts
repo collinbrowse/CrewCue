@@ -15,6 +15,13 @@ import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { setStravaClientConfigForTests } from "./stravaRoutes.js";
 import { runInFreshProcess } from "../lib/testFreshProcess.js";
+import {
+  deleteRoomRemovalsForRoom,
+  hasRawRoomRemovalsForUser,
+  hashRoomRemovalsForDeletedUser,
+  recordRoomRemoval,
+  roomRemovedAt
+} from "../lib/roomRemovalStore.js";
 
 type Room = { id: string; joinCode: string; memberships: Array<{ userId: string }> };
 
@@ -394,6 +401,77 @@ test(
     assert.deepEqual(result.replay, { ...ZERO_RESULT, identityProvider: "not_applicable" });
   }
 );
+
+test("a room removal stays in force when the removed member deletes their account and signs in again", async () => {
+  await withApp(async ({ app, auth }) => {
+    const runner = uid("runner");
+    const removed = uid("removed-crew");
+    const bystander = uid("bystander");
+    const room = await createRoom(app, auth(runner), runner);
+    await joinRoom(app, auth(removed), room);
+    const gone = await app.inject({ method: "DELETE", url: `/race-rooms/${room.id}/members/${removed}`, headers: auth(runner) });
+    assert.equal(gone.statusCode, 200, gone.body);
+    const estimateId = await seedPersonalData(app, auth(removed), removed);
+
+    const res = await app.inject({ method: "DELETE", url: "/me", headers: auth(removed) });
+    assert.equal(res.statusCode, 200, res.body);
+    // The rest of the account's data still goes, and no removal row keeps the raw id.
+    assert.deepEqual(await listActivityHistoryForAthlete(removed), []);
+    assert.equal(await getPacingEstimateById(estimateId), undefined);
+    assert.equal(await getStravaConnection(removed), undefined);
+    assert.equal(await hasRawRoomRemovalsForUser(removed), false);
+    assert.ok(await roomRemovedAt(room.id, removed), "the removal is kept under the hashed id");
+
+    // The same sign-in, back with a new account, is still refused by the room code.
+    const byCode = await app.inject({ method: "POST", url: "/race-rooms/join-by-code", headers: auth(removed), payload: { roomCode: room.joinCode } });
+    assert.equal(byCode.statusCode, 404, byCode.body);
+    assert.notEqual((await app.inject({ method: "GET", url: `/race-rooms/${room.id}`, headers: auth(removed) })).statusCode, 200);
+    const progress = await app.inject({ method: "GET", url: `/race-rooms/${room.id}/pings/latest`, headers: auth(removed) });
+    assert.notEqual(progress.statusCode, 200);
+
+    // Someone else still joins with the code.
+    await joinRoom(app, auth(bystander), room);
+
+    // A new invite from the owner readmits them and clears the hashed removal.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const invite = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${room.id}/invites`,
+      headers: auth(runner),
+      payload: { email: `${uid("back")}@example.com`, role: "crew_member" }
+    });
+    assert.equal(invite.statusCode, 201, invite.body);
+    const accept = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${room.id}/invites/accept`,
+      headers: auth(removed),
+      payload: { token: (invite.json() as { token: string }).token }
+    });
+    assert.equal(accept.statusCode, 200, accept.body);
+    assert.equal(await roomRemovedAt(room.id, removed), undefined);
+  });
+});
+
+test("account deletion keeps removals only for the rooms the user was removed from", async () => {
+  const runner = uid("runner");
+  const removed = uid("removed-crew");
+  const unrelated = uid("unrelated");
+  const removedAt = new Date().toISOString();
+  await recordRoomRemoval(`room-a-${runner}`, removed, removedAt);
+  await recordRoomRemoval(`room-a-${runner}`, unrelated, removedAt);
+
+  assert.equal(await hashRoomRemovalsForDeletedUser(removed), 1);
+  assert.equal(await hashRoomRemovalsForDeletedUser(removed), 0, "replay moves nothing");
+  assert.equal(await roomRemovedAt(`room-a-${runner}`, removed), removedAt);
+  assert.equal(await roomRemovedAt(`room-b-${runner}`, removed), undefined);
+  // Another user's raw removal is untouched, and nobody else matches the hash.
+  assert.equal(await hasRawRoomRemovalsForUser(unrelated), true);
+  assert.equal(await roomRemovedAt(`room-a-${runner}`, unrelated), removedAt);
+  assert.equal(await roomRemovedAt(`room-a-${runner}`, uid("stranger")), undefined);
+
+  await deleteRoomRemovalsForRoom(`room-a-${runner}`);
+  assert.equal(await roomRemovedAt(`room-a-${runner}`, removed), undefined, "the hashed removal goes with the room");
+});
 
 test("Strava deauthorize failure still deletes the tokens (EC9)", async () => {
   await withApp(async ({ app, auth }) => {

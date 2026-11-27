@@ -9,6 +9,8 @@
  *    user sent in other rooms, chat push devices and prefs, Strava (deauthorize at Strava best
  *    effort, then delete tokens and OAuth state).
  *    Running bulk uploads stop first, so none of them saves a run after these deletes.
+ *    Room removals are the exception: they are kept under a keyed hash of the user id
+ *    (roomRemovalStore.ts), so a sign-in that comes back with the same id stays removed.
  * 3. Auth0 user last. If it fails the caller returns 502 and the client keeps the session, so a
  *    retry (every step above is idempotent) can finish the job.
  */
@@ -22,7 +24,7 @@ import { deletePacingEstimatesForAthlete } from "./pacingEstimateStore.js";
 import { deleteFinishedEffortsForAthlete } from "./finishedEffortStore.js";
 import { deleteChatDataForUser } from "./chatPersistence.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
-import { deleteRoomRemovalsForUser } from "./roomRemovalStore.js";
+import { hashRoomRemovalsForDeletedUser } from "./roomRemovalStore.js";
 import { cancelUploadJobsFor } from "./uploadJobs.js";
 import {
   deleteOAuthPendingStatesForAthlete,
@@ -98,7 +100,8 @@ export async function deleteAccountData(
   const activityHistoryDeleted = await deleteActivityHistoryForAthlete(sub);
   const pacingEstimatesDeleted = await deletePacingEstimatesForAthlete(sub);
   const finishedEffortsDeleted = await deleteFinishedEffortsForAthlete(sub);
-  await deleteRoomRemovalsForUser(sub);
+  // Removals from other people's rooms stay in force, keyed by a hash of the id instead of the id.
+  await hashRoomRemovalsForDeletedUser(sub);
   const chat = await deleteChatDataForUser(sub);
 
   const strava = await getStravaConnection(sub);
