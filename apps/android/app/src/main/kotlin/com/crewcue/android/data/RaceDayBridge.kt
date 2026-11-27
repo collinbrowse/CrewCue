@@ -110,11 +110,19 @@ class RaceDayBridge private constructor(
     /** The athlete's latest accepted ping: `{ offline, latest?, refreshSeconds }`. */
     fun latestPing(roomId: String): RuntimeResult = call("latestPing") { put("roomId", roomId) }
 
-    /** New path points after [after] (the previous result's `cursor`): `{ offline, points, cursor? }`. */
-    fun pingTrack(roomId: String, after: String?): RuntimeResult = call("pingTrack") {
-        put("roomId", roomId)
-        if (!after.isNullOrBlank()) put("after", after)
-    }
+    /**
+     * New path points after [after] (the previous result's `cursor`):
+     * `{ offline, points, cursor?, raceStartAt, restarted }`. When [knowsRaceStart], [raceStartAt] is
+     * the previous result's `raceStartAt` (null: the room had no start). If the start has moved
+     * since, the track is read again from the beginning and `restarted` is true: replace the held
+     * points with `points`.
+     */
+    fun pingTrack(roomId: String, after: String?, raceStartAt: String? = null, knowsRaceStart: Boolean = false): RuntimeResult =
+        call("pingTrack") {
+            put("roomId", roomId)
+            if (!after.isNullOrBlank()) put("after", after)
+            if (knowsRaceStart) put("raceStartAt", raceStartAt ?: JSONObject.NULL)
+        }
 
     /** The server's live projection: `{ offline, live?, finishCrossed? }`. Pass `live` back to [projectAidSheet]. */
     fun liveProjection(roomId: String): RuntimeResult = call("liveProjection") { put("roomId", roomId) }

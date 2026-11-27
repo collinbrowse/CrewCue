@@ -313,6 +313,40 @@ private actor MovableStartTrackServer: HTTPTransport {
     #expect(await server.afters == [nil, iso(360)])
 }
 
+/// Android's `pingTrack` op: the phone sends back the start its path was read under, so a moved
+/// start reads the path again and says `restarted`, like iOS's `refreshTrack`.
+@Test func androidsTrackOpRestartsWhenTheStartMoves() async throws {
+    let server = MovableStartTrackServer(startSeconds: 0)
+    let baseURL = "https://track-\(UUID().uuidString.lowercased()).example.invalid"
+    RuntimeCall.setTransportForTests(server, baseURL: baseURL)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: baseURL) }
+    func pingTrack(_ extra: [String: Any]) async throws -> [String: Any] {
+        let fields = ["op": "pingTrack", "baseURL": baseURL, "token": "t", "roomId": "room"].merging(extra) { $1 }
+        let raw = await RuntimeCall.perform(String(decoding: try JSONSerialization.data(withJSONObject: fields), as: UTF8.self))
+        let root = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+        return try #require(root["result"] as? [String: Any])
+    }
+    let first = try await pingTrack([:])
+    #expect((first["points"] as? [Any])?.count == 3)
+    #expect(first["restarted"] as? Bool == false)
+    #expect(first["raceStartAt"] as? String == iso(0))
+    let cursor = try #require(first["cursor"] as? String)
+
+    let same = try await pingTrack(["after": cursor, "raceStartAt": iso(0)])
+    #expect(same["restarted"] as? Bool == false)
+    #expect((same["points"] as? [Any])?.isEmpty == true)
+
+    await server.moveStart(to: 200)
+    let moved = try await pingTrack(["after": cursor, "raceStartAt": iso(0)])
+    #expect(moved["restarted"] as? Bool == true, "the held path was read under the old start")
+    #expect((moved["points"] as? [[String: Any]])?.map { $0["recordedAt"] as? String } == [iso(360)])
+    #expect(moved["raceStartAt"] as? String == iso(200))
+
+    // A phone that never sent a start (an older build's call) is not compared.
+    let unknown = try await pingTrack(["after": cursor])
+    #expect(unknown["restarted"] as? Bool == false)
+}
+
 // MARK: Live ETAs
 
 private func core(
