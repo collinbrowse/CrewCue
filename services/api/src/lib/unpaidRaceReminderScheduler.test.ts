@@ -57,6 +57,12 @@ import {
   type UnpaidReminderOutcome,
   type UnpaidReminderRoom
 } from "./unpaidRaceReminderScheduler.js";
+import { fakeApnsToken } from "./testPushTokens.js";
+
+/** The token a test phone registers: APNs-shaped hex on iOS, an FCM-style string on Android. */
+function pushToken(user: string, platform: "ios" | "android"): string {
+  return platform === "ios" ? fakeApnsToken(`tok-${user}`) : `tok-${user}-${platform}`;
+}
 
 type App = ReturnType<typeof buildApp>;
 
@@ -149,7 +155,7 @@ async function registerDevice(app: App, user: string, platform: "ios" | "android
   const res = await app.inject({
     method: "POST",
     url: "/chat/push/tokens",
-    payload: { deviceId: `dev-${user}-${platform}`, platform, token: `tok-${user}-${platform}` },
+    payload: { deviceId: `dev-${user}-${platform}`, platform, token: pushToken(user, platform) },
     headers: auth(app, user)
   });
   assert.equal(res.statusCode, 201, res.body);
@@ -830,8 +836,8 @@ test("a runner with no push device, or a creator off the roster, still gets the 
     const roomId = await unpaidRace(app, runner, t0 - 29.5 * DAY, { device: false });
 
     // A team manager set the race up for a runner who never joined, then left (account deletion
-    // drops their membership): nobody on the roster to tell, and the runner named by `athleteId`
-    // is not the creator.
+    // drops their membership): nobody on the roster to tell, and the room has no athlete (the
+    // `athleteId` sent on create names someone else, so it is not used).
     const owner = uid("owner-left");
     const athlete = uid("athlete-never-joined");
     const created = await app.inject({
@@ -922,7 +928,7 @@ test("on the wire: type unlock, the roomId, a 24 h expiry and an unlock collapse
     assert.equal(outcome?.result, "sent");
     assert.equal(outcome?.delivered, 2);
 
-    const apns = apnsCalls.find((c) => c.path === `/3/device/tok-${runner}-ios`);
+    const apns = apnsCalls.find((c) => c.path === `/3/device/${pushToken(runner, "ios")}`);
     assert.ok(apns, "APNs request for the runner's iPhone");
     const apnsPayload = JSON.parse(apns.body) as {
       aps: { alert: { title: string; body: string } };
@@ -953,7 +959,7 @@ test("on the wire: type unlock, the roomId, a 24 h expiry and an unlock collapse
             };
           }
       )
-      .find((m) => m.message.token === `tok-${runner}-android`);
+      .find((m) => m.message.token === pushToken(runner, "android"));
     assert.ok(fcm, "FCM message for the runner's Android phone");
     assert.equal(fcm.message.data.type, "unlock");
     assert.equal(fcm.message.data.roomId, roomId);

@@ -10,10 +10,17 @@ import { chatRoomWaiterCount } from "../lib/chatLive.js";
 import { resetChatPushTransport, setChatPushTransport, type ChatPushDispatchInput } from "../lib/chatPushDispatch.js";
 import { _settleChatPushForTests } from "./chatRoutes.js";
 import { runChatRetentionPass } from "../lib/chatRetention.js";
+import { chatPhotoStore } from "../lib/chatPhotoStore.js";
+import { sweepUnattachedChatPhotos } from "../lib/chatPhotoSweep.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { runInFreshProcess } from "../lib/testFreshProcess.js";
+import { fakeApnsToken } from "../lib/testPushTokens.js";
 
 type App = ReturnType<typeof buildApp>;
+
+const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 9, 9, 9]);
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+const HOUR_MS = 60 * 60 * 1000;
 
 function claims(sub: string) {
   return { sub, teamIds: ["team-chat"], roomRoles: {} };
@@ -100,7 +107,7 @@ async function list(app: App, token: string, roomId: string, query = "") {
   });
 }
 
-async function registerPush(app: App, token: string, deviceId: string, platform = "ios", pushToken = `tok-${deviceId}`) {
+async function registerPush(app: App, token: string, deviceId: string, platform = "ios", pushToken = platform === "ios" ? fakeApnsToken(`tok-${deviceId}`) : `tok-${deviceId}`) {
   const res = await app.inject({
     method: "POST",
     url: "/chat/push/tokens",
@@ -539,7 +546,7 @@ test("chat messages: a phone handed to someone else stops getting the first crew
 
     // Same app install: Ada signs out, Bo signs in, and the phone re-registers its device id and token.
     const phone = `phone-${run}`;
-    const phoneToken = `apns-${run}`;
+    const phoneToken = fakeApnsToken(`apns-${run}`);
     await register(ada, phone, phoneToken);
     assert.deepEqual(await pushedTokens(adaRace, `a1-${run}`), [phoneToken], "Ada's phone gets her race chat");
     await register(bo, phone, phoneToken);
@@ -548,7 +555,7 @@ test("chat messages: a phone handed to someone else stops getting the first crew
 
     // Reinstalled app: a new device id, but the OS hands back the same push token.
     const oldInstall = `old-install-${run}`;
-    const reinstallToken = `apns-reinstall-${run}`;
+    const reinstallToken = fakeApnsToken(`apns-reinstall-${run}`);
     await register(ada, oldInstall, reinstallToken);
     assert.deepEqual(await pushedTokens(adaRace, `a3-${run}`), [reinstallToken]);
     await register(bo, `new-install-${run}`, reinstallToken);
@@ -620,6 +627,91 @@ test("chat messages: photos upload, attach, and load from a signed URL; others' 
   });
 });
 
+async function uploadPhoto(app: App, token: string, roomId: string, payload: Buffer | string, contentType: string) {
+  return app.inject({
+    method: "POST",
+    url: `/chat/rooms/${roomId}/photos`,
+    payload,
+    headers: { authorization: `Bearer ${token}`, "content-type": contentType }
+  });
+}
+
+test("chat messages: a photo upload whose bytes are not the declared image type is refused", async () => {
+  await withApp(async (app) => {
+    const owner = app.jwt.sign(claims("owner-magic"));
+    const roomId = await createRoom(app, owner, "owner-magic");
+    const html = await uploadPhoto(app, owner, roomId, "<html><script>alert(1)</script></html>", "image/jpeg");
+    assert.equal(html.statusCode, 415);
+    assert.equal((await uploadPhoto(app, owner, roomId, PNG_BYTES, "image/jpeg")).statusCode, 415, "PNG sent as JPEG");
+    assert.equal((await uploadPhoto(app, owner, roomId, JPEG_BYTES, "image/webp")).statusCode, 415, "JPEG sent as WebP");
+    const png = await uploadPhoto(app, owner, roomId, PNG_BYTES, "image/png");
+    assert.equal(png.statusCode, 201);
+    const uploaded = png.json() as ChatPhotoUploadResponse;
+    assert.equal(uploaded.contentType, "image/png");
+    assert.match(uploaded.photoKey, /\.png$/);
+  });
+});
+
+test("chat messages: a served photo carries nosniff and a locked-down content policy", async () => {
+  await withApp(async (app) => {
+    const owner = app.jwt.sign(claims("owner-nosniff"));
+    const roomId = await createRoom(app, owner, "owner-nosniff");
+    const { photoKey } = (await uploadPhoto(app, owner, roomId, JPEG_BYTES, "image/jpeg")).json() as ChatPhotoUploadResponse;
+    assert.equal((await send(app, owner, roomId, { clientMessageId: "p", photoKey })).statusCode, 201);
+    const photo = ((await list(app, owner, roomId)).json() as ChatMessagePage).messages[0]?.photo;
+    assert.ok(photo);
+    const fetched = await app.inject({ method: "GET", url: photo.url });
+    assert.equal(fetched.statusCode, 200);
+    assert.equal(fetched.headers["content-type"], "image/jpeg");
+    assert.equal(fetched.headers["x-content-type-options"], "nosniff");
+    assert.equal(fetched.headers["content-disposition"], "inline");
+    assert.equal(fetched.headers["content-security-policy"], "default-src 'none'; sandbox");
+  });
+});
+
+test("chat messages: photo uploads are capped at 60 an hour per user", async () => {
+  await withApp(async (app) => {
+    const owner = app.jwt.sign(claims("owner-rate"));
+    const crew = app.jwt.sign(claims("crew-rate"));
+    const roomId = await createRoom(app, owner, "owner-rate");
+    await addMember(app, roomId, owner, crew, "Ada");
+    for (let i = 0; i < 60; i += 1) {
+      assert.equal((await uploadPhoto(app, owner, roomId, JPEG_BYTES, "image/jpeg")).statusCode, 201);
+    }
+    const limited = await uploadPhoto(app, owner, roomId, JPEG_BYTES, "image/jpeg");
+    assert.equal(limited.statusCode, 429);
+    assert.ok(Number(limited.headers["retry-after"]) >= 1);
+    assert.equal((await uploadPhoto(app, crew, roomId, JPEG_BYTES, "image/jpeg")).statusCode, 201, "another user is not limited");
+  });
+});
+
+test("chat photos no message attached within a day are swept from storage; attached ones stay", async () => {
+  await withApp(async (app) => {
+    const owner = app.jwt.sign(claims("owner-sweep"));
+    const roomId = await createRoom(app, owner, "owner-sweep");
+    const upload = async () =>
+      ((await uploadPhoto(app, owner, roomId, JPEG_BYTES, "image/jpeg")).json() as ChatPhotoUploadResponse).photoKey;
+    const attached = await upload();
+    const orphan = await upload();
+    assert.equal((await send(app, owner, roomId, { clientMessageId: "keep", photoKey: attached })).statusCode, 201);
+    const store = chatPhotoStore();
+    assert.ok(store);
+
+    await sweepUnattachedChatPhotos(new Date(Date.now() + 23 * HOUR_MS));
+    assert.ok(await store.stat(orphan), "inside the grace period the upload is kept");
+
+    const swept = await sweepUnattachedChatPhotos(new Date(Date.now() + 25 * HOUR_MS));
+    assert.ok(swept.deleted >= 1);
+    assert.equal(await store.stat(orphan), undefined, "the unattached photo is deleted");
+    assert.ok(await store.stat(attached), "the attached photo is kept");
+    const again = await sweepUnattachedChatPhotos(new Date(Date.now() + 25 * HOUR_MS));
+    assert.equal(again.deleted, 0, "its row went with it, so a second pass finds nothing");
+    const photo = ((await list(app, owner, roomId)).json() as ChatMessagePage).messages[0]?.photo;
+    assert.ok(photo);
+    assert.equal((await app.inject({ method: "GET", url: photo.url })).statusCode, 200);
+  });
+});
+
 test("chat retention deletes a finished room's messages and photos", async () => {
   await withApp(async (app) => {
     const owner = app.jwt.sign(claims("owner-ret"));
@@ -627,7 +719,7 @@ test("chat retention deletes a finished room's messages and photos", async () =>
     const upload = await app.inject({
       method: "POST",
       url: `/chat/rooms/${roomId}/photos`,
-      payload: Buffer.from([1, 2, 3]),
+      payload: PNG_BYTES,
       headers: { authorization: `Bearer ${owner}`, "content-type": "image/png" }
     });
     const { photoKey } = upload.json() as ChatPhotoUploadResponse;
@@ -720,7 +812,7 @@ test("account deletion removes the messages and photos a user sent, and nobody e
     const upload = await app.inject({
       method: "POST",
       url: `/chat/rooms/${roomId}/photos`,
-      payload: Buffer.from([9, 9, 9]),
+      payload: JPEG_BYTES,
       headers: { authorization: `Bearer ${crew}`, "content-type": "image/jpeg" }
     });
     const { photoKey } = upload.json() as ChatPhotoUploadResponse;

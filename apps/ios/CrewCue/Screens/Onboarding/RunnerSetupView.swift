@@ -28,7 +28,7 @@ struct RunnerSetupView: View {
             .animation(.snappy(duration: 0.3), value: sizeClass)
             .animation(.snappy(duration: 0.25), value: model.step)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(CrewBackground())
+            .background(CrewBackground(glow: .onboarding))
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("crewcue.onboarding-runner-setup")
             .accessibilityLabel(OnboardingCopy.title(for: model.step) ?? "")

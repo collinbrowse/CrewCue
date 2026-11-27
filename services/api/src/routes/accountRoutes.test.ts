@@ -22,6 +22,7 @@ import {
   recordRoomRemoval,
   roomRemovedAt
 } from "../lib/roomRemovalStore.js";
+import { fakeApnsToken } from "../lib/testPushTokens.js";
 
 type Room = { id: string; joinCode: string; memberships: Array<{ userId: string }> };
 
@@ -108,7 +109,7 @@ async function seedPersonalData(app: FastifyInstance, headers: { authorization: 
     method: "POST",
     url: "/chat/devices",
     headers,
-    payload: { deviceId: uid("device"), platform: "ios", token: uid("apns-token") }
+    payload: { deviceId: uid("device"), platform: "ios", token: fakeApnsToken(uid("apns-token")) }
   });
   assert.equal(device.statusCode, 201, device.body);
   return estimateId;

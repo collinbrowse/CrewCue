@@ -19,7 +19,7 @@ import Dispatch
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// chatPoll, chatSend, chatUploadPhoto, chatOlder, chatDiscard,
 /// completeOutbox, wipeUserData, adoptUser, updateDisplayName, removeMember,
-/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, deleteRace, raceDeletionCopy, renameRace, raceRenameCopy, onboardingCopy, onboardingHistoryComparison, pingTrack,
+/// unregisterPushDevice, incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, deleteRace, raceDeletionCopy, renameRace, raceRenameCopy, onboardingCopy, onboardingHistoryComparison, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
 /// previewActivityUpload, importActivityUpload, deleteActivity, activityDeleteCopy,
@@ -261,6 +261,8 @@ enum RuntimeCall {
             return await importActivityUpload(object)
         case "deleteActivity":
             return try await deleteActivity(object)
+        case "unregisterPushDevice":
+            return try await unregisterPushDevice(object)
         case "activityDeleteCopy":
             return ActivityHistoryDelete.copy
         case "stravaStart":
@@ -1619,6 +1621,19 @@ enum RuntimeCall {
         }
     }
 
+    /// Sign-out (`PushDeviceUnregister`): `token` is the signed-out session's, sent by the app
+    /// after it cleared the session. The graph has no outbox, so the signed-out user's storage is
+    /// never reopened. Returns removed, and offline when it was not.
+    private static func unregisterPushDevice(_ object: [String: Any]) async throws -> Any {
+        let graph = try graph(object, outbox: false)
+        switch await PushDeviceUnregister.run(graph: graph, deviceId: text(object, "deviceId") ?? "") {
+        case .removed:
+            return ["removed": true, "offline": false]
+        case .failed(let offline):
+            return ["removed": false, "offline": offline]
+        }
+    }
+
     /// `contentBase64` is the file. Returns status saved, duplicate, empty, invalid or offline with
     /// a user-facing `message`; a server 400/413 comes back as `invalid` with the server's message.
     private static func importActivityFile(_ object: [String: Any]) async throws -> Any {
@@ -1961,7 +1976,8 @@ enum RuntimeCall {
         return try OutboxStore.shared(userId: object["userId"] as? String ?? "guest", directory: directory)
     }
 
-    static func graph(_ object: [String: Any]) throws -> ClientGraph {
+    /// `outbox: false` leaves the user's storage alone (no outbox is opened or created).
+    static func graph(_ object: [String: Any], outbox useOutbox: Bool = true) throws -> ClientGraph {
         guard let base = object["baseURL"] as? String, let baseURL = URL(string: base) else {
             throw ClientHTTPError(status: 0, message: "baseURL is required.")
         }
@@ -1970,7 +1986,7 @@ enum RuntimeCall {
             return demo.graph
         }
         let token = object["token"] as? String
-        let outbox = try? store(object)
+        let outbox = useOutbox ? try? store(object) : nil
         return ClientGraph(
             transport: transportForTests.get(baseURL: base) ?? URLSessionTransport(),
             clock: SystemClock(),

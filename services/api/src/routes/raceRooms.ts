@@ -120,6 +120,7 @@ import {
   roomUnpaidError,
   unpaidRaceLimitError
 } from "../lib/billingEntitlement.js";
+import { raceOwnerOf, roomAthleteMember } from "../lib/planAuthority.js";
 import {
   ensureBillingStoreReady,
   listRoomIdsWithBillingGrants,
@@ -145,7 +146,11 @@ import {
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
-  athleteId: z.string().min(1),
+  /**
+   * Only read as "the creator is the athlete" (it equals the caller); any other value is ignored.
+   * The server decides the room's athlete (see create).
+   */
+  athleteId: z.string().optional(),
   name: z.string().min(1),
   creatorName: z.string().trim().min(1).optional(),
   description: z.string().trim().optional(),
@@ -1929,7 +1934,7 @@ function canEditCheckpointStoppage(role: Role): boolean {
   return role === "crew_member" || role === "crew_chief" || role === "team_manager";
 }
 
-/** List payload. The bearer token is omitted unless the viewer can issue invites. */
+/** List payload. The bearer token is omitted unless the viewer issued the invite or owns the race. */
 function inviteForViewer(invite: RaceRoomInvite, includeToken: boolean) {
   if (includeToken) {
     return invite;
@@ -2675,9 +2680,13 @@ function isExpired(expiresAt: string): boolean {
 export const INVITE_MAX_LIFETIME_MS = 1000 * 60 * 60 * 24 * 7;
 const INVITE_DEFAULT_LIFETIME_MS = 1000 * 60 * 60 * 24;
 
-/** An invite counts only while the person who issued it could still issue it. */
+/**
+ * An invite counts only while the person who issued it could still issue it, role included:
+ * anyone but the race owner may invite only as crew_member (POST /invites).
+ */
 function inviterStillAllowed(room: RaceRoom, invite: RaceRoomInvite): boolean {
-  if (invite.invitedBy === room.athleteId) return true;
+  if (invite.invitedBy === raceOwnerOf(room)) return true;
+  if (invite.role !== "crew_member") return false;
   const inviter = room.memberships.find((member) => member.userId === invite.invitedBy);
   return Boolean(inviter && getPermissions(inviter.role).canIssueInvite);
 }
@@ -2688,7 +2697,7 @@ function inviterStillAllowed(room: RaceRoom, invite: RaceRoomInvite): boolean {
  */
 function readmits(room: RaceRoom, removedAt: string | undefined, invite?: RaceRoomInvite): boolean {
   if (removedAt === undefined) return true;
-  if (!invite || invite.invitedBy !== room.athleteId) return false;
+  if (!invite || invite.invitedBy !== raceOwnerOf(room)) return false;
   return Date.parse(invite.invitedAt) > Date.parse(removedAt);
 }
 
@@ -3407,7 +3416,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         description: parsed.data.description,
         crewName: parsed.data.crewName,
         teamId: parsed.data.teamId,
-        athleteId: parsed.data.athleteId,
+        // The athlete comes from membership, never from another user's id in the request: the
+        // creator when they create as the athlete or name themselves (a runner who also manages
+        // the crew), else nobody until someone accepts the room's athlete invite.
+        athleteId:
+          parsed.data.creatorRole === "athlete" || parsed.data.athleteId === creatorId ? creatorId : "",
         name: parsed.data.name,
         status: "active",
         createdAt: now,
@@ -4157,17 +4170,23 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid invite payload" });
     }
 
+    const isOwner = raceOwnerOf(room) === request.identity.sub;
+    // While the race has no athlete (created by crew), its creator owns it and invites the
+    // athlete: accepting an athlete invite is how the room gets its athlete.
+    const invitesAthlete = isOwner && parsed.data.role === "athlete" && roomAthleteMember(room) === undefined;
+
     // An invite grants its role on accept, so it must not be a way around the owner-only
     // role rules (PATCH /members). Only the race owner may invite above crew_member.
-    if (room.athleteId !== request.identity.sub && parsed.data.role !== "crew_member") {
+    if (!isOwner && parsed.data.role !== "crew_member") {
       return reply.code(403).send({ error: "Only the race owner can invite above crew_member" });
     }
 
     // An unpaid race takes no one new: that is the pass, not the upgrade. Every role is
     // refused, `athlete` included, since an invite names an email, not the runner's seat,
-    // and an athlete-role invite accepted by someone else would be a free seat.
+    // and an athlete-role invite accepted by someone else would be a free seat. The one
+    // exception is the athlete of a race that has none yet: that invite fills the runner seat.
     const unpaid = roomUnpaidError(room);
-    if (unpaid) {
+    if (unpaid && !invitesAthlete) {
       return reply.code(402).send(unpaid);
     }
 
@@ -4249,11 +4268,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         .map((invite) => saveRaceRoomInvite(invite))
     );
 
-    // The token is the capability to join as `role`. Only people who can issue
-    // invites may read it back; every other member still sees status and email.
-    const includeToken = getPermissions(membership.role).canIssueInvite;
+    // The token is the capability to join as `role`. Only its issuer and the race owner
+    // may read it back; every other member still sees role, status and email.
+    const viewerId = membership.userId;
+    const isOwner = raceOwnerOf(room) === viewerId;
     return reply.send({
-      invites: invites.map((invite) => inviteForViewer(invite, includeToken))
+      invites: invites.map((invite) => inviteForViewer(invite, isOwner || invite.invitedBy === viewerId))
     });
   });
 
@@ -4312,9 +4332,16 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ) {
         return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
       }
+      // Only the race owner changes a member's role (PATCH /members), so an existing member
+      // takes a new role from an invite only when the owner issued it. The invite stays pending.
+      if (existing && existing.role !== invite.role && invite.invitedBy !== raceOwnerOf(room)) {
+        return reply.code(403).send({ error: "Only the race owner can change your role" });
+      }
+      // Accepting the athlete invite of a race with no athlete makes this user its athlete.
+      const becomesAthlete = invite.role === "athlete" && roomAthleteMember(room) === undefined;
       // An invite issued while the race was paid is still refused once it is not, whatever
       // role it grants: on an unpaid race only the runner's own seat is taken or changed.
-      if (!isRunnerSeat(room, userId)) {
+      if (!isRunnerSeat(room, userId) && !becomesAthlete) {
         const unpaid = roomUnpaidError(room);
         if (unpaid) {
           return reply.code(402).send(unpaid);
@@ -4345,6 +4372,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
       const updatedRoom: RaceRoom = {
         ...room,
+        ...(becomesAthlete ? { athleteId: userId } : {}),
         memberships: nextMemberships
       };
 
@@ -4502,7 +4530,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ room: roomForViewer(updatedRoom, request.identity.sub), membership: updatedMembership });
     }
 
-    if (room.athleteId !== request.identity.sub) {
+    if (raceOwnerOf(room) !== request.identity.sub) {
       return reply.code(403).send({ error: "Only the race owner can manage room members" });
     }
 
@@ -4560,10 +4588,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
-    if (room.athleteId !== request.identity.sub) {
+    if (raceOwnerOf(room) !== request.identity.sub) {
       return reply.code(403).send({ error: "Only the race owner can manage room members" });
     }
-    if (memberUserId === room.athleteId) {
+    if (memberUserId === raceOwnerOf(room)) {
       return reply.code(409).send({ error: "Race owner cannot be removed from room" });
     }
 
@@ -4582,7 +4610,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         memberMissing = true;
         return latest;
       }
-      if (memberUserId === latest.athleteId) {
+      if (memberUserId === raceOwnerOf(latest)) {
         ownerRemovalBlocked = true;
         return latest;
       }
@@ -4619,7 +4647,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
-    if (room.athleteId !== request.identity.sub) {
+    if (raceOwnerOf(room) !== request.identity.sub) {
       return reply.code(403).send({ error: "Only the race owner can delete the race" });
     }
 

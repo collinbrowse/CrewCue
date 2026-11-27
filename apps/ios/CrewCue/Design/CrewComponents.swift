@@ -2,16 +2,28 @@ import SwiftUI
 
 /// Warm page ground with faint color washes so glass cards have something to frost.
 struct CrewBackground: View {
+    /// How strongly the top-right corner fades into the primary accent.
+    enum Glow {
+        /// Product screens: a faint wash.
+        case standard
+        /// Onboarding steps: a touch warmer and wider, still behind the content.
+        case onboarding
+
+        var opacity: Double { self == .onboarding ? 0.22 : 0.14 }
+        var endRadius: CGFloat { self == .onboarding ? 520 : 420 }
+    }
+
+    var glow: Glow = .standard
     @Environment(\.crew) private var theme
 
     var body: some View {
         ZStack {
             theme.background
             RadialGradient(
-                colors: [theme.primary.opacity(0.14), .clear],
+                colors: [theme.primary.opacity(glow.opacity), .clear],
                 center: .topTrailing,
                 startRadius: 20,
-                endRadius: 420
+                endRadius: glow.endRadius
             )
             RadialGradient(
                 colors: [theme.secondary.opacity(0.08), .clear],

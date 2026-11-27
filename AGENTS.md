@@ -26,7 +26,7 @@ Source: `GET /race-rooms/:roomId/pings/latest` → client-core `RaceDayAPI.lates
 Many sessions share this Mac, so heavy commands (`test:ios`, `agent:ios:ready`, `verify:ios`, the Gradle and `swift` scripts, `node --test`) go through the machine-wide queue `~/.claude/bin/slot` when it is installed (CI runs them directly). They may print `slot: queued ...` and wait minutes before starting: that is normal. Don't kill, retry or background-and-forget them; give the Bash call a long timeout (up to 600000 ms) or run it in the background and wait for it.
 
 - **iOS layout:** one DerivedData per worktree at `~/Library/Developer/Xcode/DerivedData/CrewCue-<worktree>-<hash>`, shared by `test:ios`, `agent:ios:ready` and `verify:ios`. Swift packages in `~/Library/Caches/CrewCue/SourcePackages/<Package.resolved hash>/`, resolved under a lock, then built without re-resolving.
-- **`test:pg`:** without `DATABASE_URL` it uses this worktree's own database, `crewcue_test_<worktree>`. `test:pg:fresh` still makes a throwaway one.
+- **`test:pg`:** without `DATABASE_URL` it uses this worktree's own database, `crewcue_test_<worktree>`, dropped and recreated each run so old rows never pile up. Both forms migrate before the suite runs. `test:pg:fresh` still makes a throwaway one.
 
 ## Disk hygiene
 
