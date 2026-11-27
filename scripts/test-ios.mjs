@@ -3,6 +3,10 @@
  * Run the iOS UI smoke tests (every feature deeplink in clients/behavior/deeplinks.json) on an available iPhone simulator.
  * Uses this checkout's own simulator (scripts/lib/agentDevice.mjs). CREWCUE_IOS_SIMULATOR pins a device name;
  * CI or CREWCUE_SHARED_DEVICE=1 uses the first available iPhone.
+ *
+ * Arguments are passed on to xcodebuild, to run one test or to hunt a flaky one:
+ *   npm run test:ios -- -only-testing:CrewCueUITests/OnboardingEntryTests
+ *   npm run test:ios -- -only-testing:CrewCueUITests/<Class>/<test> -test-iterations 20 -run-tests-until-failure
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -74,6 +78,7 @@ const xcodeArgs = [
   // The same DerivedData and package folders as agent:ios:ready (scripts/lib/iosBuild.mjs).
   ...derivedDataArgs(repoRoot),
   ...packagesArgs,
+  ...process.argv.slice(2),
   "test"
 ];
 // GitHub-hosted macOS has no Apple team. Simulator UI tests ad-hoc sign.
