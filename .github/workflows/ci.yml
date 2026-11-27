@@ -8,12 +8,26 @@ on:
   schedule:
     - cron: "0 9 * * *"
   workflow_dispatch:
+  # The release gate: release.yml calls this on the tagged commit and deploys nothing until every
+  # job here has passed, the device jobs included.
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit, tag or branch to test
+        type: string
+        required: true
+      full:
+        description: Run every job, whatever changed
+        type: boolean
+        default: false
 
 # A new push to a PR cancels that PR's older run. On main nothing is cancelled: the running
 # commit finishes, and of the commits that land meanwhile only the newest runs next.
 concurrency:
   # The nightly and manual runs get their own group, so a push cannot take their place in line.
-  group: ci-${{ github.event.pull_request.number || (github.event_name == 'push' && 'main') || github.event_name }}
+  # So does a release gate (inputs.ref is set only when release.yml calls this workflow): in the
+  # main group a newer push could take its place in line and cancel the release.
+  group: ci-${{ (inputs.ref && format('release-{0}', inputs.ref)) || github.event.pull_request.number || (github.event_name == 'push' && 'main') || github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -35,6 +49,8 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - name: Fetch PR body
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,7 +62,7 @@ jobs:
   # Decides whether the device jobs need to run (scripts/ci-changed-areas.mjs). On a PR the base is
   # the target branch. On main it is the commit of the last green CI run, so a change whose own run
   # failed, was cancelled or never started is still tested by the next run. The nightly run and
-  # manual runs have no base and run everything.
+  # manual runs have no base and run everything. So does the release gate (inputs.full).
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -55,12 +71,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
       - id: areas
         env:
           GH_TOKEN: ${{ github.token }}
+          FULL: ${{ inputs.full }}
         run: |
           base=""
+          # A release tag is a push too; the gate must not take the push path and skip a job.
+          if [ "$FULL" = "true" ]; then GITHUB_EVENT_NAME=release-gate; fi
           case "$GITHUB_EVENT_NAME" in
             pull_request)
               # The checkout is the PR merged into its target; the first parent is the target's tip.
@@ -76,6 +96,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -92,6 +114,8 @@ jobs:
     runs-on: ubuntu-24.04  # Swift 6.3 Linux toolchain needs libxml2.so.2, gone on 26.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -117,6 +141,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
@@ -174,6 +199,8 @@ jobs:
       PERSISTENCE_MODE: postgres
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -185,11 +212,13 @@ jobs:
 
   ios:
     needs: changes
-    if: needs.changes.outputs.ios == 'true'
+    if: inputs.full || needs.changes.outputs.ios == 'true'
     runs-on: macos-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
@@ -217,13 +246,15 @@ jobs:
 
   android:
     needs: changes
-    if: needs.changes.outputs.android == 'true'
+    if: inputs.full || needs.changes.outputs.android == 'true'
     runs-on: ubuntu-24.04  # Swift 6.3 Linux toolchain needs libxml2.so.2, gone on 26.04
     timeout-minutes: 60
     env:
       CREWCUE_REQUIRE_ANDROID_SWIFT: "1"
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v7
         with:
           node-version: 20
