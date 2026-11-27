@@ -550,19 +550,31 @@ test("unpaid race: invites and invite accept return 402 room_unpaid; crew may jo
   });
 });
 
-test("unpaid race created for a runner: the runner still joins their own race by code", async () => {
+test("unpaid race created for a runner: the runner joins their own race through the athlete invite", async () => {
   await withApp(async (app) => {
     const manager = "manager-for-runner";
     const runner = "runner-joins-own";
     const created = await app.inject({
       method: "POST",
       url: "/race-rooms",
-      payload: { teamId: "team-1", athleteId: runner, name: "For the runner", creatorRole: "team_manager" },
+      payload: { teamId: "team-1", name: "For the runner", creatorRole: "team_manager" },
       headers: auth(app, manager)
     });
     assert.equal(created.statusCode, 201);
     const room = created.json() as { id: string; joinCode: string };
-    const join = await joinByCode(app, room.joinCode, runner);
+    const invite = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${room.id}/invites`,
+      payload: { email: `${runner}@example.com`, role: "athlete" },
+      headers: auth(app, manager)
+    });
+    assert.equal(invite.statusCode, 201, invite.body);
+    const join = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${room.id}/invites/accept`,
+      payload: { token: (invite.json() as { token: string }).token },
+      headers: auth(app, runner)
+    });
     assert.equal(join.statusCode, 200, join.body);
     assert.equal((await get(app, `/race-rooms/${room.id}`, runner)).statusCode, 200);
     // Crew may join early and wait on the locked race.
