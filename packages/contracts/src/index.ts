@@ -317,6 +317,12 @@ export interface RaceRoom {
   description?: string;
   crewName?: string;
   teamId: string;
+  /**
+   * The race's athlete (runner), set by the server from membership: the creator when they
+   * created the room as the athlete (or named themselves), else whoever accepts the room's
+   * athlete invite. Empty
+   * string while the room has no athlete yet. Clients do not choose it.
+   */
   athleteId: string;
   name: string;
   status: RaceRoomStatus;

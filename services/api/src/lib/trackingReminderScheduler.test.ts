@@ -53,6 +53,12 @@ import {
   TRACKING_REMINDER_RETENTION_MS,
   type TrackingReminderOutcome
 } from "./trackingReminderScheduler.js";
+import { fakeApnsToken } from "./testPushTokens.js";
+
+/** The token a test phone registers: APNs-shaped hex on iOS, an FCM-style string on Android. */
+function pushToken(user: string, platform: "ios" | "android"): string {
+  return platform === "ios" ? fakeApnsToken(`tok-${user}`) : `tok-${user}-${platform}`;
+}
 
 type App = ReturnType<typeof buildApp>;
 
@@ -155,17 +161,17 @@ async function registerDevice(app: App, user: string, platform: "ios" | "android
   const res = await app.inject({
     method: "POST",
     url: "/chat/push/tokens",
-    payload: { deviceId: `dev-${user}-${platform}`, platform, token: `tok-${user}-${platform}` },
+    payload: { deviceId: `dev-${user}-${platform}`, platform, token: pushToken(user, platform) },
     headers: auth(app, user)
   });
   assert.equal(res.statusCode, 201, res.body);
 }
 
-async function addCrew(app: App, roomId: string, runner: string, crew: string) {
+async function addCrew(app: App, roomId: string, runner: string, crew: string, role = "crew_member") {
   const invite = await app.inject({
     method: "POST",
     url: `/race-rooms/${roomId}/invites`,
-    payload: { email: `${crew}@example.com`, role: "crew_member" },
+    payload: { email: `${crew}@example.com`, role },
     headers: auth(app, runner)
   });
   assert.equal(invite.statusCode, 201, invite.body);
@@ -426,7 +432,8 @@ test("a runner not on the roster gets nothing until they join", async () => {
     const owner = uid("owner-not-member");
     const runner = uid("runner-not-member");
     const start = wholeSecond(Date.now()) + 50 * MINUTE;
-    // A team manager sets the race up for a runner who hasn't joined yet; `athleteId` is theirs.
+    // A team manager sets the race up for a runner who hasn't joined yet: no athlete until they
+    // accept the athlete invite.
     const created = await app.inject({
       method: "POST",
       url: "/race-rooms",
@@ -457,7 +464,7 @@ test("a runner not on the roster gets nothing until they join", async () => {
     assert.deepEqual(forRoom(await reminders.tick(), roomId), ["t45:runner_not_member"]);
     assert.equal(pushesFor(pushes, roomId).length, 0);
 
-    await addCrew(app, roomId, owner, runner);
+    await addCrew(app, roomId, owner, runner, "athlete");
     clock.now = start - 44 * MINUTE;
     assert.deepEqual(forRoom(await reminders.tick(), roomId), ["t45:sent"]);
     assert.deepEqual(pushesFor(pushes, roomId)[0]?.targets.map((t) => t.userId), [runner]);
@@ -629,7 +636,7 @@ test("on the wire: type tracking, the roomId, an expiry at the window's close an
     assert.equal(outcome?.result, "sent");
     assert.equal(outcome?.delivered, 2);
 
-    const apns = apnsCalls.find((c) => c.path === `/3/device/tok-${runner}-ios`);
+    const apns = apnsCalls.find((c) => c.path === `/3/device/${pushToken(runner, "ios")}`);
     assert.ok(apns, "APNs request for the runner's iPhone");
     const apnsPayload = JSON.parse(apns.body) as {
       aps: { alert: { title: string; body: string } };
@@ -658,7 +665,7 @@ test("on the wire: type tracking, the roomId, an expiry at the window's close an
             };
           }
       )
-      .find((m) => m.message.token === `tok-${runner}-android`);
+      .find((m) => m.message.token === pushToken(runner, "android"));
     assert.ok(fcm, "FCM message for the runner's Android phone");
     assert.equal(fcm.message.data.type, "tracking");
     assert.equal(fcm.message.data.roomId, roomId);

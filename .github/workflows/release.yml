@@ -4,6 +4,10 @@ name: Release
 # upload to TestFlight and Google Play internal testing, and publish a GitHub release.
 # Secrets: docs/runbooks/mobile-release.md.
 #
+# Test gate: the `gate` job runs all of CI (ci.yml, every job, device smoke tests included) on the
+# tagged commit. The production deploy and both store uploads wait for it, so nothing ships from a
+# commit that has not passed the whole suite in this run.
+#
 # Human gate: only a repo admin can create v* tags (tag ruleset), and every job here uses the
 # `release` environment, which needs the owner's approval and only accepts v* tags. Agents can
 # merge to main (staging) but never reach this workflow. See docs/runbooks/launch-owner-setup.md.
@@ -92,10 +96,24 @@ jobs:
             exit 1
           fi
 
+  # All of CI on the tagged commit. A green run on main is not enough: CI on main skips the device
+  # jobs when their code did not change. After preflight, so a bad tag or a missing secret fails
+  # in seconds, before 30 minutes of tests. A device test that failed by chance: re-run failed jobs.
+  gate:
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+    with:
+      ref: ${{ needs.preflight.outputs.tag }}
+      full: true
+
   # The production API ships first so the new app builds never talk to an older server.
   # Railway production does not deploy from main; it deploys only from here.
   api-production:
-    needs: preflight
+    needs: [preflight, gate]
     runs-on: ubuntu-latest
     environment: release
     timeout-minutes: 30

@@ -62,7 +62,7 @@ The runner (`room.athleteId`) sets up an unpaid race before paying. An unpaid ra
 
 Teaser projection and schedule responses carry `locked: { checkpointIds }`: every checkpoint between the start and the finish, in course order. Paid responses never do. Every other member, and every other gated route, still gets 402. An expired race stays 403 for everyone.
 
-Crew-facing actions need a paid race for everyone, the runner included: crew chat (messages, photos, diagnostics), every invite (any role, `athlete` included), and any invite accept or code join by someone who does not hold the runner seat (the race athlete or the room creator) answer **402** `{ "error": "Race not unlocked", "code": "room_unpaid" }`. The runner's own seat is not refused this way.
+Crew-facing actions need a paid race for everyone, the runner included: crew chat (messages, photos, diagnostics), every invite (any role, `athlete` included, except the creator's `athlete` invite on a race with no athlete yet), and any invite accept or code join by someone who does not hold the runner seat (the race athlete or the room creator, or the one accepting that `athlete` invite) answer **402** `{ "error": "Race not unlocked", "code": "room_unpaid" }`. The runner's own seat is not refused this way.
 
 Every other route that answers a member of an unpaid race with a room (`POST /race-rooms` and its idempotent retry or reclaim, which answers from the room as it is now and gives another account reusing the key 409, `GET /race-rooms/mine`, `GET /teams/:teamId/race-rooms`, join-by-code for an existing member, invite accept, `PATCH`/`DELETE .../members/...`) shapes it with `roomForViewer`: the runner gets the room teaser above; anyone else gets the room without `pacingEstimate`, `pacingEstimateId` or `course.baselineTrack` (name, code, roster, entitlement and course stay, so lists and the paywall render). The anonymous `GET /race-rooms/join-preview/:roomCode` omits `baselineTrack` on an unpaid race.
 
@@ -130,13 +130,18 @@ An unpaid race costs the server work (GPX parsing, estimator runs) before anyone
 
 Creates a draft room; creator becomes the first member with `creatorRole`.
 
+**The room's athlete comes from membership.** The server sets `athleteId`: the caller when `creatorRole` is `athlete` or the body's `athleteId` is the caller's own id (a runner who also manages the crew), otherwise `""` (no athlete yet); another user's id in the body is ignored. A room with no athlete gets one when someone accepts an `athlete` invite (the creator may issue it while the seat is empty, also on an unpaid race); that user becomes `athleteId`. **The race owner** (above-crew invites, member role changes and removal, race and chat deletion) is the athlete while they are a member, else the room's creator (`createdByUserId`): a room created by crew is managed by its creator until the athlete joins, then by the athlete. Until then nobody posts pings, and `POST /pacing-estimates` with `roomId` and `PUT .../pacing-estimate` answer **409** `{ "code": "athlete_not_joined" }` to crew. A plan is also refused that way when `athleteId` names someone who is not a member of the room (a room stored before this rule).
+
 **Body (JSON)**
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `teamId` | string | required |
-| `athleteId` | string | required |
-| `name` | string | required |
+| `teamId` | string | required, at most 200 characters |
+| `athleteId` | string | optional, at most 200 characters; only the caller's own id has an effect (see above) |
+| `name` | string | required, at most 200 characters |
+| `creatorName` | string | optional, at most 120 characters |
+| `description` | string | optional, at most 2,000 characters |
+| `crewName` | string | optional, at most 120 characters |
 | `creatorRole` | role enum | optional, default `athlete` |
 
 **Responses**
@@ -278,7 +283,7 @@ Issues a pending invite for an email and target role.
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
 | 402 | `room_unpaid`: the race is unpaid (any role) |
-| 403 | Not a member, insufficient role, or a non-owner issuer requested a role other than `crew_member` |
+| 403 | Not a member, insufficient role, or a non-owner issuer requested a role other than `crew_member` (the owner is the creator while the race has no athlete) |
 | 404 | Unknown `roomId` |
 
 ### `POST /race-rooms/:roomId/invites/accept`
@@ -298,7 +303,7 @@ Accepts an invite token for the authenticated user (membership is created or rol
 | 200 | Returns `{ room, assignedRole, permissions }` (`room` shaped by `roomForViewer` on an unpaid race) |
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
-| 402 | `room_unpaid`: the race is unpaid and the caller does not hold the runner seat |
+| 402 | `room_unpaid`: the race is unpaid and the caller does not hold the runner seat (accepting the `athlete` invite of a race with no athlete takes that seat) |
 | 404 | Room not found, or invite not found for this room/token |
 | 409 | Invite not pending |
 | 410 | Invite expired (status updated to `expired`) |
@@ -347,6 +352,12 @@ Unlike `PUT /race-rooms/:roomId/course`, this does **not** reset course-dependen
 | 401 | Missing/invalid JWT or malformed claims |
 | 403 | Not a member (every member role may edit course details), or entitlement |
 | 404 | Unknown room, no course, or unknown checkpoint ids (`checkpointIds` lists them; nothing is saved) |
+
+## Input limits
+
+- **Request bodies** are capped at 1 MB. Routes that take files have their own cap: `PUT .../course` about 24 MB (the GPX preview plus `courseGpxXml`), `PUT .../map-workspace` 8 MB, `POST .../course/gpx-preview` and `POST /activity-history/gpx` about 20 MB (a 10 MB `gpxXml`), the activity file, preview and archive routes their base64 file cap, `POST /activity-history/upload` 200 MB, chat photos 10 MB. An oversized body answers **413** `{ "error", "code" }` (`file_too_large` on file routes, else `body_too_large`). These routes answer **401** before reading the body when the request has no bearer token; a token that fails verification still gets 401 from the handler.
+- **Course and map workspace**: `courseGpxXml` at most 10 MB of text (the GPX upload cap), `courseFileName` 500 characters, at most 500 checkpoints, 10,000 baseline points, 20,000 vertices per route line and 100 lines per layer; ids at most 200 characters.
+- **Room codes** are 6 digits from a CSPRNG (the apps take exactly 6). `POST /race-rooms/join-by-code` and `GET /race-rooms/join-preview/:roomCode` share a budget of codes that match no room: 20 per hour per account (per client address when signed out), kept in Postgres so every instance shares it (`join_code_failures`, migration 0026). Past it they answer **429** `Too many requests` with `retry-after`, before looking the code up.
 
 ## Notes for consumers
 

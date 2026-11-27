@@ -9,7 +9,14 @@ Staging follows `main`. Production does not: it deploys only from the Release wo
 1. Merge to `main` with CI green.
 2. Railway builds and deploys automatically. Watch the deployment in the Railway dashboard, or run `railway status` / `railway logs`.
 3. A failed migration or health check stops the rollout, and the previous deployment keeps serving.
-4. Smoke test: `curl -fsS https://<staging-host>/health/live`. For the broader authenticated smoke, label a PR `run-staging-smoke` or run the "Staging Automation Smoke" workflow.
+4. Smoke test: the "Staging Automation Smoke" workflow runs by itself after each deploy of `staging-automation`, and once a day. To run it by hand, start the workflow or label a PR `run-staging-smoke`. For a quick check: `curl -fsS https://<staging-host>/health/live`.
+
+## When the smoke fails after a deploy
+
+The workflow retries once, then its `triage` job posts to the CI alerts Slack channel and does one of two things. It never merges or rolls back by itself.
+
+- **One commit landed since the last passing deploy, and it adds no migration:** it opens a PR that reverts that commit. Read the failed run, then merge the revert or close it and fix forward.
+- **Anything else** (several commits, a migration, no new commit, or a revert that conflicts): it opens or updates the issue "Staging smoke is failing after a deploy" with the suspect commits. No new commit means staging itself is the suspect: Auth0, the database or Railway.
 
 ## Rollback
 

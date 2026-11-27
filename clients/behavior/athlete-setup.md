@@ -4,7 +4,7 @@
 crewcue://dev/athlete-setup
 
 ## Action
-Enter a display name and save it on this device, then sync when signed in.
+Enter a display name and save it on this device, then sync when signed in. Sign-out clears the name saved on this device, so the next account starts from its own name.
 
 ## API
 PATCH /race-rooms/:roomId/members/:memberUserId with displayName

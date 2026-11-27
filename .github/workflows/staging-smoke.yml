@@ -1,6 +1,15 @@
 name: Staging Automation Smoke
 
+# Runs the authenticated smoke against staging-automation:
+#   - after every deploy of it (Railway deploys it on each merge to main and reports the result
+#     to GitHub as a deployment status),
+#   - once a day, in case staging breaks with no deploy,
+#   - by hand, or on a PR labeled run-staging-smoke.
+# When it fails after a deploy, the `triage` job opens a revert PR if exactly one commit is new
+# since the last passing deploy, and a tracking issue otherwise (scripts/staging-smoke-failure.mjs).
+# Nothing is merged or rolled back automatically.
 on:
+  deployment_status:
   schedule:
     - cron: "0 5 * * *" # Daily 05:00 UTC, so the 06:00 bug hunt can pick up a failure
   workflow_dispatch:
@@ -14,7 +23,18 @@ permissions:
 
 jobs:
   smoke:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-staging-smoke'
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      || github.event.label.name == 'run-staging-smoke'
+      || (github.event_name == 'deployment_status'
+          && github.event.deployment_status.state == 'success'
+          && github.event.deployment.environment == 'CrewCue / staging-automation')
+    # One smoke at a time per trigger. Deploys that land while one runs wait, and only the newest
+    # waits: it is the one staging is serving. The group names the environment and state so the
+    # deployment events this job skips (other environments, in_progress) cannot take that place.
+    concurrency:
+      group: staging-smoke-${{ github.event_name }}-${{ github.event.deployment.environment }}-${{ github.event.deployment_status.state }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     environment: staging-automation
     timeout-minutes: 20
@@ -43,8 +63,15 @@ jobs:
       - name: Ensure script is executable
         run: chmod +x ./scripts/staging-smoke-stoppage.sh
 
+      # One retry after a pause: a deploy that just went live can still be warming up. The warning
+      # keeps the first failure visible when the retry passes.
       - name: Run stoppage staging smoke
-        run: ./scripts/staging-smoke-stoppage.sh
+        run: |
+          ./scripts/staging-smoke-stoppage.sh || {
+            echo "::warning title=Staging smoke failed an attempt::First attempt failed, retrying in 30 s"
+            sleep 30
+            ./scripts/staging-smoke-stoppage.sh
+          }
 
       - name: Post success summary
         if: success()
@@ -80,3 +107,102 @@ jobs:
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label bug \
               --body "The nightly staging smoke failed: $RUN_URL. The next bug hunt treats this as its first target."
           fi
+
+  # After a failed post-deploy smoke: name the suspects, then open a revert PR or an issue.
+  # A separate job so the staging-automation secrets are not in reach of the token that can push.
+  triage:
+    needs: smoke
+    if: failure() && github.event_name == 'deployment_status'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: read
+    env:
+      # KB_BOT_TOKEN (the agent bot's PAT) when set: a PR opened with the default GITHUB_TOKEN does
+      # not trigger CI, so the revert PR's required checks would never run.
+      GH_TOKEN: ${{ secrets.KB_BOT_TOKEN || github.token }}
+      SHA: ${{ github.event.deployment.sha }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.KB_BOT_TOKEN || github.token }}
+
+      - name: Decide between a revert PR and an issue
+        id: verdict
+        run: |
+          last_good="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow staging-smoke.yml --event deployment_status --status success --limit 1 --json headSha --jq '.[0].headSha // ""' || true)"
+          node scripts/staging-smoke-failure.mjs --sha "$SHA" --last-good "$last_good" --report "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open a revert PR
+        id: revert
+        if: steps.verdict.outputs.action == 'revert'
+        env:
+          BAD: ${{ steps.verdict.outputs.sha }}
+        run: |
+          branch="revert/staging-smoke-${BAD::7}"
+          if [ -n "$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number')" ]; then
+            echo "A revert PR for ${BAD::7} is already open."; echo "opened=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git config user.name "crewcue-smoke[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          # main may have moved past the bad commit; a revert that does not apply cleanly needs a person.
+          if ! git revert --no-edit "$BAD"; then
+            git revert --abort || true
+            echo "::warning::Reverting ${BAD::7} conflicts with main; opening an issue instead."
+            exit 0
+          fi
+          git push --force origin "$branch"
+          body="$RUNNER_TEMP/body.md"
+          {
+            echo "## Scope"; echo
+            echo "Reverts \`${BAD::7}\`, opened automatically. Not merged automatically: read the failed run first."; echo
+            cat "$RUNNER_TEMP/report.md"; echo
+            echo "No issue: automated revert after a failed staging smoke."; echo
+            echo "## Decision Tree and Rationale"; echo
+            echo "- Decision: Revert the one commit deployed since the last passing smoke"
+            echo "  - Alternatives considered: fix forward (close this PR if the fix is quick); redeploy the last good build in Railway (docs/runbooks/staging-deploy.md)"; echo
+            echo "## Implicit Assumptions and Invariants"; echo
+            echo "- Assumption: the smoke failed because of this commit, not because staging itself was down"
+            echo "  - What would break if false: a good change is reverted; re-run the failed smoke before merging"; echo
+            echo "## Higher-Order Effects Check"; echo
+            echo "- Summary: the commit adds no migration, so the older code runs on the current schema"; echo
+            echo "## Test plan"; echo
+            echo "- [ ] CI on this PR"
+            echo "- [ ] The staging smoke passes after this merges and deploys"; echo
+            echo "## Risk and rollback"; echo
+            echo "- Risk: low"; echo "- Rollback: revert this PR"; echo
+            echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+          } > "$body"
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+            --title "revert: ${BAD::7} failed the staging smoke" --body-file "$body"
+          echo "opened=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update a tracking issue
+        if: steps.revert.outputs.opened != 'true'
+        run: |
+          title="Staging smoke is failing after a deploy"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/report.md"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label bug --body-file "$RUNNER_TEMP/report.md"
+          fi
+
+      # Same channel as the red-main alert (docs/runbooks/red-main.md). Without the secret, nothing is sent.
+      - name: Tell Slack
+        env:
+          SLACK_CI_WEBHOOK: ${{ secrets.SLACK_CI_WEBHOOK }}
+          OPENED: ${{ steps.revert.outputs.opened }}
+        run: |
+          [ -n "$SLACK_CI_WEBHOOK" ] || { echo "SLACK_CI_WEBHOOK is not set; nothing sent."; exit 0; }
+          if [ "$OPENED" = "true" ]; then next="A revert PR is open."; else next="A tracking issue has the suspects."; fi
+          jq -n --arg text "*Staging smoke failed* after ${SHA::7} was deployed. $next $RUN_URL" '{text: $text}' \
+            | curl -fsS -X POST -H "Content-Type: application/json" --data @- "$SLACK_CI_WEBHOOK"
