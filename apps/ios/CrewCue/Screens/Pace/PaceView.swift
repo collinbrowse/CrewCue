@@ -630,17 +630,16 @@ struct PaceStopEditCard: View {
                 }
             }
             if let draft, editable {
-                // The stepper moves under its label when both don't fit on one line.
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: CrewSpace.base) {
-                        plannedStopLabel(draft)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        PaceMinutesStepper(row: draft, onMinutes: onMinutes, onStep: onStep)
-                    }
-                    VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-                        plannedStopLabel(draft)
-                        PaceMinutesStepper(row: draft, onMinutes: onMinutes, onStep: onStep)
-                    }
+                // At accessibility text sizes the stepper moves under its label. One layout
+                // switched by text size, not by fit, so the minutes field keeps its identity (and
+                // the keyboard) when an error or "Was" line appears while typing.
+                let layout = typeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: CrewSpace.stackSm))
+                    : AnyLayout(HStackLayout(spacing: CrewSpace.base))
+                layout {
+                    plannedStopLabel(draft)
+                        .frame(maxWidth: typeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
+                    PaceMinutesStepper(row: draft, onMinutes: onMinutes, onStep: onStep)
                 }
             }
         }
