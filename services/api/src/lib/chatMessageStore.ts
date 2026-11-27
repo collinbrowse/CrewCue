@@ -17,7 +17,7 @@ function resolveMode(): Mode {
   throw new Error(`Invalid PERSISTENCE_MODE '${raw}'.`);
 }
 
-const pool = resolveMode() === "postgres" ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
+const pool = resolveMode() === "postgres" ? new Pool({ connectionString: process.env.DATABASE_URL, allowExitOnIdle: true }) : null;
 
 export type StoredChatMessage = {
   seq: number;

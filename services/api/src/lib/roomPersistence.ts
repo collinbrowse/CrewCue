@@ -29,7 +29,10 @@ function resolvePersistenceMode(): PersistenceMode {
 }
 
 const PERSISTENCE_MODE = resolvePersistenceMode();
-const pool = PERSISTENCE_MODE === "postgres" ? new Pool({ connectionString: DATABASE_URL }) : null;
+// allowExitOnIdle (here and on the other stores' pools): an idle connection does not keep the process
+// alive. The server stays up on its listening socket. Without it every test file that touched
+// Postgres waited out pg's 10 s idle timeout before exiting, which was 10 of test:pg's 11 minutes.
+const pool = PERSISTENCE_MODE === "postgres" ? new Pool({ connectionString: DATABASE_URL, allowExitOnIdle: true }) : null;
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;

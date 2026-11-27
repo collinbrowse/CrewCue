@@ -152,6 +152,9 @@ jobs:
 
   api-postgres-integration:
     runs-on: ubuntu-latest
+    # About 3 minutes. It was 12 when each test file waited 10 s on idle connections before exiting
+    # (see allowExitOnIdle in roomPersistence.ts); the limit catches that coming back.
+    timeout-minutes: 8
     services:
       postgres:
         image: postgres:16
