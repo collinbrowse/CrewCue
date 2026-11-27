@@ -58,7 +58,7 @@ struct RacePreviewView: View {
             .animation(.snappy(duration: 0.3), value: sizeClass)
             .animation(.snappy(duration: 0.25), value: model.panel)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(CrewBackground())
+            .background(CrewBackground(glow: .onboarding))
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("crewcue.onboarding-race-preview")
             .accessibilityLabel(OnboardingCopy.title(for: .preview) ?? "")
@@ -197,7 +197,7 @@ struct RacePreviewView: View {
                 live: replay.map.live,
                 readOnly: true
             )
-            .background(CrewBackground())
+            .background(CrewBackground(glow: .onboarding))
         case .chat:
             ChatView(
                 model: replay.chat,
@@ -208,7 +208,7 @@ struct RacePreviewView: View {
                 status: ChatRaceStatus(map: replay.map),
                 readOnly: true
             )
-            .background(CrewBackground())
+            .background(CrewBackground(glow: .onboarding))
         }
     }
 
@@ -430,7 +430,7 @@ struct RacePreviewFixtureScreen: View {
         RacePreviewMessage(text: screen.body)
             .padding(CrewSpace.gutter)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(CrewBackground())
+            .background(CrewBackground(glow: .onboarding))
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(screen.accessibilityIdentifier)
             .accessibilityLabel(screen.title)
