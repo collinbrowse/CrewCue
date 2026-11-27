@@ -388,7 +388,7 @@ test("refund drops the tier: existing crew stay, new joins are refused", async (
 test("a refund locks the race the pass was bought for, whatever room the refund event names", async () => {
   const app = buildApp();
   await app.ready();
-  const runner = "runner-two-races";
+  const runner = `runner-two-races-${Date.now()}`;
   const roomA = await createRunnerRoom(app, runner);
   const roomB = await createRunnerRoom(app, runner);
   await webhook(app, rcEvent({ productId: "race_pass", transactionId: "tx-two-a", roomId: roomA.id, appUserId: runner }));
@@ -430,7 +430,7 @@ test("a refund locks the race the pass was bought for, whatever room the refund 
 test("a refund that names no room, or an unknown one, still locks the race the pass was bought for", async () => {
   const app = buildApp();
   await app.ready();
-  const runner = "runner-refund-no-room";
+  const runner = `runner-refund-no-room-${Date.now()}`;
   const roomA = await createRunnerRoom(app, runner);
   const roomB = await createRunnerRoom(app, runner);
   await webhook(app, rcEvent({ productId: "race_pass", transactionId: "tx-nr-a", roomId: roomA.id, appUserId: runner }));
