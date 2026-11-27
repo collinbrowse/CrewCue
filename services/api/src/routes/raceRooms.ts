@@ -4390,7 +4390,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const userId = request.identity.sub;
     // Two crew joining at once must not both append to the same member list.
     return await withRoomRuntimeLock(resolved.id, async () => {
-      const room = (await getRaceRoom(resolved.id)) ?? resolved;
+      // Re-read under the lock. A delete that ran while this join waited leaves no room, and saving
+      // the snapshot from before the lock would upsert the deleted race back for its whole crew.
+      const room = await getRaceRoom(resolved.id);
+      if (!room) {
+        return reply.code(404).send({ error: "Race room not found" });
+      }
       const writeDelay = membershipWriteDelayForTests;
       if (writeDelay) {
         membershipWriteDelayForTests = undefined;
