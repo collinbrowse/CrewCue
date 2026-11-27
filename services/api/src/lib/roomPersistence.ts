@@ -171,6 +171,17 @@ const UNPAID_REMINDERS_DDL = `
     WHERE payload->'entitlement'->>'status' = 'unpaid';
 `;
 
+/** Mirrors db/migrations/0024_join_code_failures.sql (see joinCodeBudget.ts). */
+const JOIN_CODE_FAILURES_DDL = `
+  CREATE TABLE IF NOT EXISTS join_code_failures (
+    bucket TEXT NOT NULL,
+    window_start TIMESTAMPTZ NOT NULL,
+    failures INT NOT NULL,
+    PRIMARY KEY (bucket, window_start)
+  );
+  CREATE INDEX IF NOT EXISTS join_code_failures_by_window ON join_code_failures (window_start);
+`;
+
 export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void> {
   if (initPromise) {
     await initPromise;
@@ -310,6 +321,7 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     await client.query(UNPAID_RACE_ROOMS_DDL);
     await client.query(ROOM_REMOVED_MEMBERS_DDL);
     await client.query(UNPAID_REMINDERS_DDL);
+    await client.query(JOIN_CODE_FAILURES_DDL);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();

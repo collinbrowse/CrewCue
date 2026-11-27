@@ -18,6 +18,7 @@ import {
   type RaceRoom
 } from "@crewcue/contracts";
 import { getRaceRoom } from "./raceRooms.js";
+import { largeBodyRoute } from "../lib/bodyLimits.js";
 import {
   deleteChatRoomData,
   getChatNotificationPref,
@@ -357,7 +358,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(duplicate ? 200 : 201).send(response);
   });
 
-  app.post("/chat/rooms/:roomId/photos", async (request, reply) => {
+  const photoRoute = largeBodyRoute(CHAT_PHOTO_MAX_BYTES, { error: "Photos are limited to 10 MB", code: "photo_too_large" });
+  app.post("/chat/rooms/:roomId/photos", photoRoute, async (request, reply) => {
     const { roomId } = request.params as { roomId: string };
     const room = await requireRoomMember(request, reply, roomId);
     if (!room) return reply;
