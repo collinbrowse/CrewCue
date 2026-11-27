@@ -830,8 +830,8 @@ test("a runner with no push device, or a creator off the roster, still gets the 
     const roomId = await unpaidRace(app, runner, t0 - 29.5 * DAY, { device: false });
 
     // A team manager set the race up for a runner who never joined, then left (account deletion
-    // drops their membership): nobody on the roster to tell, and the runner named by `athleteId`
-    // is not the creator.
+    // drops their membership): nobody on the roster to tell, and the room has no athlete (the
+    // `athleteId` sent on create names someone else, so it is not used).
     const owner = uid("owner-left");
     const athlete = uid("athlete-never-joined");
     const created = await app.inject({

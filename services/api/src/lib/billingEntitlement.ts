@@ -82,9 +82,8 @@ export const UNPAID_RACE_LIMIT = 3;
 /**
  * Whether a room's own fields count it toward its creator's unpaid race limit: created by `userId`
  * and still `unpaid`. Paid and expired races don't count, and neither do races the user only
- * crews. The creator, not `athleteId`, is who counts: the creator comes from the token, while
- * `athleteId` is whatever the client sent (risk R17), so counting it would let anyone fill another
- * runner's limit. A race paid once and refunded (`unpaid` again, with a revoked grant) doesn't
+ * crews. The creator, not `athleteId`, is who counts: the creator comes from the token, and a
+ * room created by crew has no athlete until one accepts its athlete invite. A race paid once and refunded (`unpaid` again, with a revoked grant) doesn't
  * count either; that needs the grant ledger, so the store-level count checks it
  * (raceRooms.ts `countUnpaidRaceRoomsCreatedBy`).
  */

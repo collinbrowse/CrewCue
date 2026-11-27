@@ -120,6 +120,7 @@ import {
   roomUnpaidError,
   unpaidRaceLimitError
 } from "../lib/billingEntitlement.js";
+import { roomAthleteMember } from "../lib/planAuthority.js";
 import {
   ensureBillingStoreReady,
   listRoomIdsWithBillingGrants,
@@ -145,7 +146,11 @@ import {
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
-  athleteId: z.string().min(1),
+  /**
+   * Only read as "the creator is the athlete" (it equals the caller); any other value is ignored.
+   * The server decides the room's athlete (see create).
+   */
+  athleteId: z.string().optional(),
   name: z.string().min(1),
   creatorName: z.string().trim().min(1).optional(),
   description: z.string().trim().optional(),
@@ -3411,7 +3416,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         description: parsed.data.description,
         crewName: parsed.data.crewName,
         teamId: parsed.data.teamId,
-        athleteId: parsed.data.athleteId,
+        // The athlete comes from membership, never from another user's id in the request: the
+        // creator when they create as the athlete or name themselves (a runner who also manages
+        // the crew), else nobody until someone accepts the room's athlete invite.
+        athleteId:
+          parsed.data.creatorRole === "athlete" || parsed.data.athleteId === creatorId ? creatorId : "",
         name: parsed.data.name,
         status: "active",
         createdAt: now,
@@ -4161,17 +4170,25 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid invite payload" });
     }
 
+    // While the race has no athlete (created by crew), its creator invites them: accepting an
+    // athlete invite is how the room gets its athlete.
+    const invitesAthlete =
+      parsed.data.role === "athlete" &&
+      roomAthleteMember(room) === undefined &&
+      request.identity.sub === raceCreatorOf(room);
+
     // An invite grants its role on accept, so it must not be a way around the owner-only
     // role rules (PATCH /members). Only the race owner may invite above crew_member.
-    if (room.athleteId !== request.identity.sub && parsed.data.role !== "crew_member") {
+    if (room.athleteId !== request.identity.sub && parsed.data.role !== "crew_member" && !invitesAthlete) {
       return reply.code(403).send({ error: "Only the race owner can invite above crew_member" });
     }
 
     // An unpaid race takes no one new: that is the pass, not the upgrade. Every role is
     // refused, `athlete` included, since an invite names an email, not the runner's seat,
-    // and an athlete-role invite accepted by someone else would be a free seat.
+    // and an athlete-role invite accepted by someone else would be a free seat. The one
+    // exception is the athlete of a race that has none yet: that invite fills the runner seat.
     const unpaid = roomUnpaidError(room);
-    if (unpaid) {
+    if (unpaid && !invitesAthlete) {
       return reply.code(402).send(unpaid);
     }
 
@@ -4322,9 +4339,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       if (existing && existing.role !== invite.role && invite.invitedBy !== room.athleteId) {
         return reply.code(403).send({ error: "Only the race owner can change your role" });
       }
+      // Accepting the athlete invite of a race with no athlete makes this user its athlete.
+      const becomesAthlete = invite.role === "athlete" && roomAthleteMember(room) === undefined;
       // An invite issued while the race was paid is still refused once it is not, whatever
       // role it grants: on an unpaid race only the runner's own seat is taken or changed.
-      if (!isRunnerSeat(room, userId)) {
+      if (!isRunnerSeat(room, userId) && !becomesAthlete) {
         const unpaid = roomUnpaidError(room);
         if (unpaid) {
           return reply.code(402).send(unpaid);
@@ -4355,6 +4374,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
       const updatedRoom: RaceRoom = {
         ...room,
+        ...(becomesAthlete ? { athleteId: userId } : {}),
         memberships: nextMemberships
       };
 
