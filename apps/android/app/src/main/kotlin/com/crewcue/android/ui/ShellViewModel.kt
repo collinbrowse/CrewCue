@@ -1133,6 +1133,9 @@ class ShellViewModel(
         val authActivity = activity?.takeIf {
             session?.fromAuth0 == true && container.authGateway.isConfigured
         }
+        // Taken before the session goes: the unregister request still speaks for this account.
+        // Sign-out never waits for it, so it finishes offline too.
+        session?.token?.let { container.unregisterPush(it) }
         container.sessionStore.clear()
         session = null
         // The store already deleted the files; this closes any open outbox so a late write can't recreate them.
@@ -1154,6 +1157,8 @@ class ShellViewModel(
         accessCache = null
         // Progress stays in client-core's onboarding store; this phone's half-typed setup goes.
         viewModelScope.launch(Dispatchers.IO) { container.runnerSetupDrafts.clear() }
+        // Athlete setup's unsynced name lives outside the user's storage root: it goes too.
+        container.athleteDraft.clear()
         // The room saved for an offline replay lives outside the user's storage root: it goes too.
         // The replay itself ends with its route (showSignedOut ends [racePreview]).
         viewModelScope.launch(Dispatchers.IO) { container.replayRooms.clear() }

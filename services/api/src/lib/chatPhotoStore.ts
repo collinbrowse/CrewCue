@@ -19,6 +19,29 @@ const EXTENSIONS: Record<string, string> = {
   "image/webp": "webp"
 };
 
+export type ChatPhotoContentType = (typeof CHAT_PHOTO_CONTENT_TYPES)[number];
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** ISO-BMFF major brands for HEIF/HEIC stills (iPhone "High Efficiency" photos). */
+const HEIF_BRANDS = new Set(["heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1"]);
+
+/**
+ * The photo type its first bytes show (JPEG, PNG, HEIC or WebP), or undefined when the bytes are
+ * none of them. The upload route stores this type, not the one the client declared.
+ */
+export function detectChatPhotoContentType(bytes: Buffer): ChatPhotoContentType | undefined {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(PNG_SIGNATURE)) return "image/png";
+  if (bytes.length >= 12 && bytes.toString("latin1", 0, 4) === "RIFF" && bytes.toString("latin1", 8, 12) === "WEBP") {
+    return "image/webp";
+  }
+  if (bytes.length >= 12 && bytes.toString("latin1", 4, 8) === "ftyp" && HEIF_BRANDS.has(bytes.toString("latin1", 8, 12))) {
+    return "image/heic";
+  }
+  return undefined;
+}
+
 export interface ChatPhotoStore {
   readonly kind: "bucket" | "memory";
   put(key: string, bytes: Buffer, contentType: string): Promise<void>;

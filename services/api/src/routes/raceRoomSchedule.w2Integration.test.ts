@@ -27,6 +27,7 @@ import {
   type ChatPushDispatchInput
 } from "../lib/chatPushDispatch.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
+import { fakeApnsToken } from "../lib/testPushTokens.js";
 
 const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
 const RACE_START_AT = "2026-08-15T13:00:00.000Z";
@@ -113,7 +114,7 @@ async function registerDevice(app: TestApp, token: string, userId: string) {
   const res = await app.inject({
     method: "POST",
     url: "/chat/push/tokens",
-    payload: { deviceId: `dev-${userId}`, platform: "ios", token: `apns-${userId}` },
+    payload: { deviceId: `dev-${userId}`, platform: "ios", token: fakeApnsToken(`apns-${userId}`) },
     headers: { authorization: `Bearer ${token}` }
   });
   assert.equal(res.statusCode, 201);

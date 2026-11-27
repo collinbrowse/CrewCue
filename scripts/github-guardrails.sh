@@ -40,9 +40,14 @@ call -X PATCH "repos/$REPO" -F allow_auto_merge=true -F delete_branch_on_merge=t
 echo "2. main: required checks apply to admins too"
 call -X POST "repos/$REPO/branches/main/protection/enforce_admins"
 # ios and android are not required: they run simulator and emulator smoke tests that take up to
-# 27 minutes and failed on 24 of 100 main runs in Nov 2026. They still run on every push to main.
+# 27 minutes and failed on 24 of 100 main runs in Nov 2026. They run when their code changes and
+# nightly (scripts/ci-changed-areas.mjs).
+# strict=false: a PR does not have to contain the newest main to merge. With it on, every merge
+# sent every other open PR back through an update and a full CI run (56 feature PRs took 129
+# merges from main in a week). Two PRs that pass alone can now break main together: the Slack
+# alert reports it (docs/runbooks/red-main.md).
 call -X PATCH "repos/$REPO/branches/main/protection/required_status_checks" \
-  -F strict=true \
+  -F strict=false \
   -f "contexts[]=dual-client-guard" \
   -f "contexts[]=checks" \
   -f "contexts[]=api-postgres-integration" \

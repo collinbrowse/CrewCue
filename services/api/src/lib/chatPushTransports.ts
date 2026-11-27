@@ -171,7 +171,7 @@ export function apnsTransport(
       try {
         response = await request({
           origin,
-          path: `/3/device/${target.token}`,
+          path: `/3/device/${encodeURIComponent(target.token)}`,
           headers: {
             authorization: `bearer ${await providerToken()}`,
             "apns-topic": config.topic,

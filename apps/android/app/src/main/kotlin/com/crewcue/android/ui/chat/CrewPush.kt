@@ -74,6 +74,20 @@ object CrewPush {
         return raceDay.flushOutbox()
     }
 
+    /**
+     * Sign-out: this phone stops getting the signed-out account's pushes. First the API drops the
+     * account's row for this device ([sessionToken] is the signed-out session's), then the FCM
+     * token itself is deleted, so a row the API kept (offline) points at a dead token that FCM
+     * rejects. The next sign-in registers a fresh token. Best effort and blocking; call off the
+     * main thread, after the session is cleared ([CrewCueMessagingService.onNewToken] registers
+     * nothing while signed out).
+     */
+    fun unregister(context: Context, raceDay: RaceDayBridge, sessionToken: String) {
+        raceDay.unregisterPushDevice(deviceId(context), sessionToken)
+        if (FirebaseApp.getApps(context).isEmpty()) return
+        runCatching { Tasks.await(FirebaseMessaging.getInstance().deleteToken(), 15, TimeUnit.SECONDS) }
+    }
+
     /** Re-registers silently when notifications are already allowed (tokens rotate). Blocking. */
     fun refreshIfAllowed(context: Context, raceDay: RaceDayBridge) {
         if (!notificationsAllowed(context)) return

@@ -30,15 +30,13 @@ import com.crewcue.android.ui.theme.ProductTitle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.io.File
 
 @Composable
 fun AthleteSetupScreen(shell: ShellViewModel) {
     val context = LocalContext.current
     val session = shell.session
     var name by remember {
-        mutableStateOf(readAthleteDraft(context) ?: session?.displayName.orEmpty())
+        mutableStateOf(shell.container.athleteDraft.read() ?: session?.displayName.orEmpty())
     }
     var message by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
@@ -92,13 +90,13 @@ private suspend fun saveAthleteName(context: Context, shell: ShellViewModel, nam
     val roomId = session?.roomId
     val userId = session?.userId
     if (roomId.isNullOrBlank() || userId.isNullOrBlank() || !context.isOnline()) {
-        writeAthleteDraft(context, name)
+        shell.container.athleteDraft.write(name)
         return "Offline. Setup will sync when the network returns."
     }
     val result = try {
         withContext(Dispatchers.IO) { shell.container.raceDay.updateDisplayName(roomId, userId, name) }
     } catch (_: Throwable) {
-        writeAthleteDraft(context, name)
+        shell.container.athleteDraft.write(name)
         return if (context.isOnline()) {
             "Couldn't save athlete setup."
         } else {
@@ -108,7 +106,7 @@ private suspend fun saveAthleteName(context: Context, shell: ShellViewModel, nam
     return when (result) {
         is RuntimeResult.Failure -> {
             if (result.offline) {
-                writeAthleteDraft(context, name)
+                shell.container.athleteDraft.write(name)
                 "Offline. Setup will sync when the network returns."
             } else {
                 "Couldn't save athlete setup."
@@ -116,32 +114,13 @@ private suspend fun saveAthleteName(context: Context, shell: ShellViewModel, nam
         }
         is RuntimeResult.Success -> {
             if (result.result.optBoolean("offline")) {
-                writeAthleteDraft(context, name)
+                shell.container.athleteDraft.write(name)
                 "Offline. Setup will sync when the network returns."
             } else {
-                writeAthleteDraft(context, name)
+                shell.container.athleteDraft.write(name)
                 shell.noteDisplayName(userId, name)
                 "Athlete profile saved on this device."
             }
         }
-    }
-}
-
-private fun draftFile(context: Context): File {
-    val directory = File(context.filesDir, "crewcue")
-    directory.mkdirs()
-    return File(directory, "athlete-draft.json")
-}
-
-private fun readAthleteDraft(context: Context): String? {
-    val file = draftFile(context)
-    if (!file.exists()) return null
-    val name = runCatching { JSONObject(file.readText()).optString("displayName") }.getOrNull()?.trim().orEmpty()
-    return name.ifBlank { null }
-}
-
-private fun writeAthleteDraft(context: Context, name: String) {
-    runCatching {
-        draftFile(context).writeText(JSONObject().put("displayName", name).toString())
     }
 }

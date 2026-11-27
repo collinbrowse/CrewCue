@@ -12,6 +12,7 @@ import {
   parseGpxActivityTrack,
   type GpxTrackPoint
 } from "./courseParse.js";
+import { firstOpenToLastClose, firstXmlElement, removeXmlElements, scanXmlElements } from "./xmlScan.js";
 
 export const ACTIVITY_FILE_FORMATS = ["gpx", "fit", "tcx"] as const;
 export type ActivityFileFormat = (typeof ACTIVITY_FILE_FORMATS)[number];
@@ -225,7 +226,6 @@ function parseGpxActivity(xml: string): ParsedActivityFile {
     throw new ActivityFileError("file_corrupt", "Couldn't read this GPX file. Export it again and retry.");
   }
   const timed = parsed.points.filter((point) => point.timestampMs !== null).length >= 2 && parsed.startTimestampMs > 0;
-  const type = xml.match(/<trk\b[^>]*>[\s\S]*?<type>\s*([^<]+?)\s*<\/type>/i)?.[1];
   return summarize(
     "gpx",
     parsed.points,
@@ -233,9 +233,29 @@ function parseGpxActivity(xml: string): ParsedActivityFile {
       distanceMeters: parsed.totalDistanceMeters,
       ...(timed ? { startTimestampMs: parsed.startTimestampMs, elapsedSeconds: parsed.totalDurationSeconds } : {})
     },
-    sportFromText(type),
+    sportFromText(gpxType(xml)),
     gpxName(xml)
   );
+}
+
+/** Index just past the first `<trk ...>` open tag, or -1. */
+function trackBodyStart(xml: string): number {
+  const open = /<trk\b/i.exec(xml);
+  if (!open) return -1;
+  const gt = xml.indexOf(">", open.index + open[0].length);
+  return gt < 0 ? -1 : gt + 1;
+}
+
+/** The first non-empty `<type>` after the track opens (Strava writes `running`). */
+function gpxType(xml: string): string | undefined {
+  const bodyStart = trackBodyStart(xml);
+  if (bodyStart < 0) return undefined;
+  const type = /<type>([^<]+)<\/type>/gi;
+  type.lastIndex = bodyStart;
+  const raw = type.exec(xml)?.[1];
+  if (raw === undefined) return undefined;
+  // A whitespace-only value still counts as a type, as before.
+  return raw.trim() || raw;
 }
 
 /** The track's `<name>` (Strava, Garmin), else the file's `<metadata><name>`. Never a waypoint's or route's. */
@@ -243,19 +263,48 @@ function gpxName(xml: string): string | null {
   const nameIn = (block: string | undefined) => {
     if (!block) return null;
     // Only the block's own name: cut nested segments and links before looking.
-    const own = block.replace(/<trkseg\b[\s\S]*?(<\/trkseg>|$)/gi, "").replace(/<link\b[\s\S]*?<\/link>/gi, "");
-    return cleanActivityName(own.match(/<name\b[^>]*>([\s\S]*?)<\/name>/i)?.[1]);
+    const own = removeXmlElements(withoutTrackSegments(block), "link", { prefix: null, openTagEnds: false });
+    return cleanActivityName(firstXmlElement(own, "name", { prefix: null })?.body);
   };
-  const track = xml.match(/<trk\b[^>]*>([\s\S]*?)(<\/trk>|$)/i)?.[1];
-  const metadata = xml.match(/<metadata\b[^>]*>([\s\S]*?)<\/metadata>/i)?.[1];
+  const bodyStart = trackBodyStart(xml);
+  let track: string | undefined;
+  if (bodyStart >= 0) {
+    const close = /<\/trk>/gi;
+    close.lastIndex = bodyStart;
+    const closed = close.exec(xml);
+    track = xml.slice(bodyStart, closed ? closed.index : xml.length);
+  }
+  const metadata = firstXmlElement(xml, "metadata", { prefix: null })?.body;
   return nameIn(track) ?? nameIn(metadata);
+}
+
+/** `block` with each `<trkseg` cut up to its `</trkseg>`, or to the end when it has none. */
+function withoutTrackSegments(block: string): string {
+  const open = /<trkseg\b/gi;
+  const close = /<\/trkseg>/gi;
+  let out = "";
+  let kept = 0;
+  for (;;) {
+    open.lastIndex = kept;
+    const opened = open.exec(block);
+    if (!opened) break;
+    out += block.slice(kept, opened.index);
+    close.lastIndex = opened.index + opened[0].length;
+    const closed = close.exec(block);
+    if (!closed) return out;
+    kept = closed.index + closed[0].length;
+  }
+  return out + block.slice(kept);
 }
 
 // MARK: TCX
 
+/** TCX tags take a `ns:` prefix of word characters only. */
+const TCX_PREFIX = "\\w+";
+
 function tagText(block: string, tag: string): string | null {
-  const match = block.match(new RegExp(`<(?:\\w+:)?${tag}\\b[^>]*>([\\s\\S]*?)</(?:\\w+:)?${tag}>`, "i"));
-  return match ? match[1]!.trim() : null;
+  const element = firstXmlElement(block, tag, { prefix: TCX_PREFIX });
+  return element ? element.body.trim() : null;
 }
 
 function tagNumber(block: string, tag: string): number | null {
@@ -266,9 +315,35 @@ function tagNumber(block: string, tag: string): number | null {
 }
 
 function blocks(xml: string, tag: string): string[] {
-  return [...xml.matchAll(new RegExp(`<(?:\\w+:)?${tag}\\b[^>]*>([\\s\\S]*?)</(?:\\w+:)?${tag}>`, "gi"))].map(
-    (match) => match[0]
-  );
+  return [...scanXmlElements(xml, tag, { prefix: TCX_PREFIX })].map((element) => xml.slice(element.start, element.end));
+}
+
+/**
+ * `attribute="value"` on the first open tag named `tag` that has it. After a tag without it the
+ * scan resumes past that tag's `>`: any open tag before that point would fail the same way.
+ */
+function openTagAttribute(text: string, tag: string, attribute: string): string | undefined {
+  const open = new RegExp(`<(?:${TCX_PREFIX}:)?${tag}\\b`, "gi");
+  const value = new RegExp(`[^>]*${attribute}="([^"]+)"`, "iy");
+  let position = 0;
+  for (;;) {
+    open.lastIndex = position;
+    const opened = open.exec(text);
+    if (!opened) return undefined;
+    const nameEnd = opened.index + opened[0].length;
+    const gt = text.indexOf(">", nameEnd);
+    if (gt < 0) return undefined;
+    value.lastIndex = nameEnd;
+    const found = value.exec(text)?.[1];
+    if (found !== undefined) return found;
+    position = gt + 1;
+  }
+}
+
+/** `lap` with everything from its first `<Track` to its last `</Track>` cut, as one span. */
+function withoutTrackSpan(lap: string): string {
+  const span = firstOpenToLastClose(lap, "<Track\\b", "<\\/Track>");
+  return span ? lap.slice(0, span.start) + lap.slice(span.end) : lap;
 }
 
 export function parseTcxActivity(xml: string): ParsedActivityFile {
@@ -286,9 +361,9 @@ export function parseTcxActivity(xml: string): ParsedActivityFile {
   let lapSeconds = 0;
   let firstLapStart: number | undefined;
   for (const lap of laps) {
-    lapDistance += tagNumber(lap.replace(/<Track\b[\s\S]*<\/Track>/i, ""), "DistanceMeters") ?? 0;
+    lapDistance += tagNumber(withoutTrackSpan(lap), "DistanceMeters") ?? 0;
     lapSeconds += tagNumber(lap, "TotalTimeSeconds") ?? 0;
-    const start = lap.match(/<(?:\w+:)?Lap\b[^>]*StartTime="([^"]+)"/i)?.[1];
+    const start = openTagAttribute(lap, "Lap", "StartTime");
     const startMs = start ? Date.parse(start) : NaN;
     if (firstLapStart === undefined && Number.isFinite(startMs)) firstLapStart = startMs;
   }
@@ -314,9 +389,9 @@ export function parseTcxActivity(xml: string): ParsedActivityFile {
 
   const times = points.map((point) => point.timestampMs).filter((value): value is number => value !== null);
   const trackSeconds = times.length >= 2 ? (times[times.length - 1]! - times[0]!) / 1000 : 0;
-  const sportAttr = text.match(/<(?:\w+:)?Activity\b[^>]*Sport="([^"]+)"/i)?.[1];
+  const sportAttr = openTagAttribute(text, "Activity", "Sport");
   // The Activity's own Notes (its title in Strava and Garmin exports), not a Lap's.
-  const activityNotes = tagText(activity.replace(/<(?:\w+:)?Lap\b[\s\S]*?<\/(?:\w+:)?Lap>/gi, ""), "Notes");
+  const activityNotes = tagText(removeXmlElements(activity, "Lap", { prefix: TCX_PREFIX, openTagEnds: false }), "Notes");
   return summarize("tcx", points, {
     distanceMeters: lapDistance > 0 ? lapDistance : lastCumulative,
     ...(firstLapStart !== undefined ? { startTimestampMs: firstLapStart } : {}),

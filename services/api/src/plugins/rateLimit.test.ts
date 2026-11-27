@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { resetJoinCodeBudgetForTests } from "../lib/joinCodeBudget.js";
 
 test("repeated GPX preview requests from one user are throttled, other users are not", async () => {
   const app = buildApp();
@@ -37,6 +38,8 @@ test("routes outside the limited set are not throttled", async () => {
 test("repeated room code attempts are throttled per user and per client address", async () => {
   const app = buildApp();
   await app.ready();
+  // Postgres runs keep the shared code budget between runs.
+  await resetJoinCodeBudgetForTests();
   const tokenFor = (sub: string) => app.jwt.sign({ sub, teamIds: ["team-1"], roomRoles: {} });
   const call = (sub: string) =>
     app.inject({

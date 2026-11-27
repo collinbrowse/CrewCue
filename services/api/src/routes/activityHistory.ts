@@ -11,20 +11,24 @@ import { isFootActivity, parseActivityFile, simplifyPositions } from "@crewcue/m
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { parseActivityHistoryRef, type ActivityHistoryRef } from "@crewcue/contracts";
-import {
-  fingerprintGpxExternalId,
-  GpxActivityParseError,
-  parseGpxActivityMetrics
-} from "../lib/gpxActivityHistory.js";
+import { fingerprintGpxExternalId, GpxActivityParseError } from "../lib/gpxActivityHistory.js";
 import { MAX_GPX_XML_CHARS } from "../lib/gpxLimits.js";
+import {
+  base64JsonBodyLimitBytes,
+  GPX_FILE_TOO_LARGE,
+  GPX_JSON_BODY_LIMIT_BYTES,
+  largeBodyRoute
+} from "../lib/bodyLimits.js";
 import {
   ACTIVITY_FILE_SOURCES,
   ActivityFileError,
   fingerprintActivityFile,
   gunzipActivityFile,
   MAX_ACTIVITY_FILE_BYTES,
-  parseActivityFileMetrics
+  parseActivityFileMetrics,
+  type ParsedActivityFileMetrics
 } from "../lib/activityFileHistory.js";
+import { parseUploadInWorker, UploadParseLimitError } from "../lib/uploadParse.js";
 import { looksLikeZip, zipEntries, ZipArchiveError } from "../lib/zipArchive.js";
 import { startUploadJob, uploadJobFor } from "../lib/uploadJobs.js";
 import {
@@ -51,6 +55,9 @@ const ingestGpxInput = z
 /** Base64 length of the largest accepted file. */
 const MAX_ACTIVITY_FILE_BASE64_CHARS = Math.ceil(MAX_ACTIVITY_FILE_BYTES / 3) * 4;
 
+const FILE_TOO_LARGE = { error: "The file is larger than 10 MB. Export a single activity.", code: "file_too_large" };
+const ARCHIVE_TOO_LARGE = { error: "The file is larger than 20 MB. Export fewer runs at a time.", code: "file_too_large" };
+
 /** Exported watch file (.gpx, .fit, .tcx) as base64 (#652). */
 const ingestFileInput = z
   .object({
@@ -69,7 +76,7 @@ const archiveInput = z
   })
   .strict();
 
-/** Largest .zip (or single file) the preview and archive routes take. Fits the 32 MB body as base64. */
+/** Largest .zip (or single file) the preview and archive routes take, sent as base64. */
 export const MAX_ARCHIVE_BYTES = 20 * 1024 * 1024;
 const MAX_ARCHIVE_BASE64_CHARS = Math.ceil(MAX_ARCHIVE_BYTES / 3) * 4;
 /** Runs one .zip may hold (a year of daily runs, with room). */
@@ -125,7 +132,10 @@ function toIsoNow(): string {
 
 /** One activity file → a history row to store. @throws {ActivityFileError} */
 function refFromFile(bytes: Uint8Array, fileName: string, externalId?: string): ActivityHistoryRef {
-  const metrics = parseActivityFileMetrics(bytes, fileName);
+  return refFromMetrics(parseActivityFileMetrics(bytes, fileName), bytes, externalId);
+}
+
+function refFromMetrics(metrics: ParsedActivityFileMetrics, bytes: Uint8Array, externalId?: string): ActivityHistoryRef {
   const ingestedAt = toIsoNow();
   return parseActivityHistoryRef({
     id: randomUUID(),
@@ -285,7 +295,7 @@ function decodeArchiveBody(
     return { ok: false, status: 400, error: "Invalid activity file payload" };
   }
   if (parsed.data.contentBase64.length > MAX_ARCHIVE_BASE64_CHARS) {
-    return { ok: false, status: 413, error: "The file is larger than 20 MB. Export fewer runs at a time.", code: "file_too_large" };
+    return { ok: false, status: 413, ...ARCHIVE_TOO_LARGE };
   }
   return { ok: true, fileName: parsed.data.fileName, bytes: new Uint8Array(Buffer.from(parsed.data.contentBase64, "base64")) };
 }
@@ -336,7 +346,7 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
     return reply.code(result.created ? 201 : 200).send(toClientRef(result.ref));
   });
 
-  app.post("/activity-history/gpx", async (request, reply) => {
+  app.post("/activity-history/gpx", largeBodyRoute(GPX_JSON_BODY_LIMIT_BYTES, GPX_FILE_TOO_LARGE), async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
@@ -353,10 +363,13 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
 
     let metrics;
     try {
-      metrics = parseGpxActivityMetrics(parsedBody.data.gpxXml);
+      metrics = await parseUploadInWorker({ kind: "gpxActivity", gpxXml: parsedBody.data.gpxXml });
     } catch (err) {
       if (err instanceof GpxActivityParseError) {
         return reply.code(400).send({ error: err.message, code: err.code });
+      }
+      if (err instanceof UploadParseLimitError) {
+        return reply.code(422).send({ error: err.message, code: err.code });
       }
       throw err;
     }
@@ -385,7 +398,8 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
     return reply.code(result.created ? 201 : 200).send(toClientRef(result.ref));
   });
 
-  app.post("/activity-history/file", async (request, reply) => {
+  const fileRoute = largeBodyRoute(base64JsonBodyLimitBytes(MAX_ACTIVITY_FILE_BASE64_CHARS), FILE_TOO_LARGE);
+  app.post("/activity-history/file", fileRoute, async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
@@ -400,19 +414,25 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       return reply.code(403).send({ error: "Forbidden" });
     }
     if (parsedBody.data.contentBase64.length > MAX_ACTIVITY_FILE_BASE64_CHARS) {
-      return reply
-        .code(413)
-        .send({ error: "The file is larger than 10 MB. Export a single activity.", code: "file_too_large" });
+      return reply.code(413).send(FILE_TOO_LARGE);
     }
 
     const bytes = new Uint8Array(Buffer.from(parsedBody.data.contentBase64, "base64"));
     let ref: ActivityHistoryRef;
     try {
       const activity = gunzipActivityFile(bytes, parsedBody.data.fileName);
-      ref = refFromFile(activity.bytes, activity.fileName, parsedBody.data.externalId);
+      const metrics = await parseUploadInWorker({
+        kind: "activityFile",
+        bytes: activity.bytes,
+        fileName: activity.fileName
+      });
+      ref = refFromMetrics(metrics, activity.bytes, parsedBody.data.externalId);
     } catch (err) {
       if (err instanceof ActivityFileError) {
         return reply.code(err.code === "file_too_large" ? 413 : 400).send({ error: err.message, code: err.code });
+      }
+      if (err instanceof UploadParseLimitError) {
+        return reply.code(422).send({ error: err.message, code: err.code });
       }
       throw err;
     }
@@ -457,7 +477,8 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
   }
 
   /** Read a file or .zip without saving: each run's stats, whether it's already imported, and what was skipped. */
-  app.post("/activity-history/preview", async (request, reply) => {
+  const archiveRoute = largeBodyRoute(base64JsonBodyLimitBytes(MAX_ARCHIVE_BASE64_CHARS), ARCHIVE_TOO_LARGE);
+  app.post("/activity-history/preview", archiveRoute, async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
@@ -475,7 +496,7 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
   });
 
   /** Import every run in a .zip (or one file). Same rows and dedupe as `/activity-history/file`. */
-  app.post("/activity-history/archive", async (request, reply) => {
+  app.post("/activity-history/archive", archiveRoute, async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
@@ -501,7 +522,7 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
    */
   app.post<{ Querystring: { fileName?: string; mode?: string } }>(
     "/activity-history/upload",
-    { bodyLimit: MAX_RAW_UPLOAD_BYTES },
+    largeBodyRoute(MAX_RAW_UPLOAD_BYTES, { error: "The file is larger than 200 MB.", code: "file_too_large" }),
     async (request, reply) => {
       if (!request.identity) {
         return reply.code(401).send({ error: "Unauthorized" });

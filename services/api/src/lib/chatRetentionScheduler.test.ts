@@ -47,6 +47,8 @@ test("runChatRetentionScheduledPass purges only eligible rooms and logs once", a
   assert.equal(results[0]?.roomId, "room-old");
   const passLog = log.calls.find((c) => c.msg === "chat_retention_pass");
   assert.ok(passLog, "expected chat_retention_pass log entry");
+  const sweepLog = log.calls.find((c) => c.msg === "unattached_chat_photo_sweep");
+  assert.ok(sweepLog, "each pass also sweeps photos no message attached");
 });
 
 test("runChatRetentionScheduledPass swallows listRooms errors and logs warn", async () => {

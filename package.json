@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "agent:android:ready": "node scripts/agent-android-emulator-ready.mjs",
-    "agent:harness:test": "node --test --test-concurrency=2 scripts/agent-ready-parse.test.mjs scripts/pr-decision-doc-guard.test.mjs scripts/client-harness.test.mjs scripts/release-guard.test.mjs scripts/agent-device.test.mjs scripts/kb/kbParse.test.mjs scripts/kb/unrefreshed-age.test.mjs scripts/staging-smoke-stoppage.test.mjs scripts/ci-main-alert.test.mjs scripts/ci-changed-areas.test.mjs",
+    "agent:harness:test": "node --test --test-concurrency=2 scripts/agent-ready-parse.test.mjs scripts/pr-decision-doc-guard.test.mjs scripts/client-harness.test.mjs scripts/release-guard.test.mjs scripts/agent-device.test.mjs scripts/kb/kbParse.test.mjs scripts/kb/unrefreshed-age.test.mjs scripts/staging-smoke-stoppage.test.mjs scripts/ci-main-alert.test.mjs scripts/ci-changed-areas.test.mjs scripts/staging-smoke-failure.test.mjs",
     "agent:ios:done": "node scripts/agent-ios-done.mjs",
     "agent:ios:ready": "node scripts/agent-ios-simulator-ready.mjs",
     "agent:issue:ready": "node scripts/agent-issue-ready.mjs",

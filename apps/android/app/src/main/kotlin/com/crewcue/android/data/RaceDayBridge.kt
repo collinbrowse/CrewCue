@@ -274,6 +274,17 @@ class RaceDayBridge private constructor(
     }
 
     /**
+     * Sign-out: removes this account's push row for [deviceId] (client-core `PushDeviceUnregister`,
+     * under its own deadline, never cancelled). [sessionToken] is the signed-out session's token,
+     * captured before the session was cleared; the reply never ends the next session. Blocking;
+     * call off the main thread. `{ removed, offline }`.
+     */
+    fun unregisterPushDevice(deviceId: String, sessionToken: String): RuntimeResult = call("unregisterPushDevice") {
+        put("deviceId", deviceId)
+        put("token", sessionToken)
+    }
+
+    /**
      * One step of the chat loop (client-core `ChatSync`): the newest page when [fresh], otherwise a
      * long-poll of up to [waitSeconds]. Blocks; call it off the main thread.
      */
