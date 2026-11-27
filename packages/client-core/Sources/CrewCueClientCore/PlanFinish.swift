@@ -11,13 +11,16 @@ public enum PlanFinish {
     /// reads the same stop. Nil, so the screen shows the estimate's own finish, when:
     /// - the sheet was planned from another estimate (`pacingEstimateId` set and not `estimate`'s:
     ///   a sheet cached before the attach, or read before it landed);
-    /// - a paid sheet's last stop is not the finish. The server writes the plan's finish
-    ///   (`expectedFinishElapsedSeconds`) as the finish row's moving time; a course with no finish
-    ///   waypoint ends at an aid station, which keeps its own ETA. Without `estimate` a paid sheet
-    ///   can't tell, so it has no finish row;
+    /// - a paid sheet's last stop is not the finish: its moving time is not the plan's finish
+    ///   (`expectedFinishElapsedSeconds`), which the server writes on the finish row. A sheet the
+    ///   server wrote before it added a finish row at the route's end, on a course with no finish
+    ///   waypoint, ends at the last aid station, which keeps its own ETA. Without `estimate` a paid
+    ///   sheet can't tell, so it has no finish row;
     /// - the sheet is shorter, or the arrival doesn't parse.
-    /// An unpaid race's sheet holds only the start and the finish (on a course with no finish
-    /// waypoint, the farthest stop standing in for it), so its last stop is the finish.
+    /// On a course with no finish waypoint the server ends the sheet with a finish row at the end
+    /// of the route that names no course checkpoint (`finish` or `route-finish`), paid and unpaid
+    /// alike. An unpaid race's sheet holds only the start and that finish, so its last stop is the
+    /// finish.
     public static func row(in sheet: CrewScheduleSheet?, for estimate: PacingEstimate? = nil) -> ScheduleStop? {
         guard let sheet, sheet.stops.count >= 2, let last = sheet.stops.last,
               ScheduleFormat.parseISO8601(last.clockArrivalAt) != nil else { return nil }

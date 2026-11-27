@@ -38,6 +38,28 @@ private let stops = [
     #expect(midRace.row("aid-2")?.editable == true)
 }
 
+/// A course with no finish waypoint ends at its last aid. The server's schedule then ends with a
+/// finish row at the route's end that names no course checkpoint, and the last aid's stop counts
+/// toward it, so it stays editable and moves that finish.
+@Test func theLastAidStaysEditableWhenTheScheduleFinishesAtTheRouteEnd() {
+    let noFinish = Array(checkpoints.dropLast())
+    let routeEnd = ScheduleStop(id: "s3", checkpointId: "route-finish", clockArrivalAt: "2026-08-15T18:07:00.000Z", elapsedSeconds: 22020, plannedStoppageSeconds: 0)
+    let sheet = Array(stops.dropLast()) + [routeEnd]
+
+    var draft = StopPlanDraft(checkpoints: noFinish, progressMeters: 0, scheduleStops: sheet)
+    #expect(draft.rows.map(\.editable) == [false, true, true])
+    draft.setMinutes("10", for: "aid-2")
+    #expect(draft.edits == [PlannedStopEdit(checkpointId: "aid-2", plannedStopSeconds: 600)])
+    #expect(draft.projectedStops(sheet)[3].elapsedSeconds == 22020 + 300, "the finish moves by the change")
+
+    // Without the sheet, or when its last row is a course checkpoint, the last one is the finish.
+    #expect(StopPlanDraft(checkpoints: noFinish, progressMeters: 0).rows.last?.editable == false)
+    #expect(StopPlanDraft(checkpoints: checkpoints, progressMeters: 0, scheduleStops: stops).rows.last?.editable == false)
+    // A cached sheet from an older upload of the course (other ids) never unlocks the finish.
+    let stale = stops.map { stop -> ScheduleStop in var old = stop; old.checkpointId = "old-" + stop.checkpointId; return old }
+    #expect(StopPlanDraft(checkpoints: checkpoints, progressMeters: 0, scheduleStops: stale).rows.last?.editable == false)
+}
+
 @Test func minutesParsingAcceptsWholeMinutesWithinSixHours() {
     #expect(StopPlanDraft.parseMinutes("") == .ok(seconds: 0))
     #expect(StopPlanDraft.parseMinutes(" 15 ") == .ok(seconds: 900))

@@ -431,7 +431,8 @@ enum RuntimeCall {
         // Progress comes from the runner, never this device: Android sends `progressMeters` derived from
         // the checkpoints the athlete-ping timeline marks passed; otherwise use the `runner` object.
         let progress = requestNumber(object["progressMeters"]) ?? requestProgress(object, checkpoints)
-        var draft = StopPlanDraft(checkpoints: checkpoints, progressMeters: progress)
+        let sheet = decodeSheet(object["sheet"])
+        var draft = StopPlanDraft(checkpoints: checkpoints, progressMeters: progress, scheduleStops: sheet?.stops)
         let typed = object["minutes"] as? [String: Any] ?? [:]
         for row in draft.rows where row.editable {
             if let text = typed[row.checkpointId] as? String {
@@ -442,7 +443,6 @@ enum RuntimeCall {
            let delta = intValue(step["deltaMinutes"]) {
             draft.step(id, deltaMinutes: delta)
         }
-        let sheet = decodeSheet(object["sheet"])
         let projected = sheet.map { CrewScheduleSheet(roomId: $0.roomId, raceStartAt: $0.raceStartAt, stops: draft.projectedStops($0.stops)) }
         let rows: [[String: Any]] = draft.rows.map { row in
             var item: [String: Any] = [
@@ -1199,18 +1199,30 @@ enum RuntimeCall {
     }
 
     /// New path points after `after` (the previous call's `cursor`). Offline returns no points.
+    /// New path points after `after`. `raceStartAt` (a string, or null for a room with no start) is
+    /// the start the held points were read under, the previous result's `raceStartAt`; when the
+    /// server now names another, the track is read again from the beginning and `restarted` is
+    /// true: drop the held points and draw `points` alone. Without the key it is not compared.
     private static func pingTrack(_ object: [String: Any]) async throws -> Any {
         let after = text(object, "after")
+        let knowsStart = object.keys.contains("raceStartAt")
+        let heldStart = object["raceStartAt"] as? String
         do {
             let track = try await RaceDayAPI.refreshTrack(
                 graph: try graph(object),
                 roomId: object["roomId"] as? String ?? "",
-                track: RunnerTrack(points: [], cursor: after)
+                track: RunnerTrack(points: [], cursor: after, raceStartAt: heldStart, knowsRaceStart: knowsStart)
             )
             let points: [[String: Any]] = track.points.map {
                 ["recordedAt": RaceDayReadouts.iso8601($0.recordedAt), "latitude": $0.latitude, "longitude": $0.longitude]
             }
-            var payload: [String: Any] = ["offline": false, "points": points]
+            let restarted = after != nil && knowsStart && track.knowsRaceStart && track.raceStartAt != heldStart
+            var payload: [String: Any] = [
+                "offline": false,
+                "points": points,
+                "restarted": restarted,
+                "raceStartAt": track.raceStartAt ?? NSNull()
+            ]
             if let cursor = track.cursor { payload["cursor"] = cursor }
             return payload
         } catch {
