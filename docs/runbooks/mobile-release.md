@@ -3,13 +3,17 @@
 `npm run release -- X.Y.Z` tags `main`. The `Release` workflow then:
 
 1. Checks that every secret and build variable below exists in the `release` environment, and that the API URL is https.
-2. Archives the iOS app and uploads it to TestFlight. Signing is cloud-managed through the App Store Connect API key, so there are no certificates or profiles to rotate by hand.
-3. Builds a signed Android App Bundle and uploads it to the Google Play **internal** track.
-4. Publishes a GitHub release with generated notes and the `.aab` attached.
+2. Runs the test gate: all of CI on the tagged commit, with the iOS and Android device smoke tests always on (about 30 minutes). Nothing below starts until every job has passed.
+3. Deploys the production API to Railway and checks its health.
+4. Archives the iOS app and uploads it to TestFlight. Signing is cloud-managed through the App Store Connect API key, so there are no certificates or profiles to rotate by hand.
+5. Builds a signed Android App Bundle and uploads it to the Google Play **internal** track.
+6. Publishes a GitHub release with generated notes and the `.aab` attached.
+
+If the gate fails, nothing has shipped. Open the failed job: a device smoke test that failed by chance passes on **Re-run failed jobs**; a real failure is fixed on `main` and released under a new tag.
 
 Version: `X.Y.Z` becomes the iOS marketing version and the Android `versionName`. The build number (iOS) and `versionCode` (Android) are `run_number + 100`, which only ever increases.
 
-`npm run release` refuses to tag unless you are on a clean `main` in sync with `origin`, the version is higher than the last tag, and CI on that commit is green. `--dry-run` checks without pushing.
+`npm run release` refuses to tag unless you are on a clean `main` in sync with `origin`, the version is higher than the last tag, and CI on that commit is green. That check is a courtesy: green CI on `main` may have skipped the device jobs, and the workflow's own gate is what decides. `--dry-run` checks without pushing.
 
 ## One-time setup
 
