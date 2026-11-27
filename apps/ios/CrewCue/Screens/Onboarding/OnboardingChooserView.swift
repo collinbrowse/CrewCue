@@ -31,7 +31,7 @@ struct OnboardingChooserView: View {
         }
         .animation(.snappy, value: sizeClass)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(CrewBackground())
+        .background(CrewBackground(glow: .onboarding))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.onboarding-chooser")
         .accessibilityLabel(OnboardingCopy.chooserTitle)
@@ -110,7 +110,7 @@ struct OnboardingLoadingView: View {
         CairnLoader(onLight: scheme == .light)
             .frame(width: 72, height: 72)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(CrewBackground())
+            .background(CrewBackground(glow: .onboarding))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(OnboardingCopy.loading)
             .accessibilityIdentifier("crewcue.onboarding-loading")
