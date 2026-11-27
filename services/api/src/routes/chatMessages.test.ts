@@ -14,6 +14,7 @@ import { chatPhotoStore } from "../lib/chatPhotoStore.js";
 import { sweepUnattachedChatPhotos } from "../lib/chatPhotoSweep.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { runInFreshProcess } from "../lib/testFreshProcess.js";
+import { fakeApnsToken } from "../lib/testPushTokens.js";
 
 type App = ReturnType<typeof buildApp>;
 
@@ -106,7 +107,7 @@ async function list(app: App, token: string, roomId: string, query = "") {
   });
 }
 
-async function registerPush(app: App, token: string, deviceId: string, platform = "ios", pushToken = `tok-${deviceId}`) {
+async function registerPush(app: App, token: string, deviceId: string, platform = "ios", pushToken = platform === "ios" ? fakeApnsToken(`tok-${deviceId}`) : `tok-${deviceId}`) {
   const res = await app.inject({
     method: "POST",
     url: "/chat/push/tokens",
@@ -545,7 +546,7 @@ test("chat messages: a phone handed to someone else stops getting the first crew
 
     // Same app install: Ada signs out, Bo signs in, and the phone re-registers its device id and token.
     const phone = `phone-${run}`;
-    const phoneToken = `apns-${run}`;
+    const phoneToken = fakeApnsToken(`apns-${run}`);
     await register(ada, phone, phoneToken);
     assert.deepEqual(await pushedTokens(adaRace, `a1-${run}`), [phoneToken], "Ada's phone gets her race chat");
     await register(bo, phone, phoneToken);
@@ -554,7 +555,7 @@ test("chat messages: a phone handed to someone else stops getting the first crew
 
     // Reinstalled app: a new device id, but the OS hands back the same push token.
     const oldInstall = `old-install-${run}`;
-    const reinstallToken = `apns-reinstall-${run}`;
+    const reinstallToken = fakeApnsToken(`apns-reinstall-${run}`);
     await register(ada, oldInstall, reinstallToken);
     assert.deepEqual(await pushedTokens(adaRace, `a3-${run}`), [reinstallToken]);
     await register(bo, `new-install-${run}`, reinstallToken);
