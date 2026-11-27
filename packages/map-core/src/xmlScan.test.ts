@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseActivityFile } from "./activityFile.js";
-import { parseGpxActivityTrack, parseGpxTrack, parseGpxTrackAsync } from "./courseParse.js";
-import { firstXmlElement, removeXmlElements, scanXmlElements } from "./xmlScan.js";
+import { parseCourseTrack, parseGpxActivityTrack, parseGpxTrack, parseGpxTrackAsync } from "./courseParse.js";
+import { firstOpenToLastClose, firstXmlElement, removeXmlElements, scanXmlElements } from "./xmlScan.js";
 
 /** About `bytes` long: point open tags that never close. */
 function unclosedPoints(tag: string, bytes: number): string {
@@ -59,6 +59,30 @@ test("a 280 KB TCX of unclosed tags parses in linear time", () => {
   const unit = "<Trackpoint><Time>x<Lap <Activity <Track <Notes ";
   const tcx = `<TrainingCenterDatabase><Activity Sport="Running">${unit.repeat(Math.ceil((280 * 1024) / unit.length))}</TrainingCenterDatabase>`;
   assert.ok(elapsedMs(() => parseActivityFile(new TextEncoder().encode(tcx), "run.tcx")) < 200);
+});
+
+test("firstOpenToLastClose spans the first open to the last close after it", () => {
+  assert.deepEqual(firstOpenToLastClose("a<Point>1</Point>2</point>b", "<Point>", "<\\/Point>"), {
+    start: 1,
+    bodyStart: 8,
+    bodyEnd: 18,
+    end: 26
+  });
+  assert.equal(firstOpenToLastClose("</Point><Point>1", "<Point>", "<\\/Point>"), null);
+});
+
+test("a 280 KB KML of unclosed tags parses in linear time", () => {
+  const bytes = 280 * 1024;
+  const route = "<Placemark><name>Route</name><LineString><coordinates>-122.42,37.78 -122.42,37.79</coordinates></LineString></Placemark>";
+  const cases = {
+    // One closed Placemark full of Point tags that never close.
+    points: `<kml>${route}<Placemark><name>Aid</name>${"<Point><coordinates>".repeat(Math.ceil(bytes / 20))}</Placemark></kml>`,
+    placemarks: `<kml>${route}${"<Placemark><name>Aid</name><Point>".repeat(Math.ceil(bytes / 34))}</kml>`,
+    coordinates: `<kml>${route}${"<coordinates>-122.42,37.78 ".repeat(Math.ceil(bytes / 27))}</kml>`
+  };
+  for (const [name, kml] of Object.entries(cases)) {
+    assert.ok(elapsedMs(() => parseCourseTrack(kml, "route.kml")) < 200, name);
+  }
 });
 
 test("a 280 KB GPX of unclosed name, link and type tags parses in linear time", () => {

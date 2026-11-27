@@ -1,5 +1,5 @@
 import type { RaceCourse, RaceCourseBaselineTrack, RaceCourseCheckpointCutoff } from "@crewcue/contracts";
-import { scanXmlElements } from "./xmlScan.js";
+import { firstOpenToLastClose, scanXmlElements } from "./xmlScan.js";
 
 export type GpxTrackPoint = {
   latitude: number;
@@ -747,28 +747,21 @@ function extractWaypointsFromXml(gpxXml: string): GpxWaypoint[] {
   return waypoints;
 }
 
-/**
- * Placemarks with a name and a Point. Scans with indexOf-style regexes (no lazy `[\s\S]*?`
- * chains), so a file with many unclosed `<Placemark` tags stays linear.
- */
+/** Placemarks with a name and a Point, read with the linear element scanner. */
 function extractKmlWaypoints(kml: string): GpxWaypoint[] {
   const waypoints: GpxWaypoint[] = [];
-  const openTag = /<Placemark/gi;
-  const closeTag = /<\/Placemark>/gi;
-  for (;;) {
-    const open = openTag.exec(kml);
-    if (!open) break;
-    closeTag.lastIndex = open.index;
-    const close = closeTag.exec(kml);
-    if (!close) break;
-    const block = kml.slice(open.index, close.index + close[0].length);
-    openTag.lastIndex = close.index + close[0].length;
+  const placemarks = scanXmlElements(kml, "Placemark", { prefix: null, openTagEnds: false, wordBoundary: false });
+  for (const placemark of placemarks) {
+    const block = kml.slice(placemark.start, placemark.end);
 
     const nameMatch = /<name>([^<]+)<\/name>/i.exec(block);
     if (!nameMatch) continue;
     const afterName = block.slice(nameMatch.index + nameMatch[0].length);
-    const pointMatch = /<Point>([^]*)<\/Point>/i.exec(afterName);
-    const coordinatesMatch = pointMatch ? /<coordinates>([^<]+)<\/coordinates>/i.exec(pointMatch[1] ?? "") : null;
+    // The first `<Point>` to the last `</Point>`, as the greedy match it replaces.
+    const point = firstOpenToLastClose(afterName, "<Point>", "<\\/Point>");
+    const coordinatesMatch = point
+      ? /<coordinates>([^<]+)<\/coordinates>/i.exec(afterName.slice(point.bodyStart, point.bodyEnd))
+      : null;
     if (!coordinatesMatch) continue;
 
     const name = (nameMatch[1] ?? "").trim();

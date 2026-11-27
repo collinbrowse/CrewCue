@@ -30,13 +30,16 @@ export type XmlScanOptions = {
    * When false the body starts right after the tag name (for `<tag\b[\s\S]*?</tag>` removals).
    */
   openTagEnds?: boolean;
+  /** When true (default) the name must end at a word boundary (`<trk` does not match `<trkseg`). */
+  wordBoundary?: boolean;
 };
 
 function tagPatterns(names: string, options: XmlScanOptions): { open: RegExp; close: RegExp } {
   const prefix = options.prefix === undefined ? "[\\w-]+" : options.prefix;
   const prefixPart = prefix === null ? "" : `(?:${prefix}:)?`;
+  const boundary = options.wordBoundary === false ? "" : "\\b";
   return {
-    open: new RegExp(`<${prefixPart}(?:${names})\\b`, "gi"),
+    open: new RegExp(`<${prefixPart}(?:${names})${boundary}`, "gi"),
     close: new RegExp(`<\\/${prefixPart}(?:${names})>`, "gi")
   };
 }
@@ -93,4 +96,34 @@ export function removeXmlElements(text: string, names: string, options: XmlScanO
     kept = element.end;
   }
   return kept === 0 ? text : out + text.slice(kept);
+}
+
+export type XmlSpan = {
+  /** Index of the first open match. */
+  start: number;
+  /** Index just past that open match. */
+  bodyStart: number;
+  /** Index of the last close match. */
+  bodyEnd: number;
+  /** Index just past the last close match. */
+  end: number;
+};
+
+/**
+ * From the first `open` match to the last `close` match after it (both regex sources,
+ * case-insensitive): what a greedy `open[\s\S]*close` match covers, found in one pass.
+ */
+export function firstOpenToLastClose(text: string, open: string, close: string): XmlSpan | null {
+  const opened = new RegExp(open, "i").exec(text);
+  if (!opened) return null;
+  const bodyStart = opened.index + opened[0].length;
+  const closePattern = new RegExp(close, "gi");
+  closePattern.lastIndex = bodyStart;
+  let last: RegExpExecArray | null = null;
+  for (let found = closePattern.exec(text); found; found = closePattern.exec(text)) {
+    last = found;
+    if (found[0].length === 0) closePattern.lastIndex += 1;
+  }
+  if (!last) return null;
+  return { start: opened.index, bodyStart, bodyEnd: last.index, end: last.index + last[0].length };
 }

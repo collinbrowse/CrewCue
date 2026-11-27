@@ -12,7 +12,7 @@ import {
   parseGpxActivityTrack,
   type GpxTrackPoint
 } from "./courseParse.js";
-import { firstXmlElement, removeXmlElements, scanXmlElements } from "./xmlScan.js";
+import { firstOpenToLastClose, firstXmlElement, removeXmlElements, scanXmlElements } from "./xmlScan.js";
 
 export const ACTIVITY_FILE_FORMATS = ["gpx", "fit", "tcx"] as const;
 export type ActivityFileFormat = (typeof ACTIVITY_FILE_FORMATS)[number];
@@ -342,14 +342,8 @@ function openTagAttribute(text: string, tag: string, attribute: string): string 
 
 /** `lap` with everything from its first `<Track` to its last `</Track>` cut, as one span. */
 function withoutTrackSpan(lap: string): string {
-  const open = /<Track\b/i.exec(lap);
-  if (!open) return lap;
-  const close = /<\/Track>/gi;
-  close.lastIndex = open.index + open[0].length;
-  let last: RegExpExecArray | null = null;
-  for (let found = close.exec(lap); found; found = close.exec(lap)) last = found;
-  if (!last) return lap;
-  return lap.slice(0, open.index) + lap.slice(last.index + last[0].length);
+  const span = firstOpenToLastClose(lap, "<Track\\b", "<\\/Track>");
+  return span ? lap.slice(0, span.start) + lap.slice(span.end) : lap;
 }
 
 export function parseTcxActivity(xml: string): ParsedActivityFile {
