@@ -55,6 +55,9 @@ private let stops = [
     // Without the sheet, or when its last row is a course checkpoint, the last one is the finish.
     #expect(StopPlanDraft(checkpoints: noFinish, progressMeters: 0).rows.last?.editable == false)
     #expect(StopPlanDraft(checkpoints: checkpoints, progressMeters: 0, scheduleStops: stops).rows.last?.editable == false)
+    // A cached sheet from an older upload of the course (other ids) never unlocks the finish.
+    let stale = stops.map { stop -> ScheduleStop in var old = stop; old.checkpointId = "old-" + stop.checkpointId; return old }
+    #expect(StopPlanDraft(checkpoints: checkpoints, progressMeters: 0, scheduleStops: stale).rows.last?.editable == false)
 }
 
 @Test func minutesParsingAcceptsWholeMinutesWithinSixHours() {
