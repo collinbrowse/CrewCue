@@ -44,4 +44,4 @@ CREWCUE_API_URL=https://<api-host> BILLING_ADMIN_SECRET=... npm run billing:comp
 
 ## `POST /race-rooms/:roomId/billing/dev-purchase`
 
-Debug builds' fake purchaser. Member JWT, body `{ productId }`. Records a `dev_fake` grant through the same path as the webhook. With `NODE_ENV=production` it answers 403 unless `BILLING_MANUAL_ENTITLEMENT=enabled` (staging).
+Debug builds' fake purchaser. Member JWT, body `{ productId }`. Records a `dev_fake` grant through the same path as the webhook. Unless `NODE_ENV` is `development` or `test` (unset counts as deployed), it answers 403 unless `BILLING_MANUAL_ENTITLEMENT=enabled` (staging).

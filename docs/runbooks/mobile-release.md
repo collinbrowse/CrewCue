@@ -84,7 +84,7 @@ Runners buy per race; crew never pay. Products are **consumables**; the server a
 2. RevenueCat: create the project, add the iOS and Android apps, import the three products, and copy the two public SDK keys into the release variables above.
 3. RevenueCat → Integrations → Webhooks: URL `https://<api-host>/billing/revenuecat`; set the **Authorization header** value to a long random string. Put the same string in the API service variable `REVENUECAT_WEBHOOK_AUTH` (Railway). Without it the webhook answers 503 and rooms never unlock.
 4. API service variable `BILLING_ADMIN_SECRET` (long random string) enables the comp script for race directors: `CREWCUE_API_URL=https://<api-host> BILLING_ADMIN_SECRET=… npm run billing:comp -- <roomId> [--unlimited]`. It is never in the apps.
-5. Staging only, optional: `BILLING_MANUAL_ENTITLEMENT=enabled` keeps `POST /race-rooms/:roomId/entitlement` (used by `scripts/staging-smoke-stoppage.sh`) and the debug fake purchase route working. Leave it unset in production: there, both answer 403.
+5. Staging only, optional: `BILLING_MANUAL_ENTITLEMENT=enabled` keeps `POST /race-rooms/:roomId/entitlement` (used by `scripts/staging-smoke-stoppage.sh`) and the debug fake purchase route working. Leave it unset in production: there, both answer 403. Both also answer 403 when `NODE_ENV` is unset; only `development` and `test` allow them without the flag.
 6. Free codes: iOS uses App Store Connect **offer codes** (the app shows Apple's redeem sheet); Android uses Play **promo codes** (the app opens the Play redeem page). Beta testers buy in the TestFlight sandbox or as Play license testers at no charge.
 
 ## Failure modes
