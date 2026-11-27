@@ -1003,6 +1003,7 @@ final class ShellModel {
         // The account signing out. Its directory is checked once every model below has let go of it.
         let signedOutUserId = signedInUserId ?? client.graph.session?.session?.userId
         defer { verifyUserDataWiped(userId: signedOutUserId) }
+        unregisterPushDevice()
         do {
             try client.graph.session?.signOut()
         } catch {
@@ -1051,6 +1052,24 @@ final class ShellModel {
         route = Route(featureId: "app-shell", state: .success)
         screen = client.graph.featureScreen(for: route)
         path = []
+    }
+
+    /// This phone stops getting the signed-out account's pushes. The request carries a copy of
+    /// the graph taken while it still holds the session's token, with no outbox, and sign-out
+    /// doesn't wait for it: offline, sign-out still finishes and the row stays until APNs rejects
+    /// the token or another account registers this phone.
+    private func unregisterPushDevice() {
+        guard isSignedIn else { return }
+        var snapshot = client.graph
+        snapshot.outbox = nil
+        snapshot.session = nil
+        let graph = snapshot
+        let deviceId = InstallDeviceId.current()
+        Task.detached {
+            if case .failed = await PushDeviceUnregister.run(graph: graph, deviceId: deviceId) {
+                graph.logger.log("push device unregister on sign-out failed")
+            }
+        }
     }
 
     /// Nothing outlives the account. Every model above has let go of the user by now; the
