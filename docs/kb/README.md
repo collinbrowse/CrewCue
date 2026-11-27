@@ -1,6 +1,6 @@
 # CrewCue knowledge base
 
-Last reconciled: 2026-11-26 at `56db16d`.
+Last reconciled: 2026-11-27 at `ed8df56`.
 
 A map of the system that keeps itself current: what the parts are, how data moves between them, and what can go wrong.
 
@@ -20,12 +20,12 @@ A map of the system that keeps itself current: what the parts are, how data move
 
 Two loops.
 
-1. **Facts, after merge.** [scripts/kb/generate-kb.mjs](../../scripts/kb/generate-kb.mjs) reads the code and writes `generated/`. Feature PRs do not commit it, so open PRs never conflict over it or go stale when another PR merges. On a PR, CI's `kb-drift` job runs the generator and prints the diff (new routes, unguarded routes, tables, env vars) in its job summary; it never fails. [kb-refresh.yml](../../.github/workflows/kb-refresh.yml) regenerates and commits the facts on every run, with or without Claude credentials.
-2. **Narrative, after merge.** The same [kb-refresh.yml](../../.github/workflows/kb-refresh.yml) run, on pushes to `main` that touch code and weekly, then has Claude reconcile the three narrative pages against the diff since [`.refresh-sha`](.refresh-sha), following [refresh-prompt.md](../../scripts/kb/refresh-prompt.md). The result is a PR that may touch only `docs/kb/**`, with auto-merge on.
+1. **Facts, once a day.** [scripts/kb/generate-kb.mjs](../../scripts/kb/generate-kb.mjs) reads the code and writes `generated/`. Feature PRs do not commit it, so open PRs never conflict over it or go stale when another PR merges. On a PR, CI's `kb-drift` job runs the generator and prints the diff (new routes, unguarded routes, tables, env vars) in its job summary; it never fails. [kb-refresh.yml](../../.github/workflows/kb-refresh.yml) regenerates and commits the facts on every run, with or without Claude credentials. It runs once a day, not after each merge: a refresh PR per merge moved `main` under every open PR. So `generated/` trails `main` by up to a day; run `npm run kb:generate` locally for fresh facts (discard the diff), or run the workflow by hand.
+2. **Narrative, once a day.** The same [kb-refresh.yml](../../.github/workflows/kb-refresh.yml) run then has Claude reconcile the three narrative pages against the diff since [`.refresh-sha`](.refresh-sha), following [refresh-prompt.md](../../scripts/kb/refresh-prompt.md). The result is a PR that may touch only `docs/kb/**`, with auto-merge on.
 
 The refresh workflow signs in to Claude with the `CLAUDE_CODE_OAUTH_TOKEN` repository secret (your Claude subscription; create it with `claude setup-token`), or with `ANTHROPIC_API_KEY` (API credits) when that token is absent. Add `KB_BOT_TOKEN` (the agent bot's token) too: a PR opened with the default `GITHUB_TOKEN` does not trigger CI, so its required checks never run and it cannot auto-merge. With neither Claude secret the workflow still refreshes the fact pages and skips the narrative.
 
-[kb-drift-watch.yml](../../.github/workflows/kb-drift-watch.yml) runs `kb:check` on `main` daily. Stale with a refresh PR under 24 hours old is normal lag; otherwise it opens or updates the issue "Knowledge base on main is stale".
+[kb-drift-watch.yml](../../.github/workflows/kb-drift-watch.yml) runs `kb:check` on `main` daily. Stale is normal lag while the oldest code change not yet in the pages is under 30 hours old ([unrefreshed-age.mjs](../../scripts/kb/unrefreshed-age.mjs)); otherwise it opens or updates the issue "Knowledge base on main is stale".
 
 ## Using it
 

@@ -44,7 +44,7 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 17 | 1464 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 17 | 1467 |
 | [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 6039 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 8 | 366 |
@@ -242,7 +242,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Incidents` | 2 | 188 |
 | `Screens/Invite` | 2 | 192 |
 | `Screens/Join` | 2 | 462 |
-| `Screens/Map` | 7 | 3207 |
+| `Screens/Map` | 7 | 3289 |
 | `Screens/Notifications` | 2 | 116 |
 | `Screens/Onboarding` | 15 | 4659 |
 | `Screens/Pace` | 2 | 2092 |

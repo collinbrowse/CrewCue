@@ -1,9 +1,12 @@
 name: Knowledge base refresh
 
-# Keeps docs/kb in step with main. The generated pages are rebuilt by script; the narrative
-# pages (architecture, data flow, risks) are reconciled by Claude against the diff since the
-# last refresh. The result lands as a PR that touches only docs/kb/** and auto-merges once CI
-# is green. PRs do not commit docs/kb/generated, so this is the only writer of those pages: the
+# Keeps docs/kb in step with main, once a day. The generated pages are rebuilt by script; the
+# narrative pages (architecture, data flow, risks) are reconciled by Claude against the diff since
+# the last refresh. The result lands as a PR that touches only docs/kb/** and auto-merges once CI
+# is green.
+#
+# Once a day, not on every push: a refresh after each merge was 44 of 100 merged PRs, and each one
+# moved main under every open PR. To refresh sooner, run this workflow by hand. PRs do not commit docs/kb/generated, so this is the only writer of those pages: the
 # script-only regeneration runs on every trigger, credentials or not. The narrative step signs in
 # with CLAUDE_CODE_OAUTH_TOKEN (a Claude subscription, from `claude setup-token`) when set, else
 # ANTHROPIC_API_KEY (API credits); with neither, only the fact pages are refreshed.
@@ -11,20 +14,8 @@ name: Knowledge base refresh
 # trigger CI, so required checks would never run on the refresh PR.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "services/**"
-      - "packages/**"
-      - "apps/**"
-      - "clients/behavior/**"
-      - "docs/adr/**"
-      - "docs/release/**"
-      - "railway.toml"
-      - ".github/workflows/**"
-      - "scripts/kb/**"
   schedule:
-    - cron: "0 7 * * 1" # Mondays 07:00 UTC, catches anything the path filter missed
+    - cron: "0 7 * * *" # Daily 07:00 UTC; skips itself when no code changed since the last refresh
   workflow_dispatch:
 
 concurrency:
@@ -71,7 +62,7 @@ jobs:
         if: steps.since.outputs.skip != 'true'
         run: node scripts/kb/generate-kb.mjs
 
-      # The Claude Code CLI directly, not claude-code-action: the action rejects `push` events.
+      # The Claude Code CLI directly, not claude-code-action: the CLI runs on any trigger.
       - name: Reconcile narrative pages
         if: env.HAS_KEY == 'true' && steps.since.outputs.skip != 'true'
         env:

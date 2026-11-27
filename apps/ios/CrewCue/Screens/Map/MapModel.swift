@@ -44,6 +44,8 @@ final class MapModel {
     private let locator = RaceTrackingLocator()
     /// Flushes the backlog the moment the phone gets service back.
     private var pathMonitor: NWPathMonitor?
+    /// Ends a test session (the tour's location test) once its window has passed.
+    @ObservationIgnored private var testWatch: Task<Void, Never>?
     private var generation = 0
     private var userId: String?
     private var roomId: String?
@@ -193,13 +195,32 @@ final class MapModel {
     var isAthlete: Bool { PingPolicy.mayUpload(role: role) }
 
     /// Starts race-day sampling for this race on the athlete's phone. Persisted, so a relaunch resumes.
+    /// Saved over a running location test, so the test's end no longer applies.
     func startTracking() {
+        startTracking(test: false)
+    }
+
+    /// The onboarding tour's location test: its session is marked with an end
+    /// (`TrackingSession.test`), so it stops by itself even if the app dies mid-test. A test never
+    /// replaces race-day tracking saved for this race.
+    func startTestTracking() {
+        startTracking(test: true)
+    }
+
+    private func startTracking(test: Bool) {
         guard isAthlete, let roomId, let directory = userDirectory() else {
             locationMessage = "Only the runner's phone shares location."
             return
         }
-        try? TrackingSession(roomId: roomId, startedAt: RaceDayReadouts.iso8601(client.graph.clock.now()))
-            .save(userDirectory: directory)
+        let now = client.graph.clock.now()
+        let saved = TrackingSession.load(userDirectory: directory)
+        let keepsRaceDay = test && saved.map { $0.roomId == roomId && !$0.isTest } == true
+        if !keepsRaceDay {
+            let session = test
+                ? TrackingSession.test(roomId: roomId, at: now)
+                : TrackingSession(roomId: roomId, startedAt: RaceDayReadouts.iso8601(now))
+            try? session.save(userDirectory: directory)
+        }
         reloadTrackingInterval()
         locationMessage = "Tracking. A sample every \(Self.intervalText(trackingIntervalSeconds))."
         beginSampling()
@@ -212,6 +233,58 @@ final class MapModel {
         stopLocator()
         locationMessage = "Tracking stopped."
     }
+
+    /// The tour's location test is over: stop the tracking it started, but only while the saved
+    /// session is still the test's. A Start tracking for race day meanwhile keeps running.
+    func stopTestTracking() {
+        if let directory = userDirectory(), let session = TrackingSession.load(userDirectory: directory),
+           !session.isTest {
+            return
+        }
+        stopTracking()
+    }
+
+    /// A saved test session past its end: cleared, and sampling stops. Answers whether it ended
+    /// one. Checked on resume, on each sample and by `testWatch`, so it holds with no tour on
+    /// screen (a background relaunch after the app was killed mid-test).
+    @discardableResult
+    private func endExpiredTest() -> Bool {
+        guard let directory = userDirectory(), let session = TrackingSession.load(userDirectory: directory),
+              session.testExpired(now: client.graph.clock.now()) else {
+            return false
+        }
+        try? TrackingSession.clear(userDirectory: directory)
+        if trackingActive || wantsLocation {
+            stopLocator()
+            locationMessage = "Test finished. Tracking stopped."
+        }
+        client.graph.logger.log("location test session ended")
+        return true
+    }
+
+    /// While a test session is saved, checks every few seconds for its end. Stops watching once
+    /// the session is gone or a real Start tracking replaced it.
+    private func watchTestSession() {
+        guard testWatch == nil else { return }
+        testWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.testCheckSeconds))
+                guard let self, !Task.isCancelled else { return }
+                guard let directory = self.userDirectory(),
+                      let session = TrackingSession.load(userDirectory: directory), session.isTest else {
+                    self.testWatch = nil
+                    return
+                }
+                if self.endExpiredTest() {
+                    self.testWatch = nil
+                    return
+                }
+            }
+        }
+    }
+
+    /// How often a running test session's end is checked.
+    static let testCheckSeconds: Double = 5
 
     /// The settings sheet saved a new interval.
     func reloadTrackingInterval() {
@@ -248,6 +321,8 @@ final class MapModel {
               let session = TrackingSession.load(userDirectory: directory), session.roomId == roomId else {
             return
         }
+        // The app died mid-test and came back after the test's end: nothing to resume.
+        if endExpiredTest() { return }
         if !trackingActive {
             // Set before sampling starts, so a permission denial reported during start wins.
             locationMessage = "Tracking resumed."
@@ -261,6 +336,9 @@ final class MapModel {
         trackingActive = true
         locator.start(intervalSeconds: trackingIntervalSeconds)
         startPathMonitor()
+        if let directory = userDirectory(), TrackingSession.load(userDirectory: directory)?.isTest == true {
+            watchTestSession()
+        }
     }
 
     private func stopLocator() {
@@ -269,6 +347,8 @@ final class MapModel {
         locator.stop()
         pathMonitor?.cancel()
         pathMonitor = nil
+        testWatch?.cancel()
+        testWatch = nil
     }
 
     private func startPathMonitor() {
@@ -572,6 +652,8 @@ final class MapModel {
     /// `runner`, so every crew member sees the same progress.
     private func receive(latitude: Double, longitude: Double, accuracy: Double, at time: Date) {
         guard wantsLocation, trackingActive, let sampledRoom = roomId else { return }
+        // In the background no timer runs, but samples still arrive: a test past its end stops here.
+        if endExpiredTest() { return }
         guard let cooldown = locationGate.acquire() else { return }
         let sampledRole = role
         let ticket = generation
