@@ -99,6 +99,9 @@ class MapViewModel(
     /** The server's live projection, passed back to client-core for readouts and timeline rows. */
     private var live: JSONObject? = null
     private var trackCursor: String? = null
+    /** The start [track] was read under (the server's `raceStartAt`), once a page has named it. */
+    private var trackRaceStart: String? = null
+    private var trackKnowsRaceStart = false
     private var elevation: JSONArray? = null
     /** The athlete's latest ping from the API. The only source of race progress on this phone. */
     private var runner: JSONObject? = null
@@ -241,11 +244,19 @@ class MapViewModel(
         }
     }
 
-    /** Appends new path points from the cursor; offline keeps the path already drawn. */
+    /**
+     * Appends new path points from the cursor; offline keeps the path already drawn. When the race
+     * start moved since the path was read, the server re-marks every ping, so the path is read
+     * again from the beginning and replaces the one drawn: every phone draws the same line.
+     */
     private suspend fun refreshTrack() {
-        val result = withContext(Dispatchers.IO) { runCatching { raceDay.pingTrack(roomId, trackCursor) }.getOrNull() }
+        val result = withContext(Dispatchers.IO) {
+            runCatching { raceDay.pingTrack(roomId, trackCursor, trackRaceStart, trackKnowsRaceStart) }.getOrNull()
+        }
         if (result !is RuntimeResult.Success || result.result.optBoolean("offline")) return
         val points = result.result.optJSONArray("points") ?: return
+        val restarted = result.result.optBoolean("restarted")
+        val heldTimes = if (restarted) emptyList() else trackTimes
         val added = mutableListOf<CoursePoint>()
         val addedTimes = mutableListOf<Long>()
         for (index in 0 until points.length()) {
@@ -255,11 +266,19 @@ class MapViewModel(
             if (!latitude.isNaN() && !longitude.isNaN()) {
                 added += CoursePoint(latitude, longitude)
                 // Oldest first: a time that doesn't read keeps the one before it.
-                addedTimes += epochMillis(point.optString("recordedAt")) ?: addedTimes.lastOrNull() ?: trackTimes.lastOrNull() ?: 0L
+                addedTimes += epochMillis(point.optString("recordedAt")) ?: addedTimes.lastOrNull() ?: heldTimes.lastOrNull() ?: 0L
             }
         }
+        if (restarted) trackCursor = null
         result.result.optString("cursor").ifBlank { null }?.let { trackCursor = it }
-        if (added.isNotEmpty()) {
+        if (result.result.has("raceStartAt")) {
+            trackRaceStart = if (result.result.isNull("raceStartAt")) null else result.result.optString("raceStartAt")
+            trackKnowsRaceStart = true
+        }
+        if (restarted) {
+            track = added
+            trackTimes = addedTimes
+        } else if (added.isNotEmpty()) {
             track = track + added
             trackTimes = trackTimes + addedTimes
         }

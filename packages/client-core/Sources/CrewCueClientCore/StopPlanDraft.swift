@@ -69,18 +69,30 @@ public struct StopPlanDraft: Equatable, Sendable {
 
     /// Rows in course order. `progressMeters` (from the runner's pings) locks passed checkpoints,
     /// using the same 5 m rule as the Pace timeline's done state.
-    public init(checkpoints: [AidStationCheckpoint], progressMeters: Double) {
+    ///
+    /// The last checkpoint is the finish, and locked, unless `scheduleStops` (the sheet on show)
+    /// ends with a row that names no checkpoint of the course: the server's finish at the route's
+    /// end on a course with no finish waypoint, every row before it naming one. There the last checkpoint is an aid station whose
+    /// planned stop counts toward the finish, so it stays editable.
+    public init(checkpoints: [AidStationCheckpoint], progressMeters: Double, scheduleStops: [ScheduleStop]? = nil) {
         let progress = progressMeters.isFinite ? max(0, progressMeters) : 0
         let ordered = checkpoints.enumerated().sorted { lhs, rhs in
             let left = lhs.element.distanceMetersFromStart ?? Double(lhs.offset)
             let right = rhs.element.distanceMetersFromStart ?? Double(rhs.offset)
             return left == right ? lhs.offset < rhs.offset : left < right
         }.map(\.element)
+        let courseIds = Set(ordered.map(\.id))
+        // Only a sheet of this course counts: a cached sheet from an older upload (other ids) would
+        // otherwise unlock the real finish.
+        let finishIsRouteEnd = scheduleStops.map { stops in
+            guard let last = stops.last, stops.count >= 2 else { return false }
+            return !courseIds.contains(last.checkpointId) && stops.dropLast().allSatisfy { courseIds.contains($0.checkpointId) }
+        } ?? false
         rows = ordered.enumerated().map { index, checkpoint in
             let saved = Self.seconds(checkpoint.plannedStopSeconds)
             let distance = checkpoint.distanceMetersFromStart.flatMap { $0.isFinite ? $0 : nil }
             let isStart = index == 0 && (distance ?? 0) <= 5
-            let isFinish = index == ordered.count - 1 && ordered.count > 1
+            let isFinish = index == ordered.count - 1 && ordered.count > 1 && !finishIsRouteEnd
             let passed = progress > 5 && (distance.map { $0 <= progress + 5 } ?? false)
             return Row(
                 checkpointId: checkpoint.id,

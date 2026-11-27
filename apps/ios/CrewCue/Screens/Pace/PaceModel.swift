@@ -199,7 +199,11 @@ final class PaceModel {
     func beginStopEdit() {
         guard canEditStops, stopsBusy == false else { return }
         let checkpoints = aidCheckpoints
-        stopDraft = StopPlanDraft(checkpoints: checkpoints, progressMeters: latestRunner.progressMeters(checkpoints: checkpoints))
+        stopDraft = StopPlanDraft(
+            checkpoints: checkpoints,
+            progressMeters: latestRunner.progressMeters(checkpoints: checkpoints),
+            scheduleStops: loadedSheet?.stops
+        )
         stopsMessage = ""
     }
 
