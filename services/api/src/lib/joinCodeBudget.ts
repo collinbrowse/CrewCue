@@ -2,17 +2,22 @@
  * Shared budget for room code lookups that find no room (`POST /race-rooms/join-by-code`,
  * `GET /race-rooms/join-preview/:roomCode`). Counted per account (per client address when signed
  * out) and across everyone, in fixed one-hour windows. Postgres keeps the counts so every API
- * instance shares them (migration 0024); memory mode keeps a map. The per-route rate limits in
+ * instance shares them (migration 0026); memory mode keeps a map. The per-route rate limits in
  * `plugins/rateLimit.ts` still apply first, per process.
  */
 import { getPersistencePool } from "./roomPersistence.js";
+
+/**
+ * Unknown codes all callers together may try per window. The only place the global cap is set:
+ * change it here (or drop the `global` check in `joinCodeBudgetRetryAfterSeconds` to remove it).
+ */
+export const JOIN_CODE_GLOBAL_FAILURE_CAP = 500;
 
 export const JOIN_CODE_FAILURE_BUDGET = {
   windowMs: 60 * 60 * 1000,
   /** Unknown codes one account (or one signed-out address) may try per window. */
   perSubject: 20,
-  /** Unknown codes all callers together may try per window. */
-  global: 500
+  global: JOIN_CODE_GLOBAL_FAILURE_CAP
 } as const;
 
 const GLOBAL_BUCKET = "global";

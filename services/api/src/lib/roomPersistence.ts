@@ -171,7 +171,7 @@ const UNPAID_REMINDERS_DDL = `
     WHERE payload->'entitlement'->>'status' = 'unpaid';
 `;
 
-/** Mirrors db/migrations/0024_join_code_failures.sql (see joinCodeBudget.ts). */
+/** Mirrors db/migrations/0026_join_code_failures.sql (see joinCodeBudget.ts). */
 const JOIN_CODE_FAILURES_DDL = `
   CREATE TABLE IF NOT EXISTS join_code_failures (
     bucket TEXT NOT NULL,
