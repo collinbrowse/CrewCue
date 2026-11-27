@@ -49,5 +49,5 @@ The Mac is short on disk. Reuse shared caches. Free what only this worktree uses
 - **agent-ready waves:** `docs/agents/agent-work-package-verification.md` (Ready script first).
 - **Handoff / staging:** read the matching `docs/agents/*.md` by its description when needed.
 - **Red main:** `npm run ci:main-status` says whether `main` is green. What to do when it is not: `docs/runbooks/red-main.md`.
-- **Knowledge base:** `docs/kb/` maps architecture, data flow, and risks. Read the matching section before touching an unfamiliar flow. Do not commit `docs/kb/generated` in a feature PR: `kb-refresh.yml` regenerates it after merge, and CI's `kb-drift` job shows the PR's KB changes in its summary. Run `npm run kb:generate` locally only to read fresh facts, then discard the diff.
+- **Knowledge base:** `docs/kb/` maps architecture, data flow, and risks. Read the matching section before touching an unfamiliar flow. Do not commit `docs/kb/generated` in a feature PR: `kb-refresh.yml` regenerates it once a day (so it trails `main` by up to a day), and CI's `kb-drift` job shows the PR's KB changes in its summary. Run `npm run kb:generate` locally only to read fresh facts, then discard the diff.
 - **Continuity snapshot:** `docs/sdlc/agent-handoff.md` (integration agent / PR-wave boundaries; feature agents: PR Handoff delta only).
