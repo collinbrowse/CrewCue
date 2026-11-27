@@ -14,6 +14,7 @@
  */
 import { z } from "zod";
 import type { RaceRoom } from "@crewcue/contracts";
+import { raceCreatorOf } from "./billingEntitlement.js";
 
 /** Mirrors client-core `PlanAuthority.mayExplicitRecalculate` / `maySeedColdStart`. */
 export const PLAN_CREW_ROLES: readonly string[] = ["crew_member", "crew_chief", "team_manager"];
@@ -39,6 +40,17 @@ export function roomAthleteMember(room: Pick<RaceRoom, "athleteId" | "membership
   const athleteId = room.athleteId;
   if (athleteId === "") return undefined;
   return room.memberships.some((member) => member.userId === athleteId) ? athleteId : undefined;
+}
+
+/**
+ * The race owner (member management, above-crew invites, race and chat deletion): the athlete
+ * member, else, while the room has none (created by crew, or stored naming a non-member), its
+ * creator. Ownership moves to the athlete when they accept the athlete invite.
+ */
+export function raceOwnerOf(
+  room: Pick<RaceRoom, "athleteId" | "memberships" | "createdByUserId">
+): string | undefined {
+  return roomAthleteMember(room) ?? raceCreatorOf(room);
 }
 
 export function decidePlanAuthority(input: {

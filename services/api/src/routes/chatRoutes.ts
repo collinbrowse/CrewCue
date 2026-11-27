@@ -44,6 +44,7 @@ import {
 } from "../lib/chatPhotoStore.js";
 import { publishChatRoom, subscribeChatRoom } from "../lib/chatLive.js";
 import { roomUnpaidError } from "../lib/billingEntitlement.js";
+import { raceOwnerOf } from "../lib/planAuthority.js";
 import { chatPushBody, devicesToTargets, dispatchChatPush } from "../lib/chatPushDispatch.js";
 
 const UNKNOWN_SENDER = "Crew member";
@@ -466,7 +467,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
-    if (room.athleteId !== request.identity.sub) {
+    if (raceOwnerOf(room) !== request.identity.sub) {
       return reply.code(403).send({ error: "Only the race owner can delete chat data" });
     }
     const result = await deleteChatRoomData(roomId);

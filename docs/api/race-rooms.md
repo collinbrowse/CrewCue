@@ -130,7 +130,7 @@ An unpaid race costs the server work (GPX parsing, estimator runs) before anyone
 
 Creates a draft room; creator becomes the first member with `creatorRole`.
 
-**The room's athlete comes from membership.** The server sets `athleteId`: the caller when `creatorRole` is `athlete` or the body's `athleteId` is the caller's own id (a runner who also manages the crew), otherwise `""` (no athlete yet); another user's id in the body is ignored. A room with no athlete gets one when someone accepts an `athlete` invite (the creator may issue it while the seat is empty, also on an unpaid race); that user becomes `athleteId`. Until then nobody posts pings, and `POST /pacing-estimates` with `roomId` and `PUT .../pacing-estimate` answer **409** `{ "code": "athlete_not_joined" }` to crew. A plan is also refused that way when `athleteId` names someone who is not a member of the room (a room stored before this rule).
+**The room's athlete comes from membership.** The server sets `athleteId`: the caller when `creatorRole` is `athlete` or the body's `athleteId` is the caller's own id (a runner who also manages the crew), otherwise `""` (no athlete yet); another user's id in the body is ignored. A room with no athlete gets one when someone accepts an `athlete` invite (the creator may issue it while the seat is empty, also on an unpaid race); that user becomes `athleteId`. **The race owner** (above-crew invites, member role changes and removal, race and chat deletion) is the athlete while they are a member, else the room's creator (`createdByUserId`): a room created by crew is managed by its creator until the athlete joins, then by the athlete. Until then nobody posts pings, and `POST /pacing-estimates` with `roomId` and `PUT .../pacing-estimate` answer **409** `{ "code": "athlete_not_joined" }` to crew. A plan is also refused that way when `athleteId` names someone who is not a member of the room (a room stored before this rule).
 
 **Body (JSON)**
 
@@ -280,7 +280,7 @@ Issues a pending invite for an email and target role.
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
 | 402 | `room_unpaid`: the race is unpaid (any role) |
-| 403 | Not a member, insufficient role, or a non-owner issuer requested a role other than `crew_member` (except the creator's `athlete` invite while the race has no athlete) |
+| 403 | Not a member, insufficient role, or a non-owner issuer requested a role other than `crew_member` (the owner is the creator while the race has no athlete) |
 | 404 | Unknown `roomId` |
 
 ### `POST /race-rooms/:roomId/invites/accept`

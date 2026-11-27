@@ -195,12 +195,11 @@ test("no plan before the athlete joins; once they accept the athlete invite it i
     assert.equal(attachRefused.statusCode, 409, attachRefused.body);
     assert.equal(code(attachRefused), "athlete_not_joined");
 
-    // While the seat is empty only the creator may invite above crew_member, and only the athlete.
     const crewInvite = await invite(app, token(CHIEF), roomId, MEMBER, "crew_member");
     assert.equal(crewInvite.statusCode, 201, crewInvite.body);
     await acceptInvite(app, token(MEMBER), roomId, (crewInvite.json() as { token: string }).token);
+    // Crew can't invite the athlete; only the owner (the creator, until the athlete joins).
     assert.equal((await invite(app, token(MEMBER), roomId, RUNNER, "athlete")).statusCode, 403);
-    assert.equal((await invite(app, token(CHIEF), roomId, RUNNER, "crew_chief")).statusCode, 403);
 
     const athleteInvite = await invite(app, token(CHIEF), roomId, RUNNER, "athlete");
     assert.equal(athleteInvite.statusCode, 201, athleteInvite.body);
@@ -214,6 +213,54 @@ test("no plan before the athlete joins; once they accept the athlete invite it i
 
     // The seat is taken: a second athlete invite needs the athlete (owner) again.
     assert.equal((await invite(app, token(CHIEF), roomId, "athlete-member-second", "athlete")).statusCode, 403);
+  });
+});
+
+test("the creator owns a room created by crew until its athlete joins, then the athlete does", async () => {
+  await withApp(async ({ app, token }) => {
+    const roomId = await crewRoom(app, token);
+    const promoted = "athlete-member-promoted";
+    for (const sub of [MEMBER, promoted]) {
+      const issued = await invite(app, token(CHIEF), roomId, sub, "crew_member");
+      assert.equal(issued.statusCode, 201, issued.body);
+      await acceptInvite(app, token(sub), roomId, (issued.json() as { token: string }).token);
+    }
+    // Owner rights before any athlete: invite above crew_member, change roles, remove a member.
+    const chiefInvite = await invite(app, token(CHIEF), roomId, "athlete-member-chief-2", "crew_chief");
+    assert.equal(chiefInvite.statusCode, 201, chiefInvite.body);
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/race-rooms/${roomId}/members/${promoted}`,
+      payload: { role: "crew_chief" },
+      headers: { authorization: `Bearer ${token(CHIEF)}` }
+    });
+    assert.equal(patched.statusCode, 200, patched.body);
+    // A crew chief who is not the creator is not the owner.
+    const notOwner = await app.inject({
+      method: "DELETE",
+      url: `/race-rooms/${roomId}/members/${MEMBER}`,
+      headers: { authorization: `Bearer ${token(promoted)}` }
+    });
+    assert.equal(notOwner.statusCode, 403, notOwner.body);
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/race-rooms/${roomId}/members/${MEMBER}`,
+      headers: { authorization: `Bearer ${token(CHIEF)}` }
+    });
+    assert.equal(removed.statusCode, 200, removed.body);
+    const removeOwner = await app.inject({
+      method: "DELETE",
+      url: `/race-rooms/${roomId}/members/${CHIEF}`,
+      headers: { authorization: `Bearer ${token(CHIEF)}` }
+    });
+    assert.equal(removeOwner.statusCode, 409, removeOwner.body);
+
+    // Once the athlete accepts, they own the race and the creator is crew.
+    const athleteInvite = await invite(app, token(CHIEF), roomId, RUNNER, "athlete");
+    assert.equal(athleteInvite.statusCode, 201, athleteInvite.body);
+    await acceptInvite(app, token(RUNNER), roomId, (athleteInvite.json() as { token: string }).token);
+    assert.equal((await invite(app, token(CHIEF), roomId, "athlete-member-chief-3", "crew_chief")).statusCode, 403);
+    assert.equal((await invite(app, token(RUNNER), roomId, "athlete-member-chief-3", "crew_chief")).statusCode, 201);
   });
 });
 
