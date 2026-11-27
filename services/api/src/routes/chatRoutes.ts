@@ -28,11 +28,13 @@ import {
   upsertChatPushDevice
 } from "../lib/chatPersistence.js";
 import {
+  forgetChatPhotoUpload,
   hasChatMessageBefore,
   initChatMessageStore,
   insertChatMessage,
   latestChatMessageSeq,
   listChatMessages,
+  recordChatPhotoUpload,
   type StoredChatMessage
 } from "../lib/chatMessageStore.js";
 import {
@@ -40,6 +42,7 @@ import {
   MemoryChatPhotoStore,
   chatPhotoKeyBelongsTo,
   chatPhotoStore,
+  detectChatPhotoContentType,
   newChatPhotoKey
 } from "../lib/chatPhotoStore.js";
 import { publishChatRoom, subscribeChatRoom } from "../lib/chatLive.js";
@@ -349,6 +352,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         ? { photoKey, photoContentType: photo.contentType, photoByteSize: photo.byteSize }
         : {})
     });
+    if (photoKey) await forgetChatPhotoUpload(photoKey);
     if (!duplicate) {
       publishChatRoom(roomId, "message");
       schedulePush(room, message, app.log);
@@ -369,16 +373,24 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     if (!Buffer.isBuffer(body) || body.length === 0) {
       return reply.code(400).send({ error: "Empty photo" });
     }
+    // The bytes, not the header, decide the type: anything that is not one of the four image
+    // formats, or is a different one than declared, is refused.
+    const detected = detectChatPhotoContentType(body);
+    if (detected !== contentType) {
+      return reply.code(415).send({ error: "Photos must be JPEG, PNG, HEIC or WebP" });
+    }
     const store = chatPhotoStore();
     if (!store) return reply.code(503).send({ error: "Chat photos are not configured on this deployment" });
-    const photoKey = newChatPhotoKey(roomId, request.identity!.sub, contentType);
+    const photoKey = newChatPhotoKey(roomId, request.identity!.sub, detected);
     try {
-      await store.put(photoKey, body, contentType);
+      // Recorded first, so a failed store leaves a row the unattached-photo sweep clears.
+      await recordChatPhotoUpload(photoKey, roomId);
+      await store.put(photoKey, body, detected);
     } catch (err) {
       request.log.error({ err, roomId }, "chat_photo_upload_failed");
       return reply.code(502).send({ error: "Couldn't store the photo" });
     }
-    const response: ChatPhotoUploadResponse = { photoKey, contentType, byteSize: body.length };
+    const response: ChatPhotoUploadResponse = { photoKey, contentType: detected, byteSize: body.length };
     return reply.code(201).send(response);
   });
 
@@ -392,7 +404,13 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const { exp, sig } = (request.query ?? {}) as { exp?: string; sig?: string };
     const photo = store.read(key, exp, sig);
     if (!photo) return reply.code(404).send({ error: "Not found" });
-    return reply.header("content-type", photo.contentType).header("cache-control", "private, max-age=3600").send(photo.bytes);
+    return reply
+      .header("content-type", photo.contentType)
+      .header("cache-control", "private, max-age=3600")
+      .header("x-content-type-options", "nosniff")
+      .header("content-disposition", "inline")
+      .header("content-security-policy", "default-src 'none'; sandbox")
+      .send(photo.bytes);
   });
 
   const registerDevice = async (request: FastifyRequest, reply: FastifyReply) => {

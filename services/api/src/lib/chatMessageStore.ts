@@ -34,6 +34,8 @@ export type StoredChatMessage = {
 export type NewChatMessage = Omit<StoredChatMessage, "seq" | "createdAt">;
 
 const memoryMessages: StoredChatMessage[] = [];
+/** Uploaded photos no message has attached yet, by photo key. */
+const memoryUploads = new Map<string, { roomId: string; uploadedAt: Date }>();
 let memorySeq = 0;
 let initialized = false;
 let initPromise: Promise<void> | null = null;
@@ -61,6 +63,17 @@ export async function initChatMessageStore(log?: FastifyBaseLogger): Promise<voi
       `);
       await client.query(
         "CREATE INDEX IF NOT EXISTS chat_messages_room_seq ON chat_messages (room_id, seq);"
+      );
+      // Mirrors db/migrations/0024_chat_photo_uploads.sql.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS chat_photo_uploads (
+          photo_key TEXT PRIMARY KEY,
+          room_id TEXT NOT NULL,
+          uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+      await client.query(
+        "CREATE INDEX IF NOT EXISTS chat_photo_uploads_uploaded_at ON chat_photo_uploads (uploaded_at);"
       );
     } finally {
       await client.query("SELECT pg_advisory_unlock(711201)");
@@ -320,8 +333,66 @@ export async function deleteChatMessagesBySender(
   };
 }
 
+/**
+ * Records an uploaded photo that no message holds yet, so the unattached-photo sweep can find it.
+ * The upload route records the key before it stores the bytes: a store that fails leaves a row
+ * the sweep clears, never bytes nothing points to.
+ */
+export async function recordChatPhotoUpload(photoKey: string, roomId: string, uploadedAt: Date = new Date()): Promise<void> {
+  if (!pool) {
+    memoryUploads.set(photoKey, { roomId, uploadedAt });
+    return;
+  }
+  await initChatMessageStore();
+  await pool.query(
+    "INSERT INTO chat_photo_uploads (photo_key, room_id, uploaded_at) VALUES ($1, $2, $3) ON CONFLICT (photo_key) DO NOTHING",
+    [photoKey, roomId, uploadedAt]
+  );
+}
+
+/** Drops an upload's row: a message now holds the photo, or the sweep deleted it. */
+export async function forgetChatPhotoUpload(photoKey: string): Promise<void> {
+  if (!pool) {
+    memoryUploads.delete(photoKey);
+    return;
+  }
+  await initChatMessageStore();
+  await pool.query("DELETE FROM chat_photo_uploads WHERE photo_key = $1", [photoKey]);
+}
+
+/**
+ * Uploads recorded before `cutoff` that no message in their room holds, oldest first. Read only:
+ * the caller deletes each photo, then `forgetChatPhotoUpload`s it, so a failed delete is retried.
+ */
+export async function listUnattachedChatPhotoUploads(cutoff: Date, limit: number): Promise<string[]> {
+  if (!pool) {
+    return [...memoryUploads.entries()]
+      .filter(
+        ([key, upload]) =>
+          upload.uploadedAt.getTime() < cutoff.getTime() &&
+          !memoryMessages.some((m) => m.roomId === upload.roomId && m.photoKey === key)
+      )
+      .sort((a, b) => a[1].uploadedAt.getTime() - b[1].uploadedAt.getTime())
+      .slice(0, limit)
+      .map(([key]) => key);
+  }
+  await initChatMessageStore();
+  const result = await pool.query<{ photo_key: string }>(
+    `
+      SELECT u.photo_key FROM chat_photo_uploads u
+      WHERE u.uploaded_at < $1
+        AND NOT EXISTS (SELECT 1 FROM chat_messages m WHERE m.room_id = u.room_id AND m.photo_key = u.photo_key)
+      ORDER BY u.uploaded_at ASC
+      LIMIT $2
+    `,
+    [cutoff, limit]
+  );
+  return result.rows.map((r) => r.photo_key);
+}
+
 /** Test-only: clear memory state. No-op against postgres. */
 export function _resetChatMessageStoreForTests(): void {
   if (pool) return;
   memoryMessages.splice(0, memoryMessages.length);
+  memoryUploads.clear();
 }
