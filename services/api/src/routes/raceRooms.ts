@@ -1929,7 +1929,7 @@ function canEditCheckpointStoppage(role: Role): boolean {
   return role === "crew_member" || role === "crew_chief" || role === "team_manager";
 }
 
-/** List payload. The bearer token is omitted unless the viewer can issue invites. */
+/** List payload. The bearer token is omitted unless the viewer issued the invite or owns the race. */
 function inviteForViewer(invite: RaceRoomInvite, includeToken: boolean) {
   if (includeToken) {
     return invite;
@@ -2675,9 +2675,13 @@ function isExpired(expiresAt: string): boolean {
 export const INVITE_MAX_LIFETIME_MS = 1000 * 60 * 60 * 24 * 7;
 const INVITE_DEFAULT_LIFETIME_MS = 1000 * 60 * 60 * 24;
 
-/** An invite counts only while the person who issued it could still issue it. */
+/**
+ * An invite counts only while the person who issued it could still issue it, role included:
+ * anyone but the race owner may invite only as crew_member (POST /invites).
+ */
 function inviterStillAllowed(room: RaceRoom, invite: RaceRoomInvite): boolean {
   if (invite.invitedBy === room.athleteId) return true;
+  if (invite.role !== "crew_member") return false;
   const inviter = room.memberships.find((member) => member.userId === invite.invitedBy);
   return Boolean(inviter && getPermissions(inviter.role).canIssueInvite);
 }
@@ -4249,11 +4253,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         .map((invite) => saveRaceRoomInvite(invite))
     );
 
-    // The token is the capability to join as `role`. Only people who can issue
-    // invites may read it back; every other member still sees status and email.
-    const includeToken = getPermissions(membership.role).canIssueInvite;
+    // The token is the capability to join as `role`. Only its issuer and the race owner
+    // may read it back; every other member still sees role, status and email.
+    const viewerId = membership.userId;
+    const isOwner = room.athleteId === viewerId;
     return reply.send({
-      invites: invites.map((invite) => inviteForViewer(invite, includeToken))
+      invites: invites.map((invite) => inviteForViewer(invite, isOwner || invite.invitedBy === viewerId))
     });
   });
 
@@ -4311,6 +4316,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         invite.role !== "athlete"
       ) {
         return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
+      }
+      // Only the race owner changes a member's role (PATCH /members), so an existing member
+      // takes a new role from an invite only when the owner issued it. The invite stays pending.
+      if (existing && existing.role !== invite.role && invite.invitedBy !== room.athleteId) {
+        return reply.code(403).send({ error: "Only the race owner can change your role" });
       }
       // An invite issued while the race was paid is still refused once it is not, whatever
       // role it grants: on an unpaid race only the runner's own seat is taken or changed.

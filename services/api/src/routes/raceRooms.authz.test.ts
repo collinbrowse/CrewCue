@@ -713,6 +713,76 @@ test("an invite from a demoted crew chief no longer admits anyone", async () => 
   await f.app.close();
 });
 
+test("invite tokens are shown only to their issuer and the race owner", async () => {
+  const f = await removalFixture();
+  const chief = await issueInvite(f, "athlete-user", "crew_chief");
+  assert.equal(await acceptInvite(f, "chief-user", chief.token), 200);
+  const ownerInvite = await issueInvite(f, "athlete-user", "team_manager");
+  const chiefInvite = await issueInvite(f, "chief-user", "crew_member");
+  assert.equal(ownerInvite.statusCode, 201);
+  assert.equal(chiefInvite.statusCode, 201);
+
+  type Listed = { email: string; role: string; status: string; token?: string };
+  const list = async (sub: string): Promise<Listed[]> => {
+    const res = await f.app.inject({ method: "GET", url: `/race-rooms/${f.roomId}/invites`, headers: f.as(sub) });
+    assert.equal(res.statusCode, 200);
+    return (res.json() as { invites: Listed[] }).invites;
+  };
+
+  const chiefView = await list("chief-user");
+  const ownerInviteForChief = chiefView.find((invite) => invite.email === "team_manager-athlete-user@example.com");
+  assert.ok(ownerInviteForChief);
+  assert.equal(ownerInviteForChief.role, "team_manager");
+  assert.equal(ownerInviteForChief.status, "pending");
+  assert.equal(Object.hasOwn(ownerInviteForChief, "token"), false);
+  assert.equal(
+    chiefView.find((invite) => invite.email === "crew_member-chief-user@example.com")?.token,
+    chiefInvite.token
+  );
+
+  const ownerView = await list("athlete-user");
+  assert.equal(
+    ownerView.find((invite) => invite.email === "team_manager-athlete-user@example.com")?.token,
+    ownerInvite.token
+  );
+  assert.equal(
+    ownerView.find((invite) => invite.email === "crew_member-chief-user@example.com")?.token,
+    chiefInvite.token
+  );
+  await f.app.close();
+});
+
+test("an existing member's role changes through an invite only when the owner issued it", async () => {
+  const f = await removalFixture();
+  const roleOf = async (sub: string): Promise<string | undefined> => {
+    const res = await f.app.inject({ method: "GET", url: `/race-rooms/${f.roomId}`, headers: f.as("athlete-user") });
+    const room = (res.json() as { room: { memberships: Array<{ userId: string; role: string }> } }).room;
+    return room.memberships.find((member) => member.userId === sub)?.role;
+  };
+  const chief = await issueInvite(f, "athlete-user", "crew_chief");
+  assert.equal(await acceptInvite(f, "chief-user", chief.token), 200);
+  const otherChief = await issueInvite(f, "athlete-user", "crew_chief");
+  assert.equal(await acceptInvite(f, "other-chief-user", otherChief.token), 200);
+
+  // Another chief's crew_member invite neither changes this chief's role nor gets used up.
+  const fromOtherChief = await issueInvite(f, "other-chief-user", "crew_member");
+  assert.equal(await acceptInvite(f, "chief-user", fromOtherChief.token), 403);
+  assert.equal(await roleOf("chief-user"), "crew_chief");
+  assert.equal(await acceptInvite(f, "new-crew-user", fromOtherChief.token), 200);
+  assert.equal(await roleOf("new-crew-user"), "crew_member");
+
+  // Same role: accepting is a no-op that still succeeds.
+  const sameRole = await issueInvite(f, "chief-user", "crew_member");
+  assert.equal(await acceptInvite(f, "new-crew-user", sameRole.token), 200);
+  assert.equal(await roleOf("new-crew-user"), "crew_member");
+
+  // The owner's invite may change a member's role.
+  const fromOwner = await issueInvite(f, "athlete-user", "team_manager");
+  assert.equal(await acceptInvite(f, "chief-user", fromOwner.token), 200);
+  assert.equal(await roleOf("chief-user"), "team_manager");
+  await f.app.close();
+});
+
 test("only a newer invite from the owner brings a removed member back", async () => {
   const f = await removalFixture();
   const olderOwnerInvite = await issueInvite(f, "athlete-user", "crew_member");
