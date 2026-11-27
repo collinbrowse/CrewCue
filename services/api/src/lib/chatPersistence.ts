@@ -30,7 +30,7 @@ function resolveMode(): Mode {
 }
 
 const MODE = resolveMode();
-const pool = MODE === "postgres" ? new Pool({ connectionString: DATABASE_URL }) : null;
+const pool = MODE === "postgres" ? new Pool({ connectionString: DATABASE_URL, allowExitOnIdle: true }) : null;
 
 let initPromise: Promise<void> | null = null;
 let initialized = false;
