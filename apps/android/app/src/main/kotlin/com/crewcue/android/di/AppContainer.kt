@@ -16,6 +16,8 @@ import com.crewcue.android.invite.PlayInstallReferrer
 import com.crewcue.android.invite.PrefsReferrerOnce
 import com.crewcue.android.logging.AndroidLogger
 import com.crewcue.android.session.SessionStore
+import com.crewcue.android.ui.athlete.AthleteDraftStore
+import com.crewcue.android.ui.chat.CrewPush
 import com.crewcue.android.ui.onboarding.FileReplayRoomStore
 import com.crewcue.android.ui.onboarding.FileRunnerSetupDraftStore
 import com.crewcue.android.ui.onboarding.ReplayRoomStore
@@ -25,6 +27,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 class AppContainer(context: Context) {
@@ -47,6 +50,19 @@ class AppContainer(context: Context) {
 
     /** Work that outlives a screen's model, such as ending a replay from `onCleared`. Off Main. */
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Athlete setup's unsynced display name, outside the per-user storage root. Cleared on sign-out. */
+    val athleteDraft = AthleteDraftStore(File(appContext.filesDir, "crewcue/athlete-draft.json"))
+
+    /**
+     * Sign-out: this phone stops getting the signed-out account's pushes ([CrewPush.unregister]).
+     * [sessionToken] is the signed-out session's. Runs on [appScope], so sign-out never waits
+     * for it and it outlives the screen.
+     */
+    fun unregisterPush(sessionToken: String) {
+        if (sessionToken.isBlank()) return
+        appScope.launch { CrewPush.unregister(appContext, raceDay, sessionToken) }
+    }
 
     /** Removes demo replay folders a killed process left in the cache directory. Once per process. */
     fun cleanDemoRacesOnce() {
