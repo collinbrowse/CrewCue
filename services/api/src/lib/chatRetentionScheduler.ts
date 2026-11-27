@@ -3,7 +3,8 @@
  *
  * Runs `runChatRetentionPass` on a fixed cadence (default: every 6 hours) so
  * crew chat (messages, photos, prefs) is purged 30 days after the race
- * ends. The scheduler is intentionally minimal — Phase 7 v1 doesn't pull in a
+ * ends. Each pass first deletes photos no message attached within a day of upload
+ * (chatPhotoSweep.ts). The scheduler is intentionally minimal — Phase 7 v1 doesn't pull in a
  * real cron framework; we just use `setInterval` and let the host process stay
  * long-lived. The job is idempotent so missing a run only delays cleanup.
  *
@@ -11,6 +12,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { ChatRetentionResult, RaceRoom } from "@crewcue/contracts";
 import { runChatRetentionPass } from "./chatRetention.js";
+import { sweepUnattachedChatPhotos } from "./chatPhotoSweep.js";
 
 export type ChatRetentionListRooms = () => Promise<
   Array<Pick<RaceRoom, "id" | "eventEndsAt" | "status">>
@@ -35,6 +37,7 @@ export async function runChatRetentionScheduledPass(
   log: Pick<FastifyBaseLogger, "info" | "warn">,
   now: Date = new Date()
 ): Promise<ChatRetentionResult[]> {
+  await runUnattachedChatPhotoSweep(log, now);
   try {
     const rooms = await listRooms();
     const results = await runChatRetentionPass(rooms, now);
@@ -55,6 +58,16 @@ export async function runChatRetentionScheduledPass(
       "chat_retention_pass_failed"
     );
     return [];
+  }
+}
+
+/** Deletes photos no message attached within a day of upload. Logs and swallows failures. */
+async function runUnattachedChatPhotoSweep(log: Pick<FastifyBaseLogger, "info" | "warn">, now: Date): Promise<void> {
+  try {
+    const result = await sweepUnattachedChatPhotos(now);
+    log.info({ unattachedChatPhotos: result }, "unattached_chat_photo_sweep");
+  } catch (err) {
+    log.warn({ err }, "unattached_chat_photo_sweep_failed");
   }
 }
 
