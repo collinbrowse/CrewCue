@@ -136,9 +136,12 @@ Creates a draft room; creator becomes the first member with `creatorRole`.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `teamId` | string | required |
-| `athleteId` | string | optional; only the caller's own id has an effect (see above) |
-| `name` | string | required |
+| `teamId` | string | required, at most 200 characters |
+| `athleteId` | string | optional, at most 200 characters; only the caller's own id has an effect (see above) |
+| `name` | string | required, at most 200 characters |
+| `creatorName` | string | optional, at most 120 characters |
+| `description` | string | optional, at most 2,000 characters |
+| `crewName` | string | optional, at most 120 characters |
 | `creatorRole` | role enum | optional, default `athlete` |
 
 **Responses**
@@ -349,6 +352,12 @@ Unlike `PUT /race-rooms/:roomId/course`, this does **not** reset course-dependen
 | 401 | Missing/invalid JWT or malformed claims |
 | 403 | Not a member (every member role may edit course details), or entitlement |
 | 404 | Unknown room, no course, or unknown checkpoint ids (`checkpointIds` lists them; nothing is saved) |
+
+## Input limits
+
+- **Request bodies** are capped at 1 MB. Routes that take files have their own cap: `PUT .../course` about 24 MB (the GPX preview plus `courseGpxXml`), `PUT .../map-workspace` 8 MB, `POST .../course/gpx-preview` and `POST /activity-history/gpx` about 20 MB (a 10 MB `gpxXml`), the activity file, preview and archive routes their base64 file cap, `POST /activity-history/upload` 200 MB, chat photos 10 MB. An oversized body answers **413** `{ "error", "code" }` (`file_too_large` on file routes, else `body_too_large`). These routes answer **401** before reading the body when the request has no bearer token; a token that fails verification still gets 401 from the handler.
+- **Course and map workspace**: `courseGpxXml` at most 10 MB of text (the GPX upload cap), `courseFileName` 500 characters, at most 500 checkpoints, 10,000 baseline points, 20,000 vertices per route line and 100 lines per layer; ids at most 200 characters.
+- **Room codes** are 6 digits from a CSPRNG (the apps take exactly 6). `POST /race-rooms/join-by-code` and `GET /race-rooms/join-preview/:roomCode` share a budget of codes that match no room: 20 per hour per account (per client address when signed out), kept in Postgres so every instance shares it (`join_code_failures`, migration 0026). Past it they answer **429** `Too many requests` with `retry-after`, before looking the code up.
 
 ## Notes for consumers
 

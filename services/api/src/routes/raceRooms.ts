@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { deterministicRaceRoomId } from "../lib/deterministicRaceRoomId.js";
 import {
@@ -135,6 +135,14 @@ import {
 } from "../lib/unpaidRaceReminderScheduler.js";
 import { isTeaserRoom, projectionForRoom, roomForViewer, scheduleCourseLengthOf, teaserProjection } from "../lib/raceTeaser.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
+import { MAX_GPX_XML_CHARS } from "../lib/gpxLimits.js";
+import {
+  COURSE_BODY_LIMIT_BYTES,
+  GPX_FILE_TOO_LARGE,
+  MAP_WORKSPACE_BODY_LIMIT_BYTES,
+  largeBodyRoute
+} from "../lib/bodyLimits.js";
+import { joinCodeBudgetRetryAfterSeconds, recordJoinCodeFailure } from "../lib/joinCodeBudget.js";
 import {
   isRaceLocked,
   aidStationLockAt,
@@ -144,17 +152,34 @@ import {
   RaceLockedError
 } from "../lib/raceLock.js";
 
+/**
+ * Input limits for room text and course lists. Generous next to real use: the apps cap a race
+ * name at 80 characters, the GPX preview keeps at most 220 baseline points and 4,000 route
+ * vertices, and a 200-mile course has a few dozen aid stations.
+ */
+export const ROOM_INPUT_LIMITS = {
+  idChars: 200,
+  roomNameChars: 200,
+  personNameChars: 120,
+  descriptionChars: 2_000,
+  fileNameChars: 500,
+  checkpoints: 500,
+  baselinePoints: 10_000,
+  routeLineVertices: 20_000,
+  routeLines: 100
+} as const;
+
 const createRaceRoomInput = z.object({
-  teamId: z.string().min(1),
+  teamId: z.string().min(1).max(ROOM_INPUT_LIMITS.idChars),
   /**
    * Only read as "the creator is the athlete" (it equals the caller); any other value is ignored.
    * The server decides the room's athlete (see create).
    */
-  athleteId: z.string().optional(),
-  name: z.string().min(1),
-  creatorName: z.string().trim().min(1).optional(),
-  description: z.string().trim().optional(),
-  crewName: z.string().trim().optional(),
+  athleteId: z.string().max(ROOM_INPUT_LIMITS.idChars).optional(),
+  name: z.string().min(1).max(ROOM_INPUT_LIMITS.roomNameChars),
+  creatorName: z.string().trim().min(1).max(ROOM_INPUT_LIMITS.personNameChars).optional(),
+  description: z.string().trim().max(ROOM_INPUT_LIMITS.descriptionChars).optional(),
+  crewName: z.string().trim().max(ROOM_INPUT_LIMITS.personNameChars).optional(),
   creatorRole: z.enum(["athlete", "crew_member", "crew_chief", "team_manager"]).default("athlete")
 });
 
@@ -188,7 +213,7 @@ const waypointTagsInput = z.unknown().transform((value, ctx): WaypointTag[] => {
 });
 
 const raceCourseCheckpointInput = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(ROOM_INPUT_LIMITS.idChars),
   title: z.string().trim().min(1).max(200).optional(),
   latitude: z.number().gte(-90).lte(90),
   longitude: z.number().gte(-180).lte(180),
@@ -236,7 +261,7 @@ const patchCheckpointStopsInput = z
   });
 
 const postRaceCheckpointInput = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(ROOM_INPUT_LIMITS.idChars),
   title: z.string().trim().min(1).max(200).optional(),
   latitude: z.number().gte(-90).lte(90),
   longitude: z.number().gte(-180).lte(180),
@@ -253,7 +278,7 @@ const raceCourseBaselinePointInput = z.object({
 });
 
 const raceCourseBaselineTrackInput = z.object({
-  points: z.array(raceCourseBaselinePointInput).min(2),
+  points: z.array(raceCourseBaselinePointInput).min(2).max(ROOM_INPUT_LIMITS.baselinePoints),
   planLogSigma: z.number().finite().positive().max(2).optional(),
   planProfileBranch: z.enum(["coldStart", "coarseHistory", "similarHistory"]).optional()
 });
@@ -267,7 +292,7 @@ const raceCourseDerivedMetricsInput = z.object({
 });
 
 const raceCourseInput = z.object({
-  checkpoints: z.array(raceCourseCheckpointInput).min(2),
+  checkpoints: z.array(raceCourseCheckpointInput).min(2).max(ROOM_INPUT_LIMITS.checkpoints),
   baselineTrack: raceCourseBaselineTrackInput.optional(),
   derivedMetrics: raceCourseDerivedMetricsInput.optional()
 });
@@ -279,12 +304,15 @@ const mapWorkspacePosition = z.union([
 
 const mapWorkspaceLineStringGeometryInput = z.object({
   type: z.literal("LineString"),
-  coordinates: z.array(mapWorkspacePosition).min(2)
+  coordinates: z.array(mapWorkspacePosition).min(2).max(ROOM_INPUT_LIMITS.routeLineVertices)
 });
 
 const mapWorkspaceMultiLineStringGeometryInput = z.object({
   type: z.literal("MultiLineString"),
-  coordinates: z.array(z.array(mapWorkspacePosition).min(2)).min(1)
+  coordinates: z
+    .array(z.array(mapWorkspacePosition).min(2).max(ROOM_INPUT_LIMITS.routeLineVertices))
+    .min(1)
+    .max(ROOM_INPUT_LIMITS.routeLines)
 });
 
 const mapWorkspaceGeometryInput = z.union([
@@ -293,7 +321,7 @@ const mapWorkspaceGeometryInput = z.union([
 ]);
 
 const mapWorkspaceLayerInput = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(ROOM_INPUT_LIMITS.idChars),
   label: z.string().trim().min(1).max(200),
   visible: z.boolean(),
   sourceFileName: z.string().trim().max(500).optional(),
@@ -306,9 +334,9 @@ const updateRaceCourseInput = z.object({
   plannedPaceSecondsPerKm: z.number().positive(),
   courseDistanceMeters: z.number().finite().nonnegative().optional(),
   courseElevationGainMeters: z.number().finite().nonnegative().optional(),
-  courseFileName: z.string().trim().min(1).optional(),
-  /** Raw course GPX XML for reprocess / audit. */
-  courseGpxXml: z.string().min(1).optional(),
+  courseFileName: z.string().trim().min(1).max(ROOM_INPUT_LIMITS.fileNameChars).optional(),
+  /** Raw course GPX XML for reprocess / audit. Same cap as a GPX upload. */
+  courseGpxXml: z.string().min(1).max(MAX_GPX_XML_CHARS).optional(),
   routeOverlayLayer: mapWorkspaceLayerInput.optional(),
   /** Required: official race clock anchor for projection / Pace (ISO datetime). */
   raceStartAt: z.iso.datetime()
@@ -326,9 +354,9 @@ const renameRaceRoomInput = z.object({
 
 const putRaceMapWorkspaceInput = z.object({
   layers: z.array(mapWorkspaceLayerInput).max(24),
-  selectedLayerId: z.string().optional(),
-  drivesProjectionLayerId: z.string().optional(),
-  checkpoints: z.array(raceCourseCheckpointInput),
+  selectedLayerId: z.string().max(ROOM_INPUT_LIMITS.idChars).optional(),
+  drivesProjectionLayerId: z.string().max(ROOM_INPUT_LIMITS.idChars).optional(),
+  checkpoints: z.array(raceCourseCheckpointInput).max(ROOM_INPUT_LIMITS.checkpoints),
   syncBaselineFromLayer: z.boolean().optional()
 });
 
@@ -425,7 +453,7 @@ function unindexJoinCodeForRoomId(roomId: string): void {
 }
 
 async function randomSixDigitJoinCode(): Promise<string> {
-  return String(Math.floor(Math.random() * 1_000_000)).padStart(6, "0");
+  return String(randomInt(1_000_000)).padStart(6, "0");
 }
 
 async function generateUniqueJoinCode(): Promise<string> {
@@ -775,6 +803,15 @@ const joinPreviewRateState = new Map<string, { count: number; windowStartedAtMs:
 
 function readRequestIp(request: { ip?: string }): string {
   return typeof request.ip === "string" && request.ip.trim().length > 0 ? request.ip.trim() : "unknown";
+}
+
+/** False (after sending 429 with `retry-after`) when the caller's room code budget is spent. */
+async function joinCodeBudgetAllows(reply: FastifyReply, subject: string): Promise<boolean> {
+  const retryAfter = await joinCodeBudgetRetryAfterSeconds(subject);
+  if (retryAfter === null) return true;
+  reply.header("retry-after", String(retryAfter));
+  await reply.code(429).send({ error: "Too many requests" });
+  return false;
 }
 
 function isJoinPreviewRateLimited(ip: string): boolean {
@@ -3485,8 +3522,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (isJoinPreviewRateLimited(ip)) {
       return reply.code(429).send({ error: "Too many requests" });
     }
+    const budgetSubject = request.identity ? request.identity.sub : `ip:${ip}`;
+    if (!(await joinCodeBudgetAllows(reply, budgetSubject))) return reply;
     const room = await getRaceRoom(roomCode);
     if (!room || room.joinCode !== roomCode) {
+      await recordJoinCodeFailure(budgetSubject);
       return reply.code(404).send({ error: "Race room not found" });
     }
     return reply.send({ preview: toJoinPreview(room) });
@@ -3556,7 +3596,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(roomForViewer(updatedRoom, viewer));
   });
 
-  app.put("/race-rooms/:roomId/course", async (request, reply) => {
+  app.put("/race-rooms/:roomId/course", largeBodyRoute(COURSE_BODY_LIMIT_BYTES, GPX_FILE_TOO_LARGE), async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
@@ -4067,7 +4107,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ mapWorkspace: resolveMapWorkspace(room) });
   });
 
-  app.put("/race-rooms/:roomId/map-workspace", async (request, reply) => {
+  app.put("/race-rooms/:roomId/map-workspace", largeBodyRoute(MAP_WORKSPACE_BODY_LIMIT_BYTES), async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
@@ -4410,8 +4450,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid room join payload" });
     }
 
+    if (!(await joinCodeBudgetAllows(reply, request.identity.sub))) return reply;
     const resolved = await getRaceRoom(parsed.data.roomCode);
     if (!resolved) {
+      await recordJoinCodeFailure(request.identity.sub);
       return reply.code(404).send({ error: "Race room not found" });
     }
 
