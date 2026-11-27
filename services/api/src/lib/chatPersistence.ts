@@ -32,11 +32,39 @@ function resolveMode(): Mode {
 const MODE = resolveMode();
 const pool = MODE === "postgres" ? new Pool({ connectionString: DATABASE_URL, allowExitOnIdle: true }) : null;
 
+/**
+ * Mirrors db/migrations/0024_chat_push_devices_per_user.sql: a table created before 0024 is keyed
+ * on device_id alone; this swaps it to (user_id, device_id) once.
+ */
+const CHAT_PUSH_DEVICES_PER_USER_DDL = `
+  DO $$
+  BEGIN
+    IF EXISTS (
+      SELECT 1
+      FROM pg_index i
+      JOIN pg_class t ON t.oid = i.indrelid
+      WHERE t.relname = 'chat_push_devices'
+        AND i.indisprimary
+        AND i.indnatts = 1
+    ) THEN
+      ALTER TABLE chat_push_devices DROP CONSTRAINT chat_push_devices_pkey;
+      ALTER TABLE chat_push_devices ADD PRIMARY KEY (user_id, device_id);
+    END IF;
+  END
+  $$;
+  CREATE INDEX IF NOT EXISTS chat_push_devices_token ON chat_push_devices (token);
+`;
+
 let initPromise: Promise<void> | null = null;
 let initialized = false;
 
 const memoryPrefs = new Map<string, ChatNotificationPrefRecord>();
+/** Keyed by `pushDeviceKey`: one row per user and device. */
 const memoryPushDevices = new Map<string, ChatPushDeviceRecord>();
+
+function pushDeviceKey(userId: string, deviceId: string): string {
+  return `${userId}|${deviceId}`;
+}
 
 function prefKey(userId: string, roomId: string): string {
   return `${userId}|${roomId}`;
@@ -63,11 +91,12 @@ export async function initChatPersistence(log: FastifyBaseLogger): Promise<void>
       await client.query("SELECT pg_advisory_lock(711200)");
       await client.query(`
         CREATE TABLE IF NOT EXISTS chat_push_devices (
-          device_id TEXT PRIMARY KEY,
+          device_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
           platform TEXT NOT NULL,
           token TEXT NOT NULL,
-          registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, device_id)
         );
       `);
       await client.query("ALTER TABLE chat_push_devices ADD COLUMN IF NOT EXISTS apns_environment TEXT;");
@@ -75,6 +104,7 @@ export async function initChatPersistence(log: FastifyBaseLogger): Promise<void>
         CREATE INDEX IF NOT EXISTS chat_push_devices_user
         ON chat_push_devices (user_id);
       `);
+      await client.query(CHAT_PUSH_DEVICES_PER_USER_DDL);
       await client.query(`
         CREATE TABLE IF NOT EXISTS chat_notification_prefs (
           user_id TEXT NOT NULL,
@@ -169,27 +199,32 @@ export async function listChatNotificationPrefsForUsers(
   return out;
 }
 
+/**
+ * Registers the caller's device. Rows are keyed per user and device, so this only ever writes
+ * the caller's own row. A push token reaches one phone, so any other row holding the same token
+ * (another account signed in on this phone earlier, or this account under an older device id)
+ * is dropped: the phone's pushes go to whoever registered it last.
+ */
 export async function upsertChatPushDevice(record: ChatPushDeviceRecord): Promise<void> {
+  const key = pushDeviceKey(record.userId, record.deviceId);
   if (!pool) {
     for (const [id, existing] of memoryPushDevices) {
-      if (existing.token === record.token && id !== record.deviceId) memoryPushDevices.delete(id);
+      if (existing.token === record.token && id !== key) memoryPushDevices.delete(id);
     }
-    memoryPushDevices.set(record.deviceId, structuredClone(record));
+    memoryPushDevices.set(key, structuredClone(record));
     return;
   }
   await ensureChatPersistenceReady();
-  // A token belongs to one device: drop any other row (another user signed in on the same phone).
-  await pool.query("DELETE FROM chat_push_devices WHERE token = $1 AND device_id <> $2", [
-    record.token,
-    record.deviceId
-  ]);
+  await pool.query(
+    "DELETE FROM chat_push_devices WHERE token = $1 AND NOT (user_id = $2 AND device_id = $3)",
+    [record.token, record.userId, record.deviceId]
+  );
   await pool.query(
     `
       INSERT INTO chat_push_devices (device_id, user_id, platform, token, registered_at, apns_environment)
       VALUES ($1, $2, $3, $4, $5::timestamptz, $6)
-      ON CONFLICT (device_id) DO UPDATE
-      SET user_id = EXCLUDED.user_id,
-          platform = EXCLUDED.platform,
+      ON CONFLICT (user_id, device_id) DO UPDATE
+      SET platform = EXCLUDED.platform,
           token = EXCLUDED.token,
           registered_at = EXCLUDED.registered_at,
           apns_environment = EXCLUDED.apns_environment;
@@ -206,6 +241,22 @@ export async function upsertChatPushDevice(record: ChatPushDeviceRecord): Promis
 }
 
 /**
+ * Sign-out: removes the caller's row for this device, so the phone stops getting the account's
+ * pushes. Only `userId`'s own row; true when there was one.
+ */
+export async function deleteChatPushDeviceForUser(userId: string, deviceId: string): Promise<boolean> {
+  if (!pool) {
+    return memoryPushDevices.delete(pushDeviceKey(userId, deviceId));
+  }
+  await ensureChatPersistenceReady();
+  const result = await pool.query("DELETE FROM chat_push_devices WHERE user_id = $1 AND device_id = $2", [
+    userId,
+    deviceId
+  ]);
+  return (result.rowCount ?? 0) > 0;
+}
+
+/**
  * Deletes devices whose push token the provider rejected. A row goes only while it still holds
  * that token: a device that re-registered a fresh token during the send keeps it.
  */
@@ -216,9 +267,11 @@ export async function deleteChatPushDevices(
   if (!pool) {
     let deleted = 0;
     for (const { deviceId, token } of rejected) {
-      if (memoryPushDevices.get(deviceId)?.token !== token) continue;
-      memoryPushDevices.delete(deviceId);
-      deleted += 1;
+      for (const [key, existing] of [...memoryPushDevices.entries()]) {
+        if (existing.deviceId !== deviceId || existing.token !== token) continue;
+        memoryPushDevices.delete(key);
+        deleted += 1;
+      }
     }
     return deleted;
   }
@@ -345,9 +398,9 @@ export async function deleteChatDataForUser(
   if (store && photoKeys.length) await store.delete(photoKeys);
   if (!pool) {
     let pushDevicesPurged = 0;
-    for (const [deviceId, device] of [...memoryPushDevices.entries()]) {
+    for (const [key, device] of [...memoryPushDevices.entries()]) {
       if (device.userId !== userId) continue;
-      memoryPushDevices.delete(deviceId);
+      memoryPushDevices.delete(key);
       pushDevicesPurged += 1;
     }
     let prefsPurged = 0;

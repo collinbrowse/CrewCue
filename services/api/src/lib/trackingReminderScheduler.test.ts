@@ -53,6 +53,12 @@ import {
   TRACKING_REMINDER_RETENTION_MS,
   type TrackingReminderOutcome
 } from "./trackingReminderScheduler.js";
+import { fakeApnsToken } from "./testPushTokens.js";
+
+/** The token a test phone registers: APNs-shaped hex on iOS, an FCM-style string on Android. */
+function pushToken(user: string, platform: "ios" | "android"): string {
+  return platform === "ios" ? fakeApnsToken(`tok-${user}`) : `tok-${user}-${platform}`;
+}
 
 type App = ReturnType<typeof buildApp>;
 
@@ -155,7 +161,7 @@ async function registerDevice(app: App, user: string, platform: "ios" | "android
   const res = await app.inject({
     method: "POST",
     url: "/chat/push/tokens",
-    payload: { deviceId: `dev-${user}-${platform}`, platform, token: `tok-${user}-${platform}` },
+    payload: { deviceId: `dev-${user}-${platform}`, platform, token: pushToken(user, platform) },
     headers: auth(app, user)
   });
   assert.equal(res.statusCode, 201, res.body);
@@ -629,7 +635,7 @@ test("on the wire: type tracking, the roomId, an expiry at the window's close an
     assert.equal(outcome?.result, "sent");
     assert.equal(outcome?.delivered, 2);
 
-    const apns = apnsCalls.find((c) => c.path === `/3/device/tok-${runner}-ios`);
+    const apns = apnsCalls.find((c) => c.path === `/3/device/${pushToken(runner, "ios")}`);
     assert.ok(apns, "APNs request for the runner's iPhone");
     const apnsPayload = JSON.parse(apns.body) as {
       aps: { alert: { title: string; body: string } };
@@ -658,7 +664,7 @@ test("on the wire: type tracking, the roomId, an expiry at the window's close an
             };
           }
       )
-      .find((m) => m.message.token === `tok-${runner}-android`);
+      .find((m) => m.message.token === pushToken(runner, "android"));
     assert.ok(fcm, "FCM message for the runner's Android phone");
     assert.equal(fcm.message.data.type, "tracking");
     assert.equal(fcm.message.data.roomId, roomId);

@@ -25,6 +25,7 @@ import {
   listChatNotificationPrefsForUsers,
   listChatPushDevicesForUsers,
   setChatNotificationPref,
+  deleteChatPushDeviceForUser,
   upsertChatPushDevice
 } from "../lib/chatPersistence.js";
 import {
@@ -54,12 +55,27 @@ const notificationPrefSchema = z.object({
   preference: z.enum(["all", "mentions", "none"])
 });
 
-const pushDeviceSchema = z.object({
-  deviceId: z.string().trim().min(1).max(200),
-  platform: z.enum(["ios", "android", "web"]),
-  token: z.string().trim().min(1).max(4096),
-  apnsEnvironment: z.enum(["development", "production"]).optional()
-});
+/**
+ * Push token shapes. iOS sends the APNs device token as hex (32 bytes today; Apple says it may
+ * grow, so up to 200 bytes). FCM registration tokens use URL-safe base64 plus `:`. Either way a
+ * token never holds `/`, `?`, `#`, `%` or whitespace, so it is safe in the APNs request path.
+ */
+const APNS_TOKEN = /^(?:[0-9a-fA-F]{2}){16,200}$/;
+const FCM_TOKEN = /^[A-Za-z0-9_:.-]{1,4096}$/;
+
+const deviceIdSchema = z.string().trim().min(1).max(200);
+
+const pushDeviceSchema = z
+  .object({
+    deviceId: deviceIdSchema,
+    platform: z.enum(["ios", "android", "web"]),
+    token: z.string().trim().min(1).max(4096),
+    apnsEnvironment: z.enum(["development", "production"]).optional()
+  })
+  .refine((body) => (body.platform === "ios" ? APNS_TOKEN : FCM_TOKEN).test(body.token), {
+    path: ["token"],
+    message: "Invalid push token"
+  });
 
 const cursorSchema = z.string().regex(/^\d{1,18}$/);
 
@@ -419,6 +435,22 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/chat/devices", registerDevice);
   app.post("/chat/push/tokens", registerDevice);
+
+  // Sign-out: this phone stops getting the account's pushes. Only the caller's own row; 404 when
+  // the caller has none for this device (never registered, or already removed).
+  app.delete("/chat/devices/:deviceId", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const parsed = deviceIdSchema.safeParse((request.params as { deviceId?: string }).deviceId);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid device id" });
+    }
+    if (!(await deleteChatPushDeviceForUser(request.identity.sub, parsed.data))) {
+      return reply.code(404).send({ error: "Push device not found" });
+    }
+    return reply.code(204).send();
+  });
 
   app.get("/chat/rooms/:roomId/notification-prefs", async (request, reply) => {
     if (!request.identity) {

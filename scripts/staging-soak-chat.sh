@@ -77,7 +77,7 @@ expect_code() {
 }
 
 log "Push device registration"
-push_file="$(api_request POST /chat/devices '{"deviceId":"soak-chat-1","platform":"ios","token":"apns-soak-chat"}')"
+push_file="$(api_request POST /chat/devices '{"deviceId":"soak-chat-1","platform":"ios","token":"0000000000000000000000000000000000000000000000000000000000000001"}')"
 code="$(cat "$tmp_dir/last_code.txt")"
 if [[ "$code" == "404" ]]; then
   fail "POST /chat/devices HTTP 404 — deploy feature branch first. Body: $(cat "$push_file")"

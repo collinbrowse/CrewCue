@@ -189,6 +189,18 @@ public enum RaceDayAPI {
         }
     }
 
+    /// `DELETE /chat/devices/:deviceId`: sign-out removes this account's push row for this phone.
+    /// The server answers 404 when the account has none for it; that counts as removed.
+    public static func unregisterPushDevice(graph: ClientGraph, deviceId: String) async throws {
+        let segment = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
+        let path = "/chat/devices/\(deviceId.addingPercentEncoding(withAllowedCharacters: segment) ?? deviceId)"
+        do {
+            _ = try await sendData(graph, path, method: .delete, body: nil)
+        } catch let failure as ClientHTTPError where failure.status == 404 {
+            return
+        }
+    }
+
     /// Upload an exported watch file (.gpx, .fit, .tcx) into pacing history (#652).
     /// A file already imported returns `.duplicate` with the stored row.
     public static func importActivityFile(graph: ClientGraph, fileName: String, data: Data) async throws -> ActivityImportResult {
