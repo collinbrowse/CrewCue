@@ -1787,6 +1787,96 @@ test("concurrent join-by-code keeps both memberships (no last-write-wins loss)",
   await app.close();
 });
 
+test("a code join queued behind the race's delete does not bring the deleted race back", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerSub = "owner-join-vs-delete";
+  const ownerToken = app.jwt.sign(buildClaims(ownerSub));
+  const holderToken = app.jwt.sign(buildClaims("holder-join-vs-delete"));
+  const lateToken = app.jwt.sign(buildClaims("late-join-vs-delete"));
+  let releaseHolder!: () => void;
+  const holderGate = new Promise<void>((resolve) => {
+    releaseHolder = resolve;
+  });
+  let holderEntered!: () => void;
+  const holderInside = new Promise<void>((resolve) => {
+    holderEntered = resolve;
+  });
+  const waiters: Array<() => void> = [];
+  const nextLockWait = () => new Promise<void>((resolve) => waiters.push(resolve));
+
+  try {
+    const created = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: { teamId: "team-1", athleteId: ownerSub, name: "Join vs Delete", creatorRole: "athlete" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(created.statusCode, 201);
+    const room = created.json() as { id: string; joinCode: string };
+    const paid = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${room.id}/entitlement`,
+      payload: { status: "paid", crewTier: "unlimited" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(paid.statusCode, 200);
+
+    setRoomRuntimeLockWaitForTests((waitingRoomId) => {
+      if (waitingRoomId === room.id) waiters.shift()?.();
+    });
+    // A first join holds the room lock, so the delete and a second join queue behind it in order.
+    setMembershipWriteDelayForTests(async () => {
+      holderEntered();
+      await holderGate;
+    });
+    const holderJoin = app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: { authorization: `Bearer ${holderToken}` }
+    });
+    await holderInside;
+
+    const deleteQueued = nextLockWait();
+    const deletion = app.inject({
+      method: "DELETE",
+      url: `/race-rooms/${room.id}`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    await deleteQueued;
+
+    // This join resolved the code while the race still existed; it reaches the lock after the delete.
+    const lateQueued = nextLockWait();
+    const lateJoin = app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: { authorization: `Bearer ${lateToken}` }
+    });
+    await lateQueued;
+
+    releaseHolder();
+    const [holderResponse, deleteResponse, lateResponse] = await Promise.all([holderJoin, deletion, lateJoin]);
+    assert.equal(holderResponse.statusCode, 200);
+    assert.equal(deleteResponse.statusCode, 200);
+
+    const ownerRead = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${room.id}`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(ownerRead.statusCode, 404, "the deleted race must stay deleted");
+    assert.equal(await getRaceRoom(room.id), undefined);
+    assert.equal(lateResponse.statusCode, 404, "a join after the delete must find no race");
+  } finally {
+    setRoomRuntimeLockWaitForTests(undefined);
+    setMembershipWriteDelayForTests(undefined);
+    releaseHolder();
+    await app.close();
+  }
+});
+
 test("course save keeps a join that lands while the course read is in flight", async () => {
   const app = buildApp();
   await app.ready();
