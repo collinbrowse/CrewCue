@@ -107,8 +107,8 @@ jobs:
           version: "6.3.2"
       - run: npm run verify:client-core
 
-  # Informational only: PRs do not commit docs/kb/generated. kb-refresh.yml regenerates it after
-  # merge. This job shows how the PR moves the KB (new routes, unguarded routes, tables, env vars)
+  # Informational only: PRs do not commit docs/kb/generated. kb-refresh.yml regenerates it once
+  # a day. This job shows how the PR moves the KB (new routes, unguarded routes, tables, env vars)
   # in the job summary so a reviewer still sees it, and never fails.
   kb-drift:
     if: github.event_name == 'pull_request'
@@ -128,7 +128,7 @@ jobs:
         run: |
           touched="$(git diff --name-only "origin/$BASE_REF...HEAD" -- docs/kb/generated || true)"
           if [ -n "$touched" ] && [ "$HEAD_REF" != "kb/refresh" ]; then
-            echo "::warning::This PR edits docs/kb/generated. kb-refresh regenerates it after merge; drop these changes to avoid conflicts with other PRs."
+            echo "::warning::This PR edits docs/kb/generated. kb-refresh regenerates it once a day; drop these changes to avoid conflicts with other PRs."
           fi
           # Compare with line numbers stripped, so code that only moved shows nothing.
           norm() { sed -E 's/(:|#L)[0-9]+//g' "$1"; }
@@ -145,7 +145,7 @@ jobs:
             if [ -z "$changes" ]; then
               echo "No change to the generated KB."
             else
-              echo "kb-refresh updates these pages after merge. Check risk-signals.md for new unguarded routes."
+              echo "kb-refresh updates these pages once a day. Check risk-signals.md for new unguarded routes."
               printf '%s\n' "$changes" | head -300
             fi
           } >> "$GITHUB_STEP_SUMMARY"
