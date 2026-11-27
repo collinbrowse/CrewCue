@@ -33,7 +33,7 @@ const MODE = resolveMode();
 const pool = MODE === "postgres" ? new Pool({ connectionString: DATABASE_URL, allowExitOnIdle: true }) : null;
 
 /**
- * Mirrors db/migrations/0024_chat_push_devices_per_user.sql: a table created before 0024 is keyed
+ * Mirrors db/migrations/0027_chat_push_devices_per_user.sql: a table created before 0027 is keyed
  * on device_id alone; this swaps it to (user_id, device_id) once.
  */
 const CHAT_PUSH_DEVICES_PER_USER_DDL = `
