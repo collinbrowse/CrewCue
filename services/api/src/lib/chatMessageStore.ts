@@ -64,7 +64,7 @@ export async function initChatMessageStore(log?: FastifyBaseLogger): Promise<voi
       await client.query(
         "CREATE INDEX IF NOT EXISTS chat_messages_room_seq ON chat_messages (room_id, seq);"
       );
-      // Mirrors db/migrations/0024_chat_photo_uploads.sql.
+      // Mirrors db/migrations/0025_chat_photo_uploads.sql.
       await client.query(`
         CREATE TABLE IF NOT EXISTS chat_photo_uploads (
           photo_key TEXT PRIMARY KEY,
