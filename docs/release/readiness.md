@@ -20,7 +20,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 7. **Account deletion web page or email flow.** Play requires a deletion URL outside the app, and the in-app flow is #560. Provide a URL, even a form, before closed or production testing. Also set `AUTH0_MGMT_DOMAIN`, `AUTH0_MGMT_CLIENT_ID` and `AUTH0_MGMT_CLIENT_SECRET` on the Railway API (M2M app with `delete:users`) so deletion removes the Auth0 login: [account-deletion.md](account-deletion.md).
 8. **Railway production service** (when you leave staging).
    - Set `NODE_ENV=production`, `AUTH0_ISSUER`, `AUTH0_AUDIENCE`, `PERSISTENCE_MODE=postgres` and `DATABASE_URL`.
-   - New in this PR: with `NODE_ENV=production`, the API refuses to start without Auth0 unless a private `JWT_SECRET` is set. This stops it from accepting tokens signed with the public dev secret.
+   - The API refuses to start without Auth0 unless a private `JWT_SECRET` is set, whenever `NODE_ENV` is not `development` or `test` (unset included). This stops it from accepting tokens signed with the public dev secret.
 9. **Push credentials** (#563).
    - Turn on the Push capability on the App ID, then create an APNs auth key (.p8).
    - Create a Firebase project and add `google-services.json` for `com.crewcue.android`.
@@ -92,7 +92,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Item | Status | Evidence | Fix |
 | --- | --- | --- | --- |
 | Auth on routes | done, with caveats | A global `preHandler` sets `request.identity` (`plugins/auth.ts`). Handlers return 401 or use `requireRoomMember` / `requireCourseEditor`. Unauthenticated routes are deliberate: `/health/*`, join-preview (rate limited), Strava OAuth redirect, push webhook (shared secret, timing-safe). | Default-deny is not enforced: a new route is open unless its handler checks. Worth a route-level `config.public` flag and a test that walks every route. |
-| Dev JWT fallback | done (this PR) | `lib/authEnv.ts` blocks the public secret when `NODE_ENV=production` | none |
+| Dev JWT fallback | done | `lib/authEnv.ts` blocks the public secret unless `NODE_ENV` is `development` or `test` | none |
 | Rate limits, body size, headers | gap | Only join-preview is limited (`routes/raceRooms.ts`). 32 MB global body limit (`app.ts`). No helmet or CORS policy. | #565 |
 | Health checks | gap | `/health/ready` is static (`routes/health.ts`). Railway checks `/health/live`. | #566 |
 | Migrations | gap | `services/api/scripts/apply-sql-migrations.mjs` re-runs every file per deploy (`railway.toml` `preDeployCommand`), with no ledger | #566 |

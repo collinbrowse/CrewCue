@@ -310,7 +310,7 @@ Accepts an invite token for the authenticated user (membership is created or rol
 
 ### `POST /race-rooms/:roomId/entitlement`
 
-Updates `room.entitlement` (manual source, server timestamp). For local dev, tests, and staging only: with `NODE_ENV=production` it answers **403** `Manual entitlement is disabled` unless `BILLING_MANUAL_ENTITLEMENT=enabled`. Production rooms are paid by store purchases ([billing.md](billing.md)).
+Updates `room.entitlement` (manual source, server timestamp). For local dev, tests, and staging only: unless `NODE_ENV` is `development` or `test` (unset counts as deployed), it answers **403** `Manual entitlement is disabled` unless `BILLING_MANUAL_ENTITLEMENT=enabled`. Production rooms are paid by store purchases ([billing.md](billing.md)).
 
 **Body (JSON)**
 
