@@ -603,6 +603,57 @@ test("paid entitlement and webhook idempotency survive an API restart (Postgres)
   await second.close();
 });
 
+test("crew who joined before the runner paid keep their seat across an API restart and get in when the pass lands (Postgres)", { skip: !isRoomPersistenceEnabled() }, async () => {
+  const runner = "runner-early-crew";
+  const first = buildApp();
+  await first.ready();
+  const room = await createRunnerRoom(first, runner);
+  // Crew joins the unpaid race early and waits on the locked race.
+  assert.equal((await joinByCode(first, room.joinCode, "crew-early")).statusCode, 200);
+  assert.equal(await getRoomStatus(first, room.id, "crew-early"), 402);
+  await first.close();
+
+  // A fresh process has no cached room; the waiting crew's seat must come back from Postgres.
+  evictRaceRoomFromMemoryForTests(room.id);
+  const second = buildApp();
+  await second.ready();
+  // Still a member waiting (402, not a stranger's refusal), and still holding the only seat.
+  assert.equal(await getRoomStatus(second, room.id, "crew-early"), 402);
+  assert.equal((await billing(second, room.id, runner)).crewCount, 1);
+  const late = await joinByCode(second, room.joinCode, "crew-late");
+  assert.equal(late.statusCode, 409);
+  assert.equal((late.json() as { code: string }).code, "crew_limit_reached");
+
+  // The Race Pass (runner + 1 crew) lands after the restart: the waiting crew is let in.
+  const purchase = rcEvent({ productId: "race_pass", transactionId: "tx-early-crew", roomId: room.id, appUserId: runner });
+  assert.equal((await webhook(second, purchase)).statusCode, 200);
+  assert.equal(await getRoomStatus(second, room.id, "crew-early"), 200);
+  // Opening the invite again is the same seat, not a second one; the pass still holds one crew.
+  assert.equal((await joinByCode(second, room.joinCode, "crew-early")).statusCode, 200);
+  assert.equal((await billing(second, room.id, runner)).crewCount, 1);
+  assert.equal((await joinByCode(second, room.joinCode, "crew-late")).statusCode, 409);
+
+  // Race day: the runner's phone pings, and the crew who waited reads that progress.
+  const recordedAt = new Date(Date.now() - 30_000).toISOString();
+  const pinged = await second.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/pings`,
+    payload: { latitude: 42.005, longitude: -70.0, recordedAt, uploadIntervalSeconds: 60 },
+    headers: { authorization: `Bearer ${token(second, runner)}` }
+  });
+  assert.equal(pinged.statusCode, 201);
+  const latest = await second.inject({
+    method: "GET",
+    url: `/race-rooms/${room.id}/pings/latest`,
+    headers: { authorization: `Bearer ${token(second, "crew-early")}` }
+  });
+  assert.equal(latest.statusCode, 200);
+  const body = latest.json() as { ping?: { pingId: string; recordedAt: string } };
+  assert.equal(body.ping?.pingId, (pinged.json() as { pingId: string }).pingId);
+  assert.equal(body.ping?.recordedAt, recordedAt);
+  await second.close();
+});
+
 test("account deletion unlinks the user from their purchases but keeps the room paid", async () => {
   const app = buildApp();
   await app.ready();
