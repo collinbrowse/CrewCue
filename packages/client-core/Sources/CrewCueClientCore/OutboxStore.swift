@@ -449,7 +449,14 @@ public actor OutboxStore: UserDataStore {
         defer { inFlight.subtract(ids) }
         do {
             if let pingBatch {
+                // A room whose older batch did not settle sends no newer batch this flush: the
+                // server would accept the newer samples and then drop the older ones as stale.
+                var heldRooms: Set<String> = []
                 for (roomId, pings) in Self.pingBatches(snapshot) {
+                    if heldRooms.contains(roomId) {
+                        report.pending.append(contentsOf: pings.map(\.id))
+                        continue
+                    }
                     var mayUpload: [StoredOperation] = []
                     for operation in pings {
                         if PingPolicy.mayUpload(role: operation.role) {
@@ -470,6 +477,10 @@ public actor OutboxStore: UserDataStore {
                     }
                     // A short answer leaves the rest pending for the next flush.
                     report.pending.append(contentsOf: mayUpload.dropFirst(resolutions.count).map(\.id))
+                    let settled: Set<String> = ["accepted", "dropped", "rejected", "conflict"]
+                    if resolutions.count < mayUpload.count || resolutions.contains(where: { !settled.contains($0.status) }) {
+                        heldRooms.insert(roomId)
+                    }
                 }
             }
             for operation in snapshot where pingBatch == nil || operation.type != "ping" {
