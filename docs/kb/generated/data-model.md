@@ -3,7 +3,7 @@
 
 Postgres schema rebuilt from `services/api/db/migrations` in order, and the API files that name each table. In `PERSISTENCE_MODE=memory` none of these tables exist; the same stores keep state in process.
 
-**22 tables** from 23 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
+**24 tables** from 26 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
 
 ## `billing_grants`
 
@@ -68,9 +68,25 @@ Indexes: `chat_messages_room_seq`.
 
 Read/written by: [services/api/src/lib/chatMessageStore.ts](../../../services/api/src/lib/chatMessageStore.ts).
 
+## `chat_photo_uploads`
+
+Created in [services/api/db/migrations/0025_chat_photo_uploads.sql](../../../services/api/db/migrations/0025_chat_photo_uploads.sql).
+
+| Column | Type |
+| --- | --- |
+| `photo_key` | TEXT PRIMARY KEY |
+| `room_id` | TEXT NOT NULL |
+| `uploaded_at` | TIMESTAMPTZ NOT NULL DEFAULT NOW() |
+
+Primary key: `photo_key`.
+
+Indexes: `chat_photo_uploads_uploaded_at`.
+
+Read/written by: [services/api/src/lib/chatMessageStore.ts](../../../services/api/src/lib/chatMessageStore.ts).
+
 ## `chat_push_devices`
 
-Created in [services/api/db/migrations/0013_practical_e2e_chat.sql](../../../services/api/db/migrations/0013_practical_e2e_chat.sql). Altered in [services/api/db/migrations/0018_first_party_chat.sql](../../../services/api/db/migrations/0018_first_party_chat.sql).
+Created in [services/api/db/migrations/0013_practical_e2e_chat.sql](../../../services/api/db/migrations/0013_practical_e2e_chat.sql). Altered in [services/api/db/migrations/0018_first_party_chat.sql](../../../services/api/db/migrations/0018_first_party_chat.sql), [services/api/db/migrations/0027_chat_push_devices_per_user.sql](../../../services/api/db/migrations/0027_chat_push_devices_per_user.sql).
 
 | Column | Type |
 | --- | --- |
@@ -81,9 +97,9 @@ Created in [services/api/db/migrations/0013_practical_e2e_chat.sql](../../../ser
 | `registered_at` | TIMESTAMPTZ NOT NULL DEFAULT NOW() |
 | `apns_environment` | TEXT |
 
-Primary key: `device_id`.
+Primary key: `user_id, device_id`.
 
-Indexes: `chat_push_devices_user`.
+Indexes: `chat_push_devices_user`, `chat_push_devices_token`.
 
 Read/written by: [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts).
 
@@ -146,6 +162,22 @@ Primary key: `idempotency_key, method, path`.
 Indexes: `http_idempotency_expires_at_idx`.
 
 Read/written by: [services/api/src/lib/httpIdempotency.ts](../../../services/api/src/lib/httpIdempotency.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+
+## `join_code_failures`
+
+Created in [services/api/db/migrations/0026_join_code_failures.sql](../../../services/api/db/migrations/0026_join_code_failures.sql).
+
+| Column | Type |
+| --- | --- |
+| `bucket` | TEXT NOT NULL |
+| `window_start` | TIMESTAMPTZ NOT NULL |
+| `failures` | INT NOT NULL |
+
+Primary key: `bucket, window_start`.
+
+Indexes: `join_code_failures_by_window`.
+
+Read/written by: [services/api/src/lib/joinCodeBudget.ts](../../../services/api/src/lib/joinCodeBudget.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `platform_aggregate_heads`
 
