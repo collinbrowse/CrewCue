@@ -6,7 +6,7 @@ What is enforced today, and where.
 
 - Auth0 issues access tokens. The API verifies RS256 JWTs against `AUTH0_ISSUER` / `AUTH0_AUDIENCE` (`services/api/src/plugins/auth.ts`, `lib/auth0Jwt.ts`). Without those variables it falls back to HS256 `JWT_SECRET`, which is for local and test use only.
 - Room access is checked per request from membership roles (`athlete`, `crew_member`, `crew_chief`, `team_manager`) before handlers run.
-- A member the race owner removes cannot rejoin with the room code. Only an invite the owner issues after the removal admits them again. Invites last at most 7 days and lapse when their issuer loses invite rights.
+- A member the race owner removes cannot rejoin with the room code. Only an invite the owner issues after the removal admits them again. Invites last at most 7 days and lapse when their issuer loses invite rights. Removals persist through account deletion as a keyed hash of the user id (`ROOM_REMOVAL_HASH_KEY`, `lib/roomRemovalEnv.ts`), so the same sign-in stays removed without the raw id being kept.
 - `services/api/src/plugins/audit.ts` writes a request-level `audit_log` line with actor metadata.
 
 ## Secrets

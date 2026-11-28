@@ -154,6 +154,16 @@ const ROOM_REMOVED_MEMBERS_DDL = `
   CREATE INDEX IF NOT EXISTS room_removed_members_by_user ON room_removed_members (user_id);
 `;
 
+/** Mirrors db/migrations/0024_room_removed_member_hashes.sql (see roomRemovalStore.ts). */
+const ROOM_REMOVED_MEMBER_HASHES_DDL = `
+  CREATE TABLE IF NOT EXISTS room_removed_member_hashes (
+    room_id TEXT NOT NULL,
+    user_hash TEXT NOT NULL,
+    removed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (room_id, user_hash)
+  );
+`;
+
 /**
  * Mirrors db/migrations/0023_unpaid_reminders_sent.sql (see unpaidRaceReminderScheduler.ts): the
  * reminder claims, and a partial index of unpaid rooms by race start for the `race_soon` listing.
@@ -320,6 +330,7 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     await client.query(TRACKING_REMINDERS_DDL);
     await client.query(UNPAID_RACE_ROOMS_DDL);
     await client.query(ROOM_REMOVED_MEMBERS_DDL);
+    await client.query(ROOM_REMOVED_MEMBER_HASHES_DDL);
     await client.query(UNPAID_REMINDERS_DDL);
     await client.query(JOIN_CODE_FAILURES_DDL);
   } finally {
@@ -348,6 +359,7 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
           "course_history_events",
           "tracking_reminders_sent",
           "room_removed_members",
+          "room_removed_member_hashes",
           "unpaid_reminders_sent"
         ]
       }
