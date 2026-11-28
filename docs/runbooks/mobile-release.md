@@ -126,14 +126,18 @@ Play learns your upload key from the first bundle you upload by hand ([Google Pl
 
 #### Google Play service account (one secret)
 
-A service account is a robot Google account. The workflow signs in as it to upload the bundle, so your own Google password is never stored. You need the Play Console developer account and the app created first.
+A service account is a robot Google account. The workflow signs in as it to upload the bundle, so your own Google password is never stored. You need the Play Console developer account first. The app does not have to exist yet (see step 6); creating it is in [Google Play](#google-play), below.
 
-1. [ ] Open `https://console.cloud.google.com`, signed in with the Google account that owns the Play Console. Click the project picker at the top → **New project**. **Name:** `CrewCue Release`. Create it, then select it. This is free; no billing account is needed.
+1. [ ] Open `https://console.cloud.google.com`, signed in with the Google account that owns the Play Console. If you already have a Google Cloud project for CrewCue, select it and go to step 2: the project is only a container for the service account, and what the account may do is set in Play Console (step 6). Otherwise click the project picker at the top → **New project**. **Name:** `CrewCue Release`. Create it, then select it. This is free; no billing account is needed.
 2. [ ] Left menu → **APIs & Services → Library**. Search for **Google Play Android Developer API**, open it, click **Enable**.
 3. [ ] Left menu → **IAM & Admin → Service Accounts → Create service account**. **Name:** `crewcue-play-upload`. Click **Create and continue**, skip both optional steps, click **Done**. It needs no Google Cloud role.
 4. [ ] Copy the account's email from the list. It looks like `crewcue-play-upload@crewcue-release-123456.iam.gserviceaccount.com`.
 5. [ ] Click that email → **Keys** tab → **Add key → Create new key → JSON → Create**. A `.json` file downloads. This file is the password.
-6. [ ] Open `https://play.google.com/console` → **Users and permissions → Invite new users**. Paste the email from step 4. Under **App permissions**, click **Add app**, choose CrewCue, and tick **Release apps to testing tracks**. Leave the account-wide permissions empty. Click **Invite user**. A service account is added at once; there is no invite to accept.
+6. [ ] Open `https://play.google.com/console` → **Users and permissions → Invite new users**. Paste the email from step 4. Leave **Admin** unticked: it gives full control of the developer account, payments and users included. Leave **Access expiry date** empty: with a date, releases start failing that day. Then give it one permission, in one of two places:
+   - **The app exists:** **App permissions** tab → **Add app** → choose CrewCue → tick **Release apps to testing tracks**.
+   - **No app yet** (**Add app** is grayed out): **Account permissions** tab → tick **Release apps to testing tracks**. This covers every app in the account, including CrewCue once it is created.
+
+   Click **Invite user**. A service account is added at once; there is no invite to accept. To check later: **Users and permissions** → click the email → the permission is listed.
 7. [ ] **`PLAY_SERVICE_ACCOUNT_JSON`.** Save the whole file as the secret:
 
    ```bash
@@ -217,6 +221,14 @@ Optional variable `PLAY_RELEASE_STATUS`: set it to `draft` until the Play app ha
 3. [ ] In App Store Connect, create the app with that bundle id. TestFlight internal testers see builds after processing (about 10–30 minutes).
 
 ### Google Play
+
+Play Console shows no **Create app** button that works until the account is verified. Its **Home** page lists what is left. For a new personal account:
+
+1. [ ] **Verify your contact phone number.** Google texts a code.
+2. [ ] **Verify that you have access to an Android device.** Install the **Play Console** app from the Play Store on a real Android phone or tablet, sign in with the developer account, and follow the prompt. An emulator does not count; a borrowed device does.
+3. [ ] **Declare your trader status.** This is a legal declaration under EU consumer law, and yours to make. A **trader** is someone who sells through the app, and CrewCue sells race passes. Google shows a trader's name, address, phone and email on the store listing to users in the EU; on a personal account that is your home address unless you give a business one. Declaring non-trader while selling can get the app removed in the EU. If the public address matters to you, read the account types in [launch-owner-setup.md step 6](launch-owner-setup.md#6-google-play-start-today-this-sets-the-android-date) before declaring.
+
+Then:
 
 1. [ ] Create the app in Play Console with package `com.crewcue.android`. Enroll in Play App Signing (default) and register the upload key above.
 2. [ ] Play requires the **first** bundle to be uploaded by hand. Build it locally with the same env vars as the workflow, or take `app-release.aab` from a failed workflow run's artifacts, and upload it to Internal testing once. After that the workflow can upload.
