@@ -532,6 +532,42 @@ import Testing
     #expect(try await store.operations().isEmpty)
 }
 
+@Test func failedOlderPingBatchHoldsTheRoomsNewerBatchesUntilTheNextFlush() async throws {
+    let store = try OutboxStore(userId: "athlete-1", directory: temporaryDirectory())
+    // More than one batch of offline samples: the first 500 go in one request, the rest in the next.
+    let start = Date(timeIntervalSince1970: 1_785_000_000)
+    let count = OutboxStore.maxPingsPerBatch + 3
+    for index in 0..<count {
+        let queued = try await store.enqueuePing(
+            roomId: "room", role: "athlete", latitude: 1, longitude: 2,
+            recordedAt: RaceDayReadouts.iso8601(start.addingTimeInterval(Double(index) * 30))
+        )
+        guard case .queued = queued else {
+            Issue.record("ping \(index) was not queued")
+            return
+        }
+    }
+    let server = PingServer()
+    let requests = RequestCounter()
+    // The reconnect's first request (the oldest 500) times out; later requests reach the server.
+    let batch: @Sendable (String, [StoredOperation]) async -> [OutboxFailureResolution] = { _, pings in
+        if await requests.next() == 1 {
+            return Array(repeating: OutboxPolicy.resolve(URLError(.timedOut)), count: pings.count)
+        }
+        return await server.ingest(pings)
+    }
+    let sendNothing: @Sendable (StoredOperation) async -> OutboxFailureResolution = { _ in
+        OutboxFailureResolution(status: "pending", retryable: true, feedback: "Unexpected.")
+    }
+    let first = try await store.flush(sendNothing, pingBatch: batch)
+    let second = try await store.flush(sendNothing, pingBatch: batch)
+    // The timed-out samples are sent again before any newer one, so none turns stale.
+    #expect(first.accepted.isEmpty)
+    #expect(second.dropped.isEmpty)
+    #expect(await server.stored.count == count)
+    #expect(try await store.operations().isEmpty)
+}
+
 // MARK: Helpers
 
 private func temporaryDirectory() -> URL {
@@ -603,6 +639,16 @@ private actor OperationLog {
 
     func append(_ operation: StoredOperation) {
         operations.append(operation)
+    }
+}
+
+private actor RequestCounter {
+    private var count = 0
+
+    /// 1 for the first request, 2 for the second, and so on.
+    func next() -> Int {
+        count += 1
+        return count
     }
 }
 
