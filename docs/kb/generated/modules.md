@@ -21,16 +21,16 @@ Which `lib/` modules each route file imports directly.
 | Route file | Imports |
 | --- | --- |
 | [services/api/src/routes/accountRoutes.ts](../../../services/api/src/routes/accountRoutes.ts) | `accountDeletion.ts`, `activityHistoryStore.ts`, `pacingEstimateStore.ts`, `raceTeaser.ts`, `stravaConnectionStore.ts` |
-| [services/api/src/routes/activityHistory.ts](../../../services/api/src/routes/activityHistory.ts) | `activityFileHistory.ts`, `activityHistoryStore.ts`, `gpxActivityHistory.ts`, `gpxLimits.ts`, `uploadJobs.ts`, `zipArchive.ts` |
+| [services/api/src/routes/activityHistory.ts](../../../services/api/src/routes/activityHistory.ts) | `activityFileHistory.ts`, `activityHistoryStore.ts`, `bodyLimits.ts`, `gpxActivityHistory.ts`, `gpxLimits.ts`, `uploadJobs.ts`, `uploadParse.ts`, `zipArchive.ts` |
 | [services/api/src/routes/analyticsRoutes.ts](../../../services/api/src/routes/analyticsRoutes.ts) | — |
 | [services/api/src/routes/billingRoutes.ts](../../../services/api/src/routes/billingRoutes.ts) | `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts` |
-| [services/api/src/routes/chatRoutes.ts](../../../services/api/src/routes/chatRoutes.ts) | `billingEntitlement.ts`, `chatLive.ts`, `chatMessageStore.ts`, `chatPersistence.ts`, `chatPhotoStore.ts`, `chatPushDispatch.ts` |
-| [services/api/src/routes/courseGpxRoutes.ts](../../../services/api/src/routes/courseGpxRoutes.ts) | `gpxLimits.ts` |
+| [services/api/src/routes/chatRoutes.ts](../../../services/api/src/routes/chatRoutes.ts) | `billingEntitlement.ts`, `bodyLimits.ts`, `chatLive.ts`, `chatMessageStore.ts`, `chatPersistence.ts`, `chatPhotoStore.ts`, `chatPushDispatch.ts`, `planAuthority.ts` |
+| [services/api/src/routes/courseGpxRoutes.ts](../../../services/api/src/routes/courseGpxRoutes.ts) | `bodyLimits.ts`, `coursePreview.ts`, `gpxLimits.ts`, `uploadParse.ts` |
 | [services/api/src/routes/health.ts](../../../services/api/src/routes/health.ts) | `roomPersistence.ts` |
 | [services/api/src/routes/pacingEstimates.ts](../../../services/api/src/routes/pacingEstimates.ts) | `activityHistoryStore.ts`, `courseHistory/resolve.ts`, `finishedEffortStore.ts`, `pacingEstimate/index.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceTeaser.ts` |
 | [services/api/src/routes/raceRoomSchedule.ts](../../../services/api/src/routes/raceRoomSchedule.ts) | `billingEntitlement.ts`, `cutoffWarning.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceProjection.ts`, `raceTeaser.ts` |
 | [services/api/src/routes/raceRoomStopPlans.ts](../../../services/api/src/routes/raceRoomStopPlans.ts) | `httpIdempotency.ts` |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceLock.ts`, `raceProjection.ts`, `raceRoomDeletion.ts`, `raceTeaser.ts`, `roomPersistence.ts`, `roomRemovalStore.ts`, `trackingReminderScheduler.ts`, `unpaidRaceReminderScheduler.ts` |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts`, `bodyLimits.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `gpxLimits.ts`, `httpIdempotency.ts`, `joinCodeBudget.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `planAuthority.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceLock.ts`, `raceProjection.ts`, `raceRoomDeletion.ts`, `raceTeaser.ts`, `roomPersistence.ts`, `roomRemovalStore.ts`, `trackingReminderScheduler.ts`, `unpaidRaceReminderScheduler.ts` |
 | [services/api/src/routes/routingRoutes.ts](../../../services/api/src/routes/routingRoutes.ts) | — |
 | [services/api/src/routes/stravaRoutes.ts](../../../services/api/src/routes/stravaRoutes.ts) | `activityHistoryStore.ts`, `strava/mapStravaActivity.ts`, `strava/stravaClient.ts`, `stravaConnectionStore.ts` |
 | [services/api/src/routes/ws4AdaptivePlanRoutes.ts](../../../services/api/src/routes/ws4AdaptivePlanRoutes.ts) | `lazyHydrate.ts`, `roomPersistence.ts` |
@@ -44,30 +44,37 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 17 | 1467 |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 6039 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 18 | 1479 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 6114 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
-| [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 8 | 366 |
+| [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 8 | 419 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 8 | 322 |
-| [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts) | 6 | 262 |
+| [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts) | 7 | 261 |
 | [services/api/src/lib/courseHistory/format.ts](../../../services/api/src/lib/courseHistory/format.ts) | 6 | 193 |
 | [services/api/src/lib/pacingEstimate/microModel/courseMesh.ts](../../../services/api/src/lib/pacingEstimate/microModel/courseMesh.ts) | 6 | 129 |
 | [services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts](../../../services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts) | 6 | 239 |
 | [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts) | 5 | 277 |
 | [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts) | 5 | 386 |
+| [services/api/src/lib/bodyLimits.ts](../../../services/api/src/lib/bodyLimits.ts) | 5 | 81 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 5 | 143 |
 | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) | 5 | 136 |
 | [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts) | 5 | 160 |
+| [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 5 | 107 |
 | [services/api/src/lib/pacingEstimate/evaluation/corpus.ts](../../../services/api/src/lib/pacingEstimate/evaluation/corpus.ts) | 5 | 246 |
 | [services/api/src/lib/pacingEstimate/microModel/constants.ts](../../../services/api/src/lib/pacingEstimate/microModel/constants.ts) | 5 | 128 |
+| [services/api/src/lib/planAuthority.ts](../../../services/api/src/lib/planAuthority.ts) | 5 | 91 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 5 | 919 |
+| [services/api/src/lib/gpxLimits.ts](../../../services/api/src/lib/gpxLimits.ts) | 4 | 6 |
 | [services/api/src/lib/lazyHydrate.ts](../../../services/api/src/lib/lazyHydrate.ts) | 4 | 150 |
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 341 |
 | [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 421 |
 | [services/api/src/lib/unpaidRaceReminderScheduler.ts](../../../services/api/src/lib/unpaidRaceReminderScheduler.ts) | 4 | 691 |
-| [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 107 |
+| [services/api/src/lib/activityFileHistory.ts](../../../services/api/src/lib/activityFileHistory.ts) | 3 | 99 |
+| [services/api/src/lib/chatMessageStore.ts](../../../services/api/src/lib/chatMessageStore.ts) | 3 | 399 |
+| [services/api/src/lib/chatPhotoStore.ts](../../../services/api/src/lib/chatPhotoStore.ts) | 3 | 185 |
+| [services/api/src/lib/coursePreview.ts](../../../services/api/src/lib/coursePreview.ts) | 3 | 16 |
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |
 | [services/api/src/lib/pacingEstimate/types.ts](../../../services/api/src/lib/pacingEstimate/types.ts) | 3 | 44 |
 | [services/api/src/lib/platformEventLog.ts](../../../services/api/src/lib/platformEventLog.ts) | 3 | 333 |
@@ -76,6 +83,7 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/runnerSlowdown.ts](../../../services/api/src/lib/runnerSlowdown.ts) | 3 | 117 |
 | [services/api/src/lib/strava/stravaClient.ts](../../../services/api/src/lib/strava/stravaClient.ts) | 3 | 334 |
 | [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts) | 3 | 259 |
+| [services/api/src/lib/uploadParse.ts](../../../services/api/src/lib/uploadParse.ts) | 3 | 135 |
 | [services/api/src/routes/ws5SyncRoutes.ts](../../../services/api/src/routes/ws5SyncRoutes.ts) | 3 | 455 |
 
 ## client-core types
@@ -180,6 +188,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/PlanOfRecord.swift](../../../packages/client-core/Sources/CrewCueClientCore/PlanOfRecord.swift) | `PlanTrigger`, `PlanAuthorityError`, `PlanOfRecord`, `HistoryComparison` |
 | [packages/client-core/Sources/CrewCueClientCore/PortableFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/PortableFormat.swift) | `PortableFormat`, `JSONNumber` |
 | [packages/client-core/Sources/CrewCueClientCore/PortableSHA256.swift](../../../packages/client-core/Sources/CrewCueClientCore/PortableSHA256.swift) | `PortableSHA256` |
+| [packages/client-core/Sources/CrewCueClientCore/PushDeviceUnregister.swift](../../../packages/client-core/Sources/CrewCueClientCore/PushDeviceUnregister.swift) | `PushDeviceUnregister` |
 | [packages/client-core/Sources/CrewCueClientCore/PushTap.swift](../../../packages/client-core/Sources/CrewCueClientCore/PushTap.swift) | `PushTapRoute`, `PushTapDestination`, `PushTapResolution`, `PushTapInbox` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceAccess.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceAccess.swift) | `RaceAccess` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | `JoinPreviewEnvelope`, `RoomEnvelope`, `AttachEnvelope`, `IncidentEnvelope`, `IncidentListEnvelope`, `StravaStart`, `StravaConnection`, `ChatPreference`, `TransportFailure`, `ScheduleLoadResult`, `ScheduleCache`, `EstimateCache` +2 |
@@ -215,11 +224,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-126 files under `packages/client-core/Sources/`.
+127 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 76 | 16836 |
+| `CrewCueClientCore` | 77 | 16929 |
 | `CrewCueClientCore/Generated` | 50 | 984 |
 
 ### iOS app (SwiftUI)
@@ -229,9 +238,9 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 15 | 2234 |
+| `App` | 15 | 2253 |
 | `Brand` | 2 | 286 |
-| `Design` | 10 | 2063 |
+| `Design` | 10 | 2075 |
 | `Logging` | 2 | 18 |
 | `Screens/ActivityImport` | 4 | 700 |
 | `Screens/AthleteSetup` | 2 | 146 |
@@ -245,7 +254,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Map` | 7 | 3289 |
 | `Screens/Notifications` | 2 | 116 |
 | `Screens/Onboarding` | 15 | 4659 |
-| `Screens/Pace` | 2 | 2092 |
+| `Screens/Pace` | 2 | 2183 |
 | `Screens/Profile` | 2 | 671 |
 | `Screens/RoomMembers` | 2 | 245 |
 | `Screens/Settings` | 2 | 389 |
@@ -254,7 +263,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-139 files under `apps/android/app/src/main/`.
+140 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -262,25 +271,25 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/auth` | 3 | 201 |
 | `kotlin/com/crewcue/android/billing` | 3 | 255 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 925 |
-| `kotlin/com/crewcue/android/di` | 1 | 107 |
+| `kotlin/com/crewcue/android/data` | 3 | 944 |
+| `kotlin/com/crewcue/android/di` | 1 | 123 |
 | `kotlin/com/crewcue/android/generated` | 50 | 517 |
 | `kotlin/com/crewcue/android/invite` | 1 | 123 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
 | `kotlin/com/crewcue/android/nav` | 2 | 147 |
 | `kotlin/com/crewcue/android/session` | 4 | 284 |
-| `kotlin/com/crewcue/android/ui` | 6 | 2570 |
+| `kotlin/com/crewcue/android/ui` | 6 | 2575 |
 | `kotlin/com/crewcue/android/ui/activity` | 3 | 1115 |
-| `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
+| `kotlin/com/crewcue/android/ui/athlete` | 2 | 155 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 233 |
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 542 |
 | `kotlin/com/crewcue/android/ui/brand` | 2 | 342 |
 | `kotlin/com/crewcue/android/ui/brandloader` | 1 | 54 |
-| `kotlin/com/crewcue/android/ui/chat` | 7 | 1273 |
+| `kotlin/com/crewcue/android/ui/chat` | 7 | 1287 |
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 310 |
 | `kotlin/com/crewcue/android/ui/invite` | 1 | 294 |
 | `kotlin/com/crewcue/android/ui/join` | 2 | 300 |
-| `kotlin/com/crewcue/android/ui/map` | 7 | 2209 |
+| `kotlin/com/crewcue/android/ui/map` | 7 | 2228 |
 | `kotlin/com/crewcue/android/ui/members` | 1 | 333 |
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
 | `kotlin/com/crewcue/android/ui/onboarding` | 17 | 7464 |

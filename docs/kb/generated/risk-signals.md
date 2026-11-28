@@ -5,11 +5,11 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 
 | Signal | Count |
 | --- | --- |
-| Routes with no auth guard detected | 8 |
-| Room-scoped routes with no membership check detected | 0 |
+| Routes with no auth guard detected | 7 |
+| Room-scoped routes with no membership check detected | 1 |
 | Source files ≥ 800 lines | 21 |
 | In-process timers in the API | 4 |
-| API lib modules with no same-named test | 45 |
+| API lib modules with no same-named test | 50 |
 | Native features not passing on both platforms | 17 |
 | Files with TODO/FIXME/HACK | 0 |
 
@@ -19,20 +19,21 @@ Confirm each is public on purpose, or guarded somewhere the generator cannot see
 
 | Method | Path | Source |
 | --- | --- | --- |
-| POST | `/billing/revenuecat` | [services/api/src/routes/billingRoutes.ts:99](../../../services/api/src/routes/billingRoutes.ts#L99) |
-| POST | `/billing/admin/comp` | [services/api/src/routes/billingRoutes.ts:210](../../../services/api/src/routes/billingRoutes.ts#L210) |
-| POST | `/chat/devices` | [services/api/src/routes/chatRoutes.ts:420](../../../services/api/src/routes/chatRoutes.ts#L420) |
-| POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:421](../../../services/api/src/routes/chatRoutes.ts#L421) |
+| POST | `/billing/revenuecat` | [services/api/src/routes/billingRoutes.ts:111](../../../services/api/src/routes/billingRoutes.ts#L111) |
+| POST | `/billing/admin/comp` | [services/api/src/routes/billingRoutes.ts:226](../../../services/api/src/routes/billingRoutes.ts#L226) |
+| POST | `/chat/devices` | [services/api/src/routes/chatRoutes.ts:457](../../../services/api/src/routes/chatRoutes.ts#L457) |
+| POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:458](../../../services/api/src/routes/chatRoutes.ts#L458) |
 | GET | `/health/live` | [services/api/src/routes/health.ts:6](../../../services/api/src/routes/health.ts#L6) |
 | GET | `/health/ready` | [services/api/src/routes/health.ts:16](../../../services/api/src/routes/health.ts#L16) |
-| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:3466](../../../services/api/src/routes/raceRooms.ts#L3466) |
 | GET | `/strava/oauth/redirect` | [services/api/src/routes/stravaRoutes.ts:108](../../../services/api/src/routes/stravaRoutes.ts#L108) |
 
 ## Room-scoped routes with no membership check detected
 
 The caller is signed in, but the generator saw no room membership or owner check. Any signed-in user may reach another crew's room.
 
-_None._
+| Method | Path | Source |
+| --- | --- | --- |
+| DELETE | `/chat/rooms/:roomId/messages` | [services/api/src/routes/chatRoutes.ts:513](../../../services/api/src/routes/chatRoutes.ts#L513) |
 
 ## Large files
 
@@ -40,26 +41,26 @@ Files over 800 lines concentrate merge conflicts and review misses.
 
 | File | Lines |
 | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 6039 |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2338 |
-| [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1644 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 6114 |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2366 |
+| [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1649 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RunnerSetupViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RunnerSetupViewModel.kt) | 1516 |
-| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1467 |
-| [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1435 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1479 |
+| [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1415 |
 | [apps/ios/CrewCue/Screens/Map/MapView.swift](../../../apps/ios/CrewCue/Screens/Map/MapView.swift) | 1290 |
-| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1276 |
-| [apps/ios/CrewCue/App/ShellModel.swift](../../../apps/ios/CrewCue/App/ShellModel.swift) | 1183 |
+| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1282 |
+| [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 1259 |
+| [apps/ios/CrewCue/App/ShellModel.swift](../../../apps/ios/CrewCue/App/ShellModel.swift) | 1202 |
 | [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift) | 1173 |
-| [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 1172 |
 | [apps/ios/CrewCue/Screens/Map/MapModel.swift](../../../apps/ios/CrewCue/Screens/Map/MapModel.swift) | 1035 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt) | 1026 |
-| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 920 |
+| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 924 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 919 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RacePreviewScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RacePreviewScreen.kt) | 914 |
 | [services/api/src/routes/raceRoomSchedule.ts](../../../services/api/src/routes/raceRoomSchedule.ts) | 914 |
 | [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift) | 872 |
-| [apps/android/app/src/main/kotlin/com/crewcue/android/data/RaceDayBridge.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/data/RaceDayBridge.kt) | 841 |
-| [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | 827 |
+| [apps/android/app/src/main/kotlin/com/crewcue/android/data/RaceDayBridge.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/data/RaceDayBridge.kt) | 860 |
+| [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | 839 |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 817 |
 
 ## In-process timers (API)
@@ -68,7 +69,7 @@ Timers run per instance. With more than one API replica each one fires.
 
 | Kind | Source |
 | --- | --- |
-| `setInterval` | [services/api/src/lib/chatRetentionScheduler.ts:73](../../../services/api/src/lib/chatRetentionScheduler.ts#L73) |
+| `setInterval` | [services/api/src/lib/chatRetentionScheduler.ts:86](../../../services/api/src/lib/chatRetentionScheduler.ts#L86) |
 | `setInterval` | [services/api/src/lib/trackingReminderScheduler.ts:465](../../../services/api/src/lib/trackingReminderScheduler.ts#L465) |
 | `setInterval` | [services/api/src/lib/unpaidRaceExpiryScheduler.ts:255](../../../services/api/src/lib/unpaidRaceExpiryScheduler.ts#L255) |
 | `setInterval` | [services/api/src/lib/unpaidRaceReminderScheduler.ts:657](../../../services/api/src/lib/unpaidRaceReminderScheduler.ts#L657) |
@@ -87,20 +88,23 @@ May still be covered through route tests; check before relying on it.
 - [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts)
 - [services/api/src/lib/billingEnv.ts](../../../services/api/src/lib/billingEnv.ts)
 - [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts)
+- [services/api/src/lib/bodyLimits.ts](../../../services/api/src/lib/bodyLimits.ts)
 - [services/api/src/lib/chatLive.ts](../../../services/api/src/lib/chatLive.ts)
 - [services/api/src/lib/chatMessageStore.ts](../../../services/api/src/lib/chatMessageStore.ts)
 - [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts)
-- [services/api/src/lib/chatPhotoStore.ts](../../../services/api/src/lib/chatPhotoStore.ts)
+- [services/api/src/lib/chatPhotoSweep.ts](../../../services/api/src/lib/chatPhotoSweep.ts)
 - [services/api/src/lib/courseHistory/attribution.ts](../../../services/api/src/lib/courseHistory/attribution.ts)
 - [services/api/src/lib/courseHistory/cohort.ts](../../../services/api/src/lib/courseHistory/cohort.ts)
 - [services/api/src/lib/courseHistory/link.ts](../../../services/api/src/lib/courseHistory/link.ts)
 - [services/api/src/lib/courseHistory/resolve.ts](../../../services/api/src/lib/courseHistory/resolve.ts)
 - [services/api/src/lib/courseHistory/sources/fileImport.ts](../../../services/api/src/lib/courseHistory/sources/fileImport.ts)
 - [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts)
+- [services/api/src/lib/coursePreview.ts](../../../services/api/src/lib/coursePreview.ts)
 - [services/api/src/lib/errorScrub.ts](../../../services/api/src/lib/errorScrub.ts)
 - [services/api/src/lib/finishedEffort.ts](../../../services/api/src/lib/finishedEffort.ts)
 - [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts)
 - [services/api/src/lib/gpxLimits.ts](../../../services/api/src/lib/gpxLimits.ts)
+- [services/api/src/lib/joinCodeBudget.ts](../../../services/api/src/lib/joinCodeBudget.ts)
 - [services/api/src/lib/pacingEstimate/evaluation/metrics.ts](../../../services/api/src/lib/pacingEstimate/evaluation/metrics.ts)
 - [services/api/src/lib/pacingEstimate/evaluation/predictors.ts](../../../services/api/src/lib/pacingEstimate/evaluation/predictors.ts)
 - [services/api/src/lib/pacingEstimate/evaluation/report.ts](../../../services/api/src/lib/pacingEstimate/evaluation/report.ts)
@@ -121,6 +125,8 @@ May still be covered through route tests; check before relying on it.
 - [services/api/src/lib/slowdownShrinkage.ts](../../../services/api/src/lib/slowdownShrinkage.ts)
 - [services/api/src/lib/testCourseRouteLayer.ts](../../../services/api/src/lib/testCourseRouteLayer.ts)
 - [services/api/src/lib/testFreshProcess.ts](../../../services/api/src/lib/testFreshProcess.ts)
+- [services/api/src/lib/testPushTokens.ts](../../../services/api/src/lib/testPushTokens.ts)
+- [services/api/src/lib/uploadParseWorker.ts](../../../services/api/src/lib/uploadParseWorker.ts)
 - [services/api/src/lib/zipArchive.ts](../../../services/api/src/lib/zipArchive.ts)
 
 ## Native parity gaps

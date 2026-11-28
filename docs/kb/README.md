@@ -1,6 +1,6 @@
 # CrewCue knowledge base
 
-Last reconciled: 2026-11-27 at `ed8df56`.
+Last reconciled: 2026-11-28 at `a189580`.
 
 A map of the system that keeps itself current: what the parts are, how data moves between them, and what can go wrong.
 
